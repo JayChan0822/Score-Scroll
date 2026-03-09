@@ -394,6 +394,13 @@
                     <option value="Inkpen2">Inkpen2</option>
                 </select>
             </div>
+            <div class="slider-row" style="margin-bottom: 10px;">
+                <span class="slider-label">Theme</span>
+                <div class="btn-group" style="flex: 1; justify-content: flex-end;">
+                    <button id="themeDarkBtn" type="button" style="min-height: 28px; padding: 0 12px; font-size: 11px;">Dark</button>
+                    <button id="themeLightBtn" type="button" style="min-height: 28px; padding: 0 12px; font-size: 11px;">Light</button>
+                </div>
+            </div>
             <div class="btn-group" style="margin-top: 10px;">
                 <button id="toggleCursorBtn" type="button">Hide Line</button>
                 <button id="toggleHighlightBtn" type="button">Hide Glow</button>
@@ -457,24 +464,6 @@
                 <input type="range" id="progressSlider" min="0" max="1" step="0.01" value="0" disabled>
             </div>
         </div>
-
-        <div class="bento-card apple-animate delay-3">
-            <div class="slider-row" style="margin-bottom: 10px;">
-                <span class="slider-label">Theme</span>
-                <div class="btn-group" style="flex: 1; justify-content: flex-end;">
-                    <button id="themeDarkBtn" type="button" style="min-height: 28px; padding: 0 12px; font-size: 11px;">Dark</button>
-                    <button id="themeLightBtn" type="button" style="min-height: 28px; padding: 0 12px; font-size: 11px;">Light</button>
-                </div>
-            </div>
-            <div class="slider-row">
-                <span class="slider-label">背景色</span>
-                <input type="color" id="bgColorPicker" value="#0a0a0c" style="width: 100%; max-width: 140px; height: 32px; cursor: pointer; border: 1px solid var(--border-light); border-radius: 4px; background: transparent;">
-            </div>
-            <div class="slider-row">
-                <span class="slider-label">音符色</span>
-                <input type="color" id="noteColorPicker" value="#ffffff" style="width: 100%; max-width: 140px; height: 32px; cursor: pointer; border: 1px solid var(--border-light); border-radius: 4px; background: transparent;">
-            </div>
-        </div>
     </div>
 
     <div class="stage-wrap apple-animate delay-3">
@@ -517,6 +506,9 @@
     let isFinished = false;
     let lastRenderClock = 0;
     let playbackSimTime = 0;
+
+    let defaultBgColor = '#0a0a0c';
+    let defaultNoteColor = '#ffffff';
 
     const timeDisplay = document.getElementById('timeDisplay');
     const progressSlider = document.getElementById('progressSlider');
@@ -1291,8 +1283,8 @@
     function renderCanvas(currentX) {
         if (!ctx || !canvas) return;
 
-        const noteColor = document.getElementById('noteColorPicker').value || '#ffffff';
-        const bgColor = document.getElementById('bgColorPicker').value || '#0a0a0c';
+        const noteColor = noteColorPicker ? noteColorPicker.value : defaultNoteColor;
+        const bgColor = bgColorPicker ? bgColorPicker.value : defaultBgColor;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -1669,8 +1661,8 @@
     });
 
     function updateLiveTheme() {
-        const bgHex = bgColorPicker.value;
-        const noteHex = noteColorPicker.value;
+        const bgHex = bgColorPicker ? bgColorPicker.value : defaultBgColor;
+        const noteHex = noteColorPicker ? noteColorPicker.value : defaultNoteColor;
 
         // 仅修改 CSS 变量用于周边 UI
         document.documentElement.style.setProperty('--viewport-bg', bgHex);
@@ -1682,18 +1674,20 @@
         }
     }
 
-    bgColorPicker.addEventListener('input', updateLiveTheme);
-    noteColorPicker.addEventListener('input', updateLiveTheme);
-
     themeDarkBtn.addEventListener('click', () => {
-        bgColorPicker.value = '#0a0a0c';
-        noteColorPicker.value = '#ffffff';
+        if (bgColorPicker) bgColorPicker.value = '#0a0a0c';
+        if (noteColorPicker) noteColorPicker.value = '#ffffff';
+        // 手动更新默认值变量，确保 renderCanvas 能拿到
+        defaultBgColor = '#0a0a0c';
+        defaultNoteColor = '#ffffff';
         updateLiveTheme();
     });
 
     themeLightBtn.addEventListener('click', () => {
-        bgColorPicker.value = '#f5f5f7';
-        noteColorPicker.value = '#111111';
+        if (bgColorPicker) bgColorPicker.value = '#f5f5f7';
+        if (noteColorPicker) noteColorPicker.value = '#111111';
+        defaultBgColor = '#f5f5f7';
+        defaultNoteColor = '#111111';
         updateLiveTheme();
     });
 
