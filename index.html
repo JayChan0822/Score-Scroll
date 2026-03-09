@@ -2796,7 +2796,43 @@
         if (!svgRoot) return;
         svgTags = [];
 
-        // --- 1. 向后兼容：手动 @ 标记 ---
+        // --- A. 预扫描：收集所有音符头 (Noteheads) 的物理领域 ---
+        const noteheadZones = [];
+        svgRoot.querySelectorAll('path, text, tspan').forEach(el => {
+            let sig = "";
+            if (el.tagName.toLowerCase() === 'path') {
+                const d = el.getAttribute('d');
+                if (d) sig = d.replace(/[^a-zA-Z]/g, '').toUpperCase();
+            } else {
+                sig = (el.textContent || '').trim();
+            }
+
+            // 如果是音符头
+            if (identifyNotehead(sig)) {
+                try {
+                    const box = el.getBBox();
+                    const ctm = el.getCTM();
+                    if (ctm) {
+                        // 转换到绝对坐标空间
+                        const absTop = ctm.b * box.x + ctm.d * box.y + ctm.f;
+                        const absBottom = ctm.b * (box.x + box.width) + ctm.d * (box.y + box.height) + ctm.f;
+                        const absLeft = ctm.a * box.x + ctm.c * box.y + ctm.e;
+                        const absRight = ctm.a * (box.x + box.width) + ctm.c * (box.y + box.height) + ctm.e;
+
+                        noteheadZones.push({
+                            top: Math.min(absTop, absBottom),
+                            bottom: Math.max(absTop, absBottom),
+                            left: Math.min(absLeft, absRight),
+                            right: Math.max(absLeft, absRight),
+                            centerX: (absLeft + absRight) / 2,
+                            centerY: (absTop + absBottom) / 2
+                        });
+                    }
+                } catch (e) {}
+            }
+        });
+
+        // --- B. 向后兼容：手动 @ 标记 (保持不变) ---
         const manualTags = [];
         svgRoot.querySelectorAll('text, tspan').forEach(el => {
             if (el.textContent.includes('@')) {
@@ -2815,18 +2851,16 @@
             manualTags.sort((a, b) => a.x - b.x).forEach((tag, index) => {
                 svgTags.push({ x: tag.x, tick: index * globalMidiPpq });
             });
-            console.log(`🎯 发现手动 @ 标记 ${svgTags.length} 个，已绑定 Tick。`);
             return;
         }
 
-        // 在 initScoreMapping 函数内修改：
+        // --- C. 筛选垂直线，并应用“符干护卫” ---
         const barlineCandidates = [];
         svgRoot.querySelectorAll('line, polyline, rect, path').forEach(el => {
             let isVertical = false;
             let x = 0, yTop = 0, yBottom = 0, height = 0;
             try {
                 let box = el.getBBox();
-                // 🌟 关键修改：大幅降低高度阈值（由 15 降至 2），允许虚线碎片进入
                 if (box.width <= 3.5 && box.height >= 2) {
                     isVertical = true;
                     x = box.x + box.width / 2;
@@ -2842,14 +2876,26 @@
                 let absX = matrix.a * x + matrix.c * (yTop + height/2) + matrix.e;
                 let absYTop = matrix.b * x + matrix.d * yTop + matrix.f;
                 let absYBottom = matrix.b * x + matrix.d * yBottom + matrix.f;
+                const realTop = Math.min(absYTop, absYBottom);
+                const realBottom = Math.max(absYTop, absYBottom);
 
-                barlineCandidates.push({
-                    x: absX,
-                    top: Math.min(absYTop, absYBottom),
-                    bottom: Math.max(absYTop, absYBottom),
-                    height: Math.abs(absYBottom - absYTop),
-                    el: el
+                // 🛡️ 核心：符干过滤逻辑
+                // 如果这根垂直线与任何音符头的水平位置重叠，且垂直方向上相连，它就是符干
+                const isStem = noteheadZones.some(note => {
+                    const horizontalMatch = absX >= (note.left - 2) && absX <= (note.right + 2);
+                    const verticalMatch = realTop <= (note.bottom + 2) && realBottom >= (note.top - 2);
+                    return horizontalMatch && verticalMatch;
                 });
+
+                if (!isStem) {
+                    barlineCandidates.push({
+                        x: absX,
+                        top: realTop,
+                        bottom: realBottom,
+                        height: Math.abs(absYBottom - absYTop),
+                        el: el
+                    });
+                }
             }
         });
 
