@@ -374,15 +374,6 @@
                 <input type="range" id="audioOffsetSlider" min="-5" max="5" step="0.01" value="0" style="flex: 1;">
                 <span class="slider-val" style="min-width: 50px;"><span id="audioOffsetVal">0.00</span>s</span>
             </div>
-            <div class="slider-row" style="margin-top: 15px; margin-bottom: 5px;">
-                <span class="slider-label" style="min-width: 60px;">标签单位</span>
-                <select id="tagResolutionSelect" style="flex: 1; background: rgba(0,0,0,0.3); color: var(--text-main); border: 1px solid var(--border-light); border-radius: 8px; padding: 6px 12px; font-family: inherit; font-size: 12px; outline: none; cursor: pointer;">
-                    <option value="4">4分音符 (Quarter)</option>
-                    <option value="8">8分音符 (Eighth)</option>
-                    <option value="16" selected>16分音符 (16th)</option>
-                    <option value="32">32分音符 (32nd)</option>
-                </select>
-            </div>
             <div class="slider-row" style="margin-top: 5px; margin-bottom: 5px;">
                 <span class="slider-label" style="min-width: 60px;">音乐字体</span>
                 <select id="musicFontSelect" style="flex: 1; background: rgba(0,0,0,0.3); color: var(--text-main); border: 1px solid var(--border-light); border-radius: 8px; padding: 6px 12px; font-family: inherit; font-size: 12px; outline: none; cursor: pointer;">
@@ -442,6 +433,11 @@
                 <span class="slider-label">播放速度 (BPM)</span>
                 <input type="range" id="bpmSlider" min="40" max="280" value="120">
                 <span class="slider-val"><span id="bpmVal">120</span></span>
+            </div>
+
+            <div id="scoreStats" class="info-display" style="width: 100%; margin-top: 10px; font-size: 12px; justify-content: space-around;">
+                <span>BARLINES: <b id="barlineCount">0</b></span>
+                <span>MEASURES: <b id="measureCount">0</b></span>
             </div>
 
             <div id="tempoSourceHint" style="font-size: 10px; color: var(--accent); opacity: 0.6; margin-bottom: 10px; letter-spacing: 1px;">MODE: MANUAL BPM</div>
@@ -505,7 +501,6 @@
     let lastUiUpdateTime = 0;
     let showScanGlow = true;
     let scanGlowRange = 100;
-    let currentTagResolution = 16; // 默认 16分音符
     let globalMidiTempos = [];     // 缓存 MIDI 解析出的变速曲线
     let globalMidiPpq = 480;       // 缓存 MIDI 的 PPQ 分辨率
     let audioPlayer = new Audio(); // 独立的音频播放引擎
@@ -1165,7 +1160,9 @@
             const startCluster = initialBarlines.filter(b => b.absMinX <= absoluteLeftmostBarlineX + 30);
             window.globalAbsoluteSystemInternalX = Math.max(...startCluster.map(b => b.absMinX));
         } else {
-            window.globalAbsoluteSystemInternalX = 0;
+            // 🌟 核心修复：当没有起始小节线时，不要归 0！
+            // 而是直接继承之前算好的真实五线谱最左端点 (globalSystemInternalX)
+            window.globalAbsoluteSystemInternalX = globalSystemInternalX || 0;
         }
 
         const stickyTypesMap = { 'InstName': 'inst', 'Clef': 'clef', 'KeySig': 'key', 'TimeSig': 'time', 'Barline': 'bar', 'Brace': 'brace' };
@@ -1373,8 +1370,12 @@
             let drawColor = isPureBg ? bgColor : noteColor;
 
             if (showHighlights && item.symbolType) {
-                if (['Clef', 'Brace', 'TimeSig', 'KeySig', 'Barline', 'InstName'].includes(item.symbolType)) drawColor = '#ff2a5f';
-                else if (item.symbolType === 'Accidental') drawColor = '#00ffcc';
+                // 🌟 将 TrueBarline 加入到这个数组中，并删掉之前的 if 判断
+                if (['Clef', 'Brace', 'TimeSig', 'KeySig', 'Barline', 'InstName', 'TrueBarline'].includes(item.symbolType)) {
+                    drawColor = '#ff2a5f'; // 统一使用你定义的红色
+                // } else if (item.symbolType === 'Accidental') {
+                //     drawColor = '#00ffcc'; // 临时记号保持青色
+                }
             }
 
             let alpha = 1; let flyOffsetX = 0; let flyOffsetY = 0;
@@ -1615,71 +1616,15 @@
         if (typeof renderCanvas === 'function') renderCanvas(smoothX);
     }
 
-    function generateManualTempoMap() {
-        if (svgTags.length === 0) return;
-
-        const secondsPerBeat = 60 / currentBpm;
-        // 👇 核心修改：动态计算单个标签的时长 (4 / 单位)
-        const secondsPerTag = secondsPerBeat * (4 / currentTagResolution);
-        const tagTimes = svgTags.map((_, i) => i * secondsPerTag);
-
-        midiDurationSec = tagTimes[tagTimes.length - 1] || 0;
-        fuseDataWithTempoMap(tagTimes);
-    }
-
     bpmSlider.addEventListener('input', () => {
         currentBpm = parseInt(bpmSlider.value);
         bpmVal.innerText = currentBpm;
 
-        // 👇 修改：提示文字中显示当前单位的毫秒数
-        const msPerTag = ((60 / currentBpm) * (4 / currentTagResolution) * 1000).toFixed(1);
-        tempoSourceHint.innerText = `MODE: MANUAL | ${currentTagResolution}th ≈ ${msPerTag}ms`;
+        // 👇 恢复成最简单的提示，不再计算废弃的 Tag 毫秒数
+        tempoSourceHint.innerText = `MODE: MANUAL BPM`;
 
         if (!isMidiLoaded && svgTags.length > 0) {
             generateManualTempoMap();
-        }
-    });
-
-    // 👇 新增：重新计算 MIDI 时空映射图的函数
-    function recalculateMidiTempoMap() {
-        if (!isMidiLoaded || globalMidiTempos.length === 0) return;
-
-        let tagTimes = [];
-        for (let i = 0; i < svgTags.length; i++) {
-            // 核心修改：使用 currentTagResolution 动态解析 tick
-            const targetTick = i * (4 / currentTagResolution) * globalMidiPpq;
-
-            let activeTempo = globalMidiTempos[0];
-            for (let j = globalMidiTempos.length - 1; j >= 0; j--) {
-                if (targetTick >= globalMidiTempos[j].ticks) {
-                    activeTempo = globalMidiTempos[j];
-                    break;
-                }
-            }
-
-            const ticksSinceTempo = targetTick - activeTempo.ticks;
-            const beatsSinceTempo = ticksSinceTempo / globalMidiPpq;
-            const secondsSinceTempo = beatsSinceTempo * (60 / activeTempo.bpm);
-            const absoluteTime = activeTempo.time + secondsSinceTempo;
-
-            tagTimes.push(absoluteTime);
-        }
-
-        fuseDataWithTempoMap(tagTimes);
-    }
-
-    // 👇 监听单位选择器变化
-    document.getElementById('tagResolutionSelect').addEventListener('change', (e) => {
-        currentTagResolution = parseInt(e.target.value);
-
-        if (isMidiLoaded) {
-            // 重新排布 MIDI 轴
-            recalculateMidiTempoMap();
-        } else if (svgTags.length > 0) {
-            // 重新排布 Manual 轴
-            generateManualTempoMap();
-            const msPerTag = ((60 / currentBpm) * (4 / currentTagResolution) * 1000).toFixed(1);
-            tempoSourceHint.innerText = `MODE: MANUAL | ${currentTagResolution}th ≈ ${msPerTag}ms`;
         }
     });
 
@@ -2116,6 +2061,30 @@
         console.log(`✅ 谱号扫描完毕：主谱号 ${foundCount} 个，绑定游离八度修饰符 ${adoptedCount} 个。`);
     }
 
+    // 🌟 辅助函数：将 SVG 内部绝对坐标转换为浏览器屏幕物理坐标
+    function projectSvgInternalXToScreenX(svgRoot, internalX) {
+        if (!svgRoot) return internalX;
+        try {
+            // 创建一个原生的 SVG 坐标点
+            let pt = svgRoot.createSVGPoint();
+            pt.x = internalX;
+            pt.y = 0;
+
+            // 获取 SVG 元素到屏幕的转换矩阵
+            let ctm = svgRoot.getScreenCTM();
+            if (ctm) {
+                // 通过矩阵运算，求出真实的屏幕像素 X 坐标
+                return pt.matrixTransform(ctm).x;
+            }
+        } catch (e) {
+            console.warn("坐标矩阵转换失败，使用兜底计算", e);
+        }
+
+        // 兜底方案：SVG 容器的屏幕左边缘 + 内部偏移
+        let rect = svgRoot.getBoundingClientRect();
+        return rect.left + internalX;
+    }
+
     function identifyAndHighlightInitialBarlines() {
         const svgRoot = document.querySelector('#score-container svg');
         if (!svgRoot) return;
@@ -2151,37 +2120,65 @@
         if (staffLeftEdges.length === 0) return;
 
         const absoluteLeftEdge = Math.min(...staffLeftEdges);
-        let foundCount = 0;
 
-        // 🌟 核心修复：收集开头“一坨”的所有候选垂直线 (放宽到 30px 容差)
-        let startCluster = verticalLines.filter(vLine => vLine.x <= absoluteLeftEdge + 30 && vLine.height > 1);
+        // 🌟 1. 寻找系统最左侧的谱号 (Clef) 作为视觉锚点
+        let leftmostClefX = Infinity;
+        svgRoot.querySelectorAll('.highlight-clef').forEach(clef => {
+            try {
+                let box = clef.getBBox();
+                let ctm = clef.getCTM();
+                if (ctm) {
+                    const x1 = ctm.a * box.x + ctm.c * box.y + ctm.e;
+                    const x2 = ctm.a * (box.x + box.width) + ctm.c * box.y + ctm.e;
+                    const minX = Math.min(x1, x2);
+                    if (minX < leftmostClefX) leftmostClefX = minX;
+                } else {
+                    if (box.x < leftmostClefX) leftmostClefX = box.x;
+                }
+            } catch(e) {}
+        });
+
+        // 🌟 2. 过滤有效垂直线（剔除短促的符干，保留高度 >= 15 的潜在小节线）
+        let validVerticals = verticalLines.filter(vLine => vLine.height >= 15);
 
         let trueBarlineX = null;
         let trueBarlineScreenX = null;
+        let foundCount = 0;
 
-        if (startCluster.length > 0) {
-            // 🌟 关键魔法：找出这坨线里【最靠右】的那一根作为真正的起始小节线！
-            let rightmostLine = startCluster.reduce((prev, current) => (prev.x > current.x) ? prev : current);
-            trueBarlineX = rightmostLine.x;
-            trueBarlineScreenX = rightmostLine.element.getBoundingClientRect().left;
+        if (validVerticals.length > 0) {
+            let absoluteLeftmostV = Math.min(...validVerticals.map(v => v.x));
+            let startCluster = validVerticals.filter(vLine => vLine.x <= absoluteLeftmostV + 30);
 
-            // 把这坨线都点亮，但不影响桥梁锚点
-            startCluster.forEach(vLine => {
-                vLine.element.classList.add('highlight-barline');
-                foundCount++;
-            });
+            // 🌟 3. 核心判定：这根最左边的线是不是“起手小节线”？
+            // 如果它在谱号的右边很远（说明这只是第一小节的结束线），那我们就认为这是一张没有起手小节线的谱子！
+            if (leftmostClefX === Infinity || absoluteLeftmostV <= leftmostClefX + 20) {
+                let rightmostLine = startCluster.reduce((prev, current) => (prev.x > current.x) ? prev : current);
+                trueBarlineX = rightmostLine.x;
+                trueBarlineScreenX = rightmostLine.element.getBoundingClientRect().left;
+
+                startCluster.forEach(vLine => {
+                    vLine.element.classList.add('highlight-barline');
+                    foundCount++;
+                });
+            }
         }
 
         if (trueBarlineX !== null) {
             globalSystemInternalX = trueBarlineX;
         } else {
-            globalSystemInternalX = absoluteLeftEdge;
+            if (leftmostClefX !== Infinity) {
+                const STAFF_START_OFFSET = -4;
+                globalSystemInternalX = leftmostClefX + STAFF_START_OFFSET;
+            } else {
+                globalSystemInternalX = absoluteLeftEdge;
+            }
         }
+
         globalSystemBarlineScreenX = trueBarlineScreenX !== null
             ? trueBarlineScreenX
             : projectSvgInternalXToScreenX(svgRoot, globalSystemInternalX);
 
-        console.log(`✅ 开头小节线扫描完毕，共点亮 ${foundCount} 根！起点 X 已纠正为最右侧：${globalSystemInternalX}`);
+        console.log(`✅ 开头小节线扫描完毕，共点亮 ${foundCount} 根！起点 X 已纠正为：${globalSystemInternalX}`);
     }
 
     function identifyAndHighlightGeometricBrackets() {
@@ -2488,8 +2485,10 @@
                 return;
             }
 
-            // 🛡️ 校验二：水平 X 轴必须靠近小节线
-            let isNearBarline = true;
+            // 🛡️ 校验二：水平 X 轴必须靠近小节线 OR 靠近五线谱起点
+            let isNearBarline = false; // 默认改为 false，我们需要明确匹配成功
+
+// 1. 检查物理小节线
             if (verticalLineXs.length > 0) {
                 isNearBarline = verticalLineXs.some(barX => {
                     const dx = rect.left - barX;
@@ -2497,9 +2496,16 @@
                 });
             }
 
-            if (!isNearBarline) {
-                rejectedFarFromBarlineCount++;
-                return;
+// 2. 🌟 核心修复：如果没匹配到物理线，检查是否靠近五线谱物理起点
+            if (!isNearBarline && typeof globalSystemInternalX !== 'undefined') {
+                // 将 globalSystemInternalX 转换为屏幕坐标进行对比
+                const staffStartX = projectSvgInternalXToScreenX(svgRoot, globalSystemInternalX);
+                const dxToStart = rect.left - staffStartX;
+
+                // 如果拍号在五线谱开头往右 250px 范围内，判定为合法拍号
+                if (dxToStart >= -10 && dxToStart <= 250) {
+                    isNearBarline = true;
+                }
             }
 
             el.classList.add('highlight-timesig');
@@ -2728,35 +2734,358 @@
         return infectedIds;
     }
 
-    // 🌟 Step 6 修改：修复 MIDI 锚点的绝对坐标
+    // 🌟 辅助：拍号解析器，将视觉拍号转化为数学比例
+    function extractTimeSignatures(queue) {
+        const tsItems = queue.filter(item => item.symbolType === 'TimeSig' && item.type === 'text');
+        const groups = [];
+
+        // 1. 按 X 坐标聚类（把上下叠在一起的分子分母抓到同一组）
+        tsItems.forEach(item => {
+            let found = groups.find(g => Math.abs(g.x - item.absMinX) < 30);
+            if (!found) {
+                found = { x: item.absMinX, items: [] };
+                groups.push(found);
+            }
+            found.items.push(item);
+        });
+
+        const timeSigs = [];
+        const puaToNum = {
+            '':0, '':1, '':2, '':3, '':4, '':5, '':6, '':7, '':8, '':9,
+            '':0, '':1, '':2, '':3, '':4, '':5, '':6, '':7, '':8, '':9
+        };
+
+        // 2. 解析每一组的分子和分母
+        groups.forEach(g => {
+            g.items.sort((a, b) => a.centerY - b.centerY);
+            const chars = g.items.map(i => i.text.trim()).filter(t => t);
+            if (chars.length === 0) return;
+
+            let num = 4, den = 4;
+            const joined = chars.join('');
+
+            if (joined === 'C' || joined === 'c') { timeSigs.push({x: g.x, num: 4, den: 4}); return; }
+            if (joined === '¢' || joined.charCodeAt(0) === 0xE08B) { timeSigs.push({x: g.x, num: 2, den: 2}); return; }
+
+            const parsedNumbers = [];
+            chars.forEach(charStr => {
+                let val = '';
+                for(let i = 0; i < charStr.length; i++) {
+                    const c = charStr[i];
+                    if (/[0-9]/.test(c)) val += c;
+                    else if (puaToNum[c] !== undefined) val += puaToNum[c];
+                }
+                if (val.length > 0) parsedNumbers.push(parseInt(val, 10));
+            });
+
+            if (parsedNumbers.length >= 2) {
+                num = parsedNumbers[0]; den = parsedNumbers[1];
+            } else if (parsedNumbers.length === 1) {
+                num = parsedNumbers[0]; den = 4;
+            } else { return; }
+
+            timeSigs.push({ x: g.x, num, den });
+        });
+
+        timeSigs.sort((a, b) => a.x - b.x);
+        return timeSigs;
+    }
+
+    // 🌟 1. 终极网格划分：加入防伪基准线与双线缝合的 Tick 映射
     function initScoreMapping(svgRoot) {
         if (!svgRoot) return;
-        const textElements = svgRoot.querySelectorAll('text, tspan');
+        svgTags = [];
 
-        svgTags = []; // 清空全局数组
-
-        textElements.forEach((el) => {
+        // --- 1. 向后兼容：手动 @ 标记 ---
+        const manualTags = [];
+        svgRoot.querySelectorAll('text, tspan').forEach(el => {
             if (el.textContent.includes('@')) {
                 let box = { x: 0, y: 0 };
                 try { box = el.getBBox(); } catch (e) {}
-
                 let ctm = el.getCTM();
                 let matrix = ctm ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f } : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-
-                // 将内部相对坐标转化为真正的绝对坐标
-                const absX = matrix.a * box.x + matrix.c * box.y + matrix.e;
-                const absY = matrix.b * box.x + matrix.d * box.y + matrix.f;
-
-                svgTags.push({
-                    x: absX,
-                    y: absY
+                manualTags.push({
+                    x: matrix.a * box.x + matrix.c * box.y + matrix.e,
+                    y: matrix.b * box.x + matrix.d * box.y + matrix.f
                 });
             }
         });
 
-        // 严格根据绝对 X 坐标从左到右排序
-        svgTags.sort((a, b) => a.x - b.x);
-        console.log(`🎯 MIDI 同步锚点提取完成，共找到：${svgTags.length} 个 @ 标记`);
+        if (manualTags.length > 0) {
+            manualTags.sort((a, b) => a.x - b.x).forEach((tag, index) => {
+                svgTags.push({ x: tag.x, tick: index * globalMidiPpq });
+            });
+            console.log(`🎯 发现手动 @ 标记 ${svgTags.length} 个，已绑定 Tick。`);
+            return;
+        }
+
+        // 在 initScoreMapping 函数内修改：
+        const barlineCandidates = [];
+        svgRoot.querySelectorAll('line, polyline, rect, path').forEach(el => {
+            let isVertical = false;
+            let x = 0, yTop = 0, yBottom = 0, height = 0;
+            try {
+                let box = el.getBBox();
+                // 🌟 关键修改：大幅降低高度阈值（由 15 降至 2），允许虚线碎片进入
+                if (box.width <= 3.5 && box.height >= 2) {
+                    isVertical = true;
+                    x = box.x + box.width / 2;
+                    yTop = box.y;
+                    yBottom = box.y + box.height;
+                    height = box.height;
+                }
+            } catch(e) {}
+
+            if (isVertical) {
+                let ctm = el.getCTM();
+                let matrix = ctm ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f } : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+                let absX = matrix.a * x + matrix.c * (yTop + height/2) + matrix.e;
+                let absYTop = matrix.b * x + matrix.d * yTop + matrix.f;
+                let absYBottom = matrix.b * x + matrix.d * yBottom + matrix.f;
+
+                barlineCandidates.push({
+                    x: absX,
+                    top: Math.min(absYTop, absYBottom),
+                    bottom: Math.max(absYTop, absYBottom),
+                    height: Math.abs(absYBottom - absYTop),
+                    el: el
+                });
+            }
+        });
+
+        barlineCandidates.sort((a, b) => a.x - b.x);
+        let clusters = [];
+        barlineCandidates.forEach(line => {
+            let lastCluster = clusters[clusters.length - 1];
+            // X 轴容差保持在 1.5px 左右，确保同一条虚线碎片被分到一组
+            if (lastCluster && Math.abs(line.x - lastCluster.x) <= 1.5) {
+                lastCluster.lines.push(line);
+                // 🌟 关键：更新这组碎片的总包围盒
+                lastCluster.minTop = Math.min(lastCluster.minTop, line.top);
+                lastCluster.maxBottom = Math.max(lastCluster.maxBottom, line.bottom);
+                lastCluster.maxLineHeight = Math.max(lastCluster.maxLineHeight, line.height);
+            } else {
+                clusters.push({
+                    x: line.x,
+                    lines: [line],
+                    minTop: line.top,
+                    maxBottom: line.bottom,
+                    maxLineHeight: line.height
+                });
+            }
+        });
+
+        const isStaffBoundaryAligned = (cluster, staff) => {
+            const tolerance = 0.5; // 允许的误差范围
+            const topError = Math.abs(cluster.minTop - staff.top);
+            const bottomError = Math.abs(cluster.maxBottom - staff.bottom);
+            return topError <= tolerance && bottomError <= tolerance;
+        };
+
+        // 🌟 提取五线谱的绝对【上下边界】字典
+        let staves = [];
+        let typicalStaffHeight = 40;
+        if (window.globalAbsoluteStaffLineYs && window.globalAbsoluteStaffLineYs.length >= 5) {
+            typicalStaffHeight = Math.abs(window.globalAbsoluteStaffLineYs[4].y - window.globalAbsoluteStaffLineYs[0].y);
+            let currentStaff = [window.globalAbsoluteStaffLineYs[0]];
+            for (let i = 1; i < window.globalAbsoluteStaffLineYs.length; i++) {
+                let line = window.globalAbsoluteStaffLineYs[i];
+                let prevLine = currentStaff[currentStaff.length - 1];
+                if (Math.abs(line.y - prevLine.y) < typicalStaffHeight * 0.5) {
+                    currentStaff.push(line);
+                } else {
+                    staves.push({ top: currentStaff[0].y, bottom: currentStaff[currentStaff.length - 1].y });
+                    currentStaff = [line];
+                }
+            }
+            if (currentStaff.length > 0) staves.push({ top: currentStaff[0].y, bottom: currentStaff[currentStaff.length - 1].y });
+        }
+
+        let trueBarlineXs = [];
+        clusters.forEach(cluster => {
+            // 基础过滤：排除乐谱最左侧之前的杂讯
+            if (globalSystemInternalX > 0 && cluster.x < globalSystemInternalX - 5) return;
+
+            let isTrueBarline = false;
+            const tolerance = 2.5; // 允许 2.5 像素内的误差
+
+            // 🌟 增强版端点校验逻辑
+            const checkAlignment = () => {
+                if (staves.length === 0) return cluster.maxLineHeight >= typicalStaffHeight * 0.9;
+
+                // 场景 A：跨越整个系统的长线（大谱表之间的连接线）
+                const systemTop = staves[0].top;
+                const systemBottom = staves[staves.length - 1].bottom;
+                if (Math.abs(cluster.minTop - systemTop) <= tolerance &&
+                    Math.abs(cluster.maxBottom - systemBottom) <= tolerance) {
+                    return true;
+                }
+
+                // 场景 B：单行谱表内的小节线（包括虚线）
+                return staves.some(staff => {
+                    return Math.abs(cluster.minTop - staff.top) <= tolerance &&
+                        Math.abs(cluster.maxBottom - staff.bottom) <= tolerance;
+                });
+            };
+
+            // 判定：如果是起手线，或者通过了严苛的端点对齐校验
+            if (globalSystemInternalX > 0 && Math.abs(cluster.x - globalSystemInternalX) <= 5) {
+                isTrueBarline = true;
+            } else {
+                isTrueBarline = checkAlignment();
+            }
+
+            // 🌟 额外过滤：如果该聚类中只有极少数碎片（例如 1-2 个极短碎片），
+            // 且总高度不足典型谱表的一半，可能是符干，直接剔除。
+            if (isTrueBarline && cluster.lines.length < 3 && (cluster.maxBottom - cluster.minTop) < typicalStaffHeight * 0.8) {
+                isTrueBarline = false;
+            }
+
+            if (isTrueBarline) {
+                trueBarlineXs.push(cluster.x);
+                cluster.lines.forEach(line => {
+                    let domIdx = parseInt(line.el.dataset.domIndex);
+                    let rqItem = renderQueue.find(item => item.domIndex === domIdx);
+                    if (rqItem) rqItem.symbolType = 'TrueBarline';
+                });
+            }
+        });
+
+        // 🛡️ 第四道防线：空间缝合术（专杀双小节线、反复记号）
+        trueBarlineXs.sort((a, b) => a - b);
+        const physicalBarlines = [];
+        trueBarlineXs.forEach(x => {
+            if (physicalBarlines.length === 0) {
+                physicalBarlines.push(x);
+            } else {
+                let lastX = physicalBarlines[physicalBarlines.length - 1];
+                if (x - lastX > 25) {
+                    physicalBarlines.push(x);
+                } else {
+                    // 双线/反复记号合并，取最右侧坐标
+                    physicalBarlines[physicalBarlines.length - 1] = x;
+                }
+            }
+        });
+
+
+        const barCount = physicalBarlines.length;
+
+// 🌟 寻找渲染队列中被标记为 TrueBarline 的第一个元素
+        const firstTrueBarline = renderQueue.find(item => item.symbolType === 'TrueBarline');
+
+// 🌟 修改：不再依赖 globalSystemInternalX 的绝对值，
+// 只要 physicalBarlines 的第一个坐标离乐谱的最左侧足够近，就认定它是开头线
+        const hasStartBarline = physicalBarlines.length > 0 &&
+            (physicalBarlines[0] <= (stickyMinX + 100)); // 100px 容差足以覆盖谱号宽度
+
+        let mCount = 0;
+        if (barCount > 0) {
+            // 强制修正：如果第一条线的位置离系统物理左端点极近，必须减1
+            mCount = hasStartBarline ? (barCount - 1) : barCount;
+        }
+
+        let uniqueBarlines = [...physicalBarlines];
+        if (!hasStartBarline && globalSystemInternalX > 0) {
+            // 虚拟线只进映射数组，不参与上面的 barCount 统计
+            uniqueBarlines.unshift(globalSystemInternalX);
+        }
+
+        document.getElementById('barlineCount').innerText = barCount;
+        document.getElementById('measureCount').innerText = mCount;
+
+        // 补齐弱起小节
+        if (uniqueBarlines.length > 0 && globalSystemInternalX > 0 && uniqueBarlines[0] - globalSystemInternalX > 60) {
+            uniqueBarlines.unshift(globalSystemInternalX);
+        }
+
+        if (uniqueBarlines.length < 2) return;
+
+        // --- 3. 提取拍号 ---
+        const timeSigs = extractTimeSignatures(renderQueue);
+        if (timeSigs.length === 0) timeSigs.push({ x: -Infinity, num: 4, den: 4 });
+
+        // --- 4. 核心：计算真实 Tick 并分配锚点 ---
+        let currentGlobalTick = 0;
+        const interpolationResolutionTicks = globalMidiPpq / 4;
+
+        for (let i = 0; i < uniqueBarlines.length - 1; i++) {
+            const startX = uniqueBarlines[i];
+            const endX = uniqueBarlines[i + 1];
+            const width = endX - startX;
+
+            if (width < 10) continue;
+
+            let activeSig = timeSigs[0];
+            for (let j = timeSigs.length - 1; j >= 0; j--) {
+                if (timeSigs[j].x <= startX + 60) {
+                    activeSig = timeSigs[j];
+                    break;
+                }
+            }
+
+            const quarterNotesPerBar = activeSig.num * (4 / activeSig.den);
+            const measureTotalTicks = quarterNotesPerBar * globalMidiPpq;
+            const slices = Math.max(1, Math.round(measureTotalTicks / interpolationResolutionTicks));
+
+            for (let j = 0; j < slices; j++) {
+                svgTags.push({
+                    x: startX + (width / slices) * j,
+                    tick: currentGlobalTick + (measureTotalTicks / slices) * j
+                });
+            }
+            currentGlobalTick += measureTotalTicks;
+        }
+
+        if (uniqueBarlines.length > 0) {
+            svgTags.push({ x: uniqueBarlines[uniqueBarlines.length - 1], tick: currentGlobalTick });
+        }
+
+        console.log(`📊 统计：物理小节线 ${barCount} 条 | 小节数 ${mCount} | 起始模式：${hasStartBarline ? '物理线' : '虚拟补齐'}`);
+
+        console.log(`🎯 完美映射：生成 ${svgTags.length} 个锚点，总长度为 ${currentGlobalTick} Ticks。`);
+    }
+
+    // 🌟 2. MIDI 变速曲线重建：直接读取预先算好的 Tick
+    function recalculateMidiTempoMap() {
+        if (!isMidiLoaded || globalMidiTempos.length === 0) return;
+
+        let tagTimes = [];
+        for (let i = 0; i < svgTags.length; i++) {
+            const targetTick = svgTags[i].tick; // 直接拿算好的真实时长！
+
+            let activeTempo = globalMidiTempos[0];
+            for (let j = globalMidiTempos.length - 1; j >= 0; j--) {
+                if (targetTick >= globalMidiTempos[j].ticks) {
+                    activeTempo = globalMidiTempos[j];
+                    break;
+                }
+            }
+
+            const ticksSinceTempo = targetTick - activeTempo.ticks;
+            const beatsSinceTempo = ticksSinceTempo / globalMidiPpq;
+            const secondsSinceTempo = beatsSinceTempo * (60 / activeTempo.bpm);
+            const absoluteTime = activeTempo.time + secondsSinceTempo;
+
+            tagTimes.push(absoluteTime);
+        }
+
+        fuseDataWithTempoMap(tagTimes);
+    }
+
+    // 🌟 3. 无 MIDI 时的手动测速重建：同样基于真实 Tick
+    function generateManualTempoMap() {
+        if (svgTags.length === 0) return;
+
+        // 根据滑块 BPM，算出每一个 Tick 的物理时间秒数
+        const secondsPerQuarter = 60 / currentBpm;
+        const secondsPerTick = secondsPerQuarter / globalMidiPpq;
+
+        // 直接用绝对 Tick 乘以 单个 Tick 秒数
+        const tagTimes = svgTags.map(tag => tag.tick * secondsPerTick);
+
+        midiDurationSec = tagTimes[tagTimes.length - 1] || 0;
+        fuseDataWithTempoMap(tagTimes);
     }
 
     function readUint32BE(bytes, offset) {
