@@ -1403,6 +1403,52 @@ function identifyAndHighlightGeometricBrackets() {
     const verticalMinHeight = Math.max(1, staffSpace * 0.4);
     const leftSearchMinX = globalSystemInternalX - Math.max(100, staffSpace * 8);
     const leftSearchMaxX = globalSystemInternalX + Math.max(40, staffSpace * 6);
+    const bracketBandWidth = Math.max(12, staffSpace * 3.5);
+    const bracketGapFromBarline = Math.max(1.5, staffSpace * 0.25);
+
+    const independentBracketVerticals = segments.filter(seg =>
+        seg.kind === 'vertical' &&
+        seg.length >= verticalMinHeight &&
+        seg.rightX < globalSystemInternalX - bracketGapFromBarline &&
+        seg.leftX >= globalSystemInternalX - bracketBandWidth &&
+        seg.rightX <= leftSearchMaxX
+    ).sort((a, b) => a.x - b.x || a.topY - b.topY);
+
+    if (independentBracketVerticals.length > 0) {
+        const independentMinY = Math.min(...independentBracketVerticals.map(seg => seg.topY));
+        const independentMaxY = Math.max(...independentBracketVerticals.map(seg => seg.bottomY));
+        const independentConnectedHorizontals = segments.filter(seg => {
+            if (seg.kind !== 'horizontal') return false;
+            if (seg.length > bracketBandWidth + connectionTolerance) return false;
+            if (seg.y < independentMinY - connectionTolerance || seg.y > independentMaxY + connectionTolerance) return false;
+
+            const touchesBracketVertical = independentBracketVerticals.some(vertical =>
+                Math.abs(seg.leftX - vertical.x) <= connectionTolerance ||
+                Math.abs(seg.rightX - vertical.x) <= connectionTolerance
+            );
+            const touchesSystemBarline =
+                Math.abs(seg.leftX - globalSystemInternalX) <= connectionTolerance ||
+                Math.abs(seg.rightX - globalSystemInternalX) <= connectionTolerance;
+
+            return touchesBracketVertical && touchesSystemBarline;
+        });
+
+        const independentElements = [
+            ...independentBracketVerticals.map(vertical => vertical.element),
+            ...independentConnectedHorizontals.map(horizontal => horizontal.element),
+        ].filter((el, index, allElements) => allElements.indexOf(el) === index);
+
+        independentElements.forEach((el) => {
+            if (!el.classList.contains('highlight-brace')) {
+                el.classList.add('highlight-brace');
+            }
+        });
+
+        if (independentElements.length > 0) {
+            debugLog(`✅ 几何方括号扫描完毕，共点亮 ${independentBracketVerticals.length} 根独立括号线。`);
+        }
+        return;
+    }
 
     const verticals = segments.filter(seg =>
         seg.kind === 'vertical' &&

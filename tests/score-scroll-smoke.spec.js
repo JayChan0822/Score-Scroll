@@ -487,3 +487,65 @@ test('keeps stacked opening time signatures while rejecting short stems and isol
   expect(detectionState.shortStemClasses).not.toContain('highlight-barline');
   expect(detectionState.openingBarlineClasses).toContain('highlight-barline');
 });
+
+test('classifies left-of-system verticals as bracket lines without relying on barline classes', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'bracket-barline-separation.svg');
+
+  await page.goto('/index.html');
+
+  await page.evaluate(() => {
+    const sandbox = document.getElementById('svg-sandbox');
+    if (!sandbox) return;
+
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (!innerHtmlDescriptor?.get || !innerHtmlDescriptor?.set) return;
+
+    Object.defineProperty(sandbox, 'innerHTML', {
+      configurable: true,
+      get() {
+        return innerHtmlDescriptor.get.call(this);
+      },
+      set(value) {
+        if (value === '' && this.querySelector('svg')) {
+          return;
+        }
+        innerHtmlDescriptor.set.call(this, value);
+      },
+    });
+  });
+
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('line, polyline').length : 0;
+  })).toBeGreaterThan(0);
+
+  const bracketState = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const firstBarline = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('x1') === '100' && el.getAttribute('x2') === '100');
+
+    const outerBracketLine = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('points') === '90,90 90,110');
+
+    const innerBracketLine = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('points') === '95,80 95,120');
+
+    return {
+      firstBarlineClasses: firstBarline?.className?.baseVal || '',
+      outerBracketLineClasses: outerBracketLine?.className?.baseVal || '',
+      innerBracketLineClasses: innerBracketLine?.className?.baseVal || '',
+    };
+  });
+
+  expect(bracketState).not.toBeNull();
+  expect(bracketState.firstBarlineClasses).toContain('highlight-barline');
+  expect(bracketState.firstBarlineClasses).not.toContain('highlight-brace');
+  expect(bracketState.outerBracketLineClasses).toContain('highlight-brace');
+  expect(bracketState.outerBracketLineClasses).not.toContain('highlight-barline');
+  expect(bracketState.innerBracketLineClasses).toContain('highlight-brace');
+  expect(bracketState.innerBracketLineClasses).not.toContain('highlight-barline');
+});
