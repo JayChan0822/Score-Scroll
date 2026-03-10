@@ -21,6 +21,7 @@
  * @property {HTMLElement | null} exportModalTitle
  * @property {HTMLElement | null} exportProgressBar
  * @property {HTMLElement | null} exportProgressText
+ * @property {HTMLButtonElement | null} exportPngBtn
  * @property {HTMLSelectElement | null} exportRatioSelect
  * @property {HTMLSelectElement | null} exportResSelect
  * @property {HTMLInputElement | null} exportStartInput
@@ -85,6 +86,7 @@ export function getDomRefs(doc = document) {
         exportModalTitle: byId(doc, "exportModalTitle"),
         exportProgressBar: byId(doc, "exportProgressBar"),
         exportProgressText: byId(doc, "exportProgressText"),
+        exportPngBtn: byId(doc, "exportPngBtn"),
         exportRatioSelect: byId(doc, "exportRatioSelect"),
         exportResSelect: byId(doc, "exportResSelect"),
         exportStartInput: byId(doc, "exportStartInput"),

@@ -19,6 +19,11 @@
  */
 
 /**
+ * @typedef {Object} RenderCanvasOptions
+ * @property {boolean} [transparentBackground]
+ */
+
+/**
  * @typedef {Object} ExportVideoFeatureOptions
  * @property {DomRefs} dom
  * @property {() => number} getAudioOffsetSec
@@ -34,7 +39,7 @@
  * @property {(timeSec: number) => number} getSmoothedTargetVelocityByTime
  * @property {() => SmoothState} getSmoothState
  * @property {() => number} getTotalDuration
- * @property {(smoothX: number) => void} renderCanvas
+ * @property {(smoothX: number, options?: RenderCanvasOptions) => void} renderCanvas
  * @property {() => void} resizeCanvas
  * @property {(width: number) => void} setCachedViewportWidth
  * @property {(canvas: HTMLCanvasElement) => void} setCanvas
@@ -49,7 +54,9 @@
  * @typedef {Object} ExportVideoFeature
  * @property {() => void} cancelExport
  * @property {(baseRes?: number, fps?: number, aspectRatio?: string, startSec?: number, endSec?: number | null) => Promise<void>} exportHighQualityVideo
+ * @property {(baseRes?: number, fps?: number, aspectRatio?: string, startSec?: number, endSec?: number | null) => Promise<void>} exportPngSequence
  * @property {() => Promise<void>} runExportFlow
+ * @property {() => Promise<void>} runPngExportFlow
  */
 
 /**
@@ -81,38 +88,43 @@ export function createExportVideoFeature({
     setIsExportingVideoMode,
     setSmoothState,
 }) {
-    /**
-     * @param {number} [baseRes=1920]
-     * @param {number} [fps=60]
-     * @param {string} [aspectRatio="auto"]
-     * @param {number} [startSec=0]
-     * @param {number | null} [endSec=null]
-     * @returns {Promise<void>}
-     */
-    async function exportHighQualityVideo(baseRes = 1920, fps = 60, aspectRatio = "auto", startSec = 0, endSec = null) {
-        if (!("VideoEncoder" in window)) {
-            alert("浏览器不支持 WebCodecs，请使用最新版 Chrome。");
-            return;
-        }
+    const PNG_MIME_TYPE = "image/png";
 
+    /**
+     * @param {number} startSec
+     * @param {number | null} endSec
+     * @returns {{ exportDuration: number, finalEndSec: number, finalStartSec: number, fullDuration: number } | null}
+     */
+    function resolveExportWindow(startSec, endSec) {
         const fullDuration = getTotalDuration();
         if (fullDuration <= 0) {
             alert("没有可导出的乐谱数据！请先加载曲目。");
-            return;
+            return null;
         }
 
         const finalStartSec = Math.max(0, startSec);
         const finalEndSec = endSec === null ? fullDuration : Math.min(endSec, fullDuration);
         const exportDuration = finalEndSec - finalStartSec;
+
         if (exportDuration <= 0) {
             alert("导出时间范围无效！");
-            return;
+            return null;
         }
 
-        if (getIsPlaying()) {
-            dom.playBtn?.click();
-        }
+        return {
+            exportDuration,
+            finalEndSec,
+            finalStartSec,
+            fullDuration,
+        };
+    }
 
+    /**
+     * @param {number} baseRes
+     * @param {string} aspectRatio
+     * @returns {{ finalExportZoom: number, targetHeight: number, targetWidth: number }}
+     */
+    function computeExportDimensions(baseRes, aspectRatio) {
         let targetWidth = baseRes;
         let targetHeight;
         let finalExportZoom = getGlobalZoom();
@@ -144,6 +156,20 @@ export function createExportVideoFeature({
         targetHeight = targetHeight % 2 === 0 ? targetHeight : targetHeight + 1;
         targetHeight = Math.min(4320, targetHeight);
 
+        return {
+            finalExportZoom,
+            targetHeight,
+            targetWidth,
+        };
+    }
+
+    /**
+     * @param {number} targetWidth
+     * @param {number} targetHeight
+     * @param {number} finalExportZoom
+     * @returns {{ exportCanvas: HTMLCanvasElement, restoreViewportState: () => void }}
+     */
+    function activateExportViewport(targetWidth, targetHeight, finalExportZoom) {
         const exportCanvas = document.createElement("canvas");
         exportCanvas.width = targetWidth;
         exportCanvas.height = targetHeight;
@@ -162,12 +188,181 @@ export function createExportVideoFeature({
         const originalCtx = getCtx();
         const originalViewportWidth = getCachedViewportWidth();
         const originalZoom = getGlobalZoom();
+        let restored = false;
 
         setCanvas(exportCanvas);
         setCtx(exportCtx);
         setCachedViewportWidth(targetWidth);
         setGlobalZoom(finalExportZoom);
         setIsExportingVideoMode(true);
+
+        return {
+            exportCanvas,
+            restoreViewportState: () => {
+                if (restored) {
+                    return;
+                }
+                restored = true;
+
+                setCanvas(originalCanvas);
+                setCtx(originalCtx);
+                setCachedViewportWidth(originalViewportWidth);
+                setGlobalZoom(originalZoom);
+                setIsExportingVideoMode(false);
+
+                if (exportCanvas.parentNode) {
+                    exportCanvas.parentNode.removeChild(exportCanvas);
+                }
+
+                resizeCanvas();
+                renderCanvas(getSmoothState().smoothX);
+            },
+        };
+    }
+
+    /** @returns {void} */
+    function pausePlaybackForExport() {
+        if (getIsPlaying()) {
+            dom.playBtn?.click();
+        }
+    }
+
+    /**
+     * @param {number} percent
+     * @returns {void}
+     */
+    function updateExportProgress(percent) {
+        const clampedPercent = Math.max(0, Math.min(100, percent));
+        if (dom.exportProgressBar) dom.exportProgressBar.style.width = `${clampedPercent.toFixed(1)}%`;
+        if (dom.exportProgressText) dom.exportProgressText.innerText = `${clampedPercent.toFixed(1)}%`;
+    }
+
+    /**
+     * @param {string} title
+     * @returns {void}
+     */
+    function openExportModal(title) {
+        updateExportProgress(0);
+        if (dom.exportModalTitle) dom.exportModalTitle.innerText = title;
+
+        if (dom.cancelExportBtn) {
+            dom.cancelExportBtn.innerText = "🛑 CANCEL";
+            dom.cancelExportBtn.disabled = false;
+        }
+
+        if (dom.exportModal) {
+            dom.exportModal.style.display = "flex";
+            void dom.exportModal.offsetWidth;
+            dom.exportModal.classList.add("show");
+        }
+    }
+
+    /** @returns {Promise<void>} */
+    async function finalizeSuccessfulExport() {
+        if (dom.exportModalTitle) dom.exportModalTitle.innerText = "SUCCESS!";
+        updateExportProgress(100);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+
+    /** @returns {void} */
+    function closeExportModal() {
+        const exportModal = dom.exportModal;
+        if (exportModal) {
+            exportModal.classList.remove("show");
+            setTimeout(() => {
+                exportModal.style.display = "none";
+            }, 300);
+        }
+    }
+
+    /**
+     * @param {number} simulatedTime
+     * @param {RenderCanvasOptions} [renderOptions]
+     * @returns {void}
+     */
+    function renderExportFrame(simulatedTime, renderOptions = {}) {
+        setSmoothState({
+            playbackSimTime: simulatedTime,
+            smoothVx: getSmoothedTargetVelocityByTime(simulatedTime),
+            smoothX: getInterpolatedXByTime(simulatedTime).x,
+        });
+
+        renderCanvas(getSmoothState().smoothX, renderOptions);
+    }
+
+    /**
+     * @param {HTMLCanvasElement} canvasElement
+     * @param {string} mimeType
+     * @returns {Promise<Blob>}
+     */
+    function canvasToBlob(canvasElement, mimeType) {
+        return new Promise((resolve, reject) => {
+            canvasElement.toBlob((blob) => {
+                if (blob) {
+                    resolve(blob);
+                    return;
+                }
+                reject(new Error("PNG frame encode failed."));
+            }, mimeType);
+        });
+    }
+
+    /** @returns {string} */
+    function createPngExportFolderName() {
+        const now = new Date();
+        const year = String(now.getFullYear());
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        const hours = String(now.getHours()).padStart(2, "0");
+        const minutes = String(now.getMinutes()).padStart(2, "0");
+        const seconds = String(now.getSeconds()).padStart(2, "0");
+        return `score-scroll-png-${year}${month}${day}-${hours}${minutes}${seconds}`;
+    }
+
+    /**
+     * @returns {Promise<any | null>}
+     */
+    async function selectPngExportDirectory() {
+        const showDirectoryPicker = /** @type {undefined | (() => Promise<any>)} */ (window.showDirectoryPicker);
+        if (typeof showDirectoryPicker !== "function") {
+            alert("浏览器不支持目录导出，请使用最新版 Chrome 或 Edge。");
+            return null;
+        }
+
+        try {
+            const rootHandle = await showDirectoryPicker.call(window);
+            return await rootHandle.getDirectoryHandle(createPngExportFolderName(), { create: true });
+        } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") {
+                return null;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * @param {number} [baseRes=1920]
+     * @param {number} [fps=60]
+     * @param {string} [aspectRatio="auto"]
+     * @param {number} [startSec=0]
+     * @param {number | null} [endSec=null]
+     * @returns {Promise<void>}
+     */
+    async function exportHighQualityVideo(baseRes = 1920, fps = 60, aspectRatio = "auto", startSec = 0, endSec = null) {
+        if (!("VideoEncoder" in window)) {
+            alert("浏览器不支持 WebCodecs，请使用最新版 Chrome。");
+            return;
+        }
+
+        const exportWindow = resolveExportWindow(startSec, endSec);
+        if (!exportWindow) {
+            return;
+        }
+
+        pausePlaybackForExport();
+
+        const { finalExportZoom, targetHeight, targetWidth } = computeExportDimensions(baseRes, aspectRatio);
+        const { restoreViewportState } = activateExportViewport(targetWidth, targetHeight, finalExportZoom);
 
         /** @type {any} */
         const muxerOptions = {
@@ -231,7 +426,7 @@ export function createExportVideoFeature({
                 throw new Error("OfflineAudioContext is not supported in this browser.");
             }
 
-            const audioCtx = new OfflineAudioContextCtor(2, Math.ceil(exportDuration * 44100), 44100);
+            const audioCtx = new OfflineAudioContextCtor(2, Math.ceil(exportWindow.exportDuration * 44100), 44100);
             const arrayBuffer = await audioFile.arrayBuffer();
             const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
 
@@ -241,7 +436,7 @@ export function createExportVideoFeature({
 
             let startTimeInVideo = 0;
             let startOffsetInAudio = 0;
-            const initialAudioTime = finalStartSec + getAudioOffsetSec();
+            const initialAudioTime = exportWindow.finalStartSec + getAudioOffsetSec();
             if (initialAudioTime >= 0) {
                 startOffsetInAudio = initialAudioTime;
             } else {
@@ -276,7 +471,7 @@ export function createExportVideoFeature({
             if (!getCancelVideoExport()) await audioEncoder.flush();
         }
 
-        const totalFrames = Math.ceil(exportDuration * fps);
+        const totalFrames = Math.ceil(exportWindow.exportDuration * fps);
         const stepSec = 1 / fps;
 
         for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
@@ -288,14 +483,8 @@ export function createExportVideoFeature({
                 await new Promise((resolve) => setTimeout(resolve, 1));
             }
 
-            const simulatedTime = finalStartSec + frameIndex * stepSec;
-            setSmoothState({
-                playbackSimTime: simulatedTime,
-                smoothVx: getSmoothedTargetVelocityByTime(simulatedTime),
-                smoothX: getInterpolatedXByTime(simulatedTime).x,
-            });
-
-            renderCanvas(getSmoothState().smoothX);
+            const simulatedTime = exportWindow.finalStartSec + frameIndex * stepSec;
+            renderExportFrame(simulatedTime);
 
             const videoFrame = new VideoFrame(getCanvas(), { timestamp: frameIndex * stepSec * 1_000_000 });
             const insertKeyFrame = frameIndex % fps === 0;
@@ -309,27 +498,10 @@ export function createExportVideoFeature({
             }
 
             if (frameIndex % 30 === 0) {
-                const percent = ((frameIndex / totalFrames) * 100).toFixed(1);
-                if (dom.exportProgressBar) dom.exportProgressBar.style.width = `${percent}%`;
-                if (dom.exportProgressText) dom.exportProgressText.innerText = `${percent}%`;
+                updateExportProgress((frameIndex / totalFrames) * 100);
                 await new Promise((resolve) => setTimeout(resolve, 0));
             }
         }
-
-        const restoreViewportState = () => {
-            setCanvas(originalCanvas);
-            setCtx(originalCtx);
-            setCachedViewportWidth(originalViewportWidth);
-            setGlobalZoom(originalZoom);
-            setIsExportingVideoMode(false);
-
-            if (exportCanvas.parentNode) {
-                exportCanvas.parentNode.removeChild(exportCanvas);
-            }
-
-            resizeCanvas();
-            renderCanvas(getSmoothState().smoothX);
-        };
 
         if (getCancelVideoExport()) {
             try { videoEncoder.close(); } catch {}
@@ -419,6 +591,100 @@ export function createExportVideoFeature({
         }
     }
 
+    /**
+     * @param {number} [baseRes=1920]
+     * @param {number} [fps=60]
+     * @param {string} [aspectRatio="auto"]
+     * @param {number} [startSec=0]
+     * @param {number | null} [endSec=null]
+     * @returns {Promise<void>}
+     */
+    async function exportPngSequence(baseRes = 1920, fps = 60, aspectRatio = "auto", startSec = 0, endSec = null) {
+        const exportWindow = resolveExportWindow(startSec, endSec);
+        if (!exportWindow) {
+            return;
+        }
+
+        const outputDirectoryHandle = await selectPngExportDirectory();
+        if (!outputDirectoryHandle) {
+            return;
+        }
+
+        pausePlaybackForExport();
+        openExportModal("RENDERING PNG FRAMES...");
+        setCancelVideoExport(false);
+
+        const { finalExportZoom, targetHeight, targetWidth } = computeExportDimensions(baseRes, aspectRatio);
+        const { restoreViewportState } = activateExportViewport(targetWidth, targetHeight, finalExportZoom);
+        const totalFrames = Math.max(1, Math.ceil(exportWindow.exportDuration * fps));
+        const stepSec = 1 / fps;
+
+        try {
+            for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+                if (getCancelVideoExport()) {
+                    break;
+                }
+
+                const simulatedTime = exportWindow.finalStartSec + frameIndex * stepSec;
+                renderExportFrame(simulatedTime, { transparentBackground: true });
+
+                const frameName = `frame_${String(frameIndex + 1).padStart(6, "0")}.png`;
+                const frameHandle = await outputDirectoryHandle.getFileHandle(frameName, { create: true });
+                const writable = await frameHandle.createWritable();
+
+                try {
+                    const pngBlob = await canvasToBlob(getCanvas(), PNG_MIME_TYPE);
+                    await writable.write(pngBlob);
+                    await writable.close();
+                } catch (error) {
+                    try {
+                        await writable.abort();
+                    } catch {}
+                    throw error;
+                }
+
+                if (frameIndex % 10 === 0 || frameIndex === totalFrames - 1) {
+                    updateExportProgress(((frameIndex + 1) / totalFrames) * 100);
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                }
+            }
+
+            if (getCancelVideoExport()) {
+                throw new Error("Export cancelled");
+            }
+
+            await finalizeSuccessfulExport();
+        } catch (error) {
+            if (!(error instanceof Error) || error.message !== "Export cancelled") {
+                console.error("PNG 序列导出失败:", error);
+                alert("PNG 序列导出失败，请查看控制台报错。");
+            }
+        } finally {
+            restoreViewportState();
+            closeExportModal();
+        }
+    }
+
+    /** @returns {Promise<void>} */
+    async function runPngExportFlow() {
+        const selectedRatio = dom.exportRatioSelect?.value || "auto";
+        const selectedWidth = parseInt(dom.exportResSelect?.value || "1920", 10);
+        const selectedFps = parseInt(dom.exportFpsSelect?.value || "60", 10);
+        const startSec = parseFloat(dom.exportStartInput?.value || "0") || 0;
+
+        let endSec = parseFloat(dom.exportEndInput?.value || "");
+        if (Number.isNaN(endSec) || endSec <= 0) {
+            endSec = getTotalDuration();
+        }
+
+        if (startSec >= endSec) {
+            alert("起始时间必须小于结束时间！");
+            return;
+        }
+
+        await exportPngSequence(selectedWidth, selectedFps, selectedRatio, startSec, endSec);
+    }
+
     /** @returns {void} */
     function cancelExport() {
         setCancelVideoExport(true);
@@ -431,6 +697,8 @@ export function createExportVideoFeature({
     return {
         cancelExport,
         exportHighQualityVideo,
+        exportPngSequence,
         runExportFlow,
+        runPngExportFlow,
     };
 }

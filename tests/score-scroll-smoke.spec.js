@@ -215,3 +215,176 @@ test('extracts svg preprocessing and render-queue analysis into a dedicated feat
   expect(svgAnalysisSource).toContain('function buildRenderQueue');
   expect(appSource).toContain('createSvgAnalysisFeature');
 });
+
+test('adds a png sequence export entry point', async () => {
+  const htmlSource = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8');
+  const domSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'core', 'dom.js'), 'utf8');
+  const uiEventsSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'ui-events.js'), 'utf8');
+
+  expect(htmlSource).toContain('id="exportPngBtn"');
+  expect(htmlSource).toContain('Export PNG');
+  expect(domSource).toContain('@property {HTMLButtonElement | null} exportPngBtn');
+  expect(domSource).toContain('exportPngBtn: byId(doc, "exportPngBtn")');
+  expect(uiEventsSource).toContain('onExportPngClick');
+  expect(uiEventsSource).toContain('dom.exportPngBtn?.addEventListener("click", onExportPngClick);');
+});
+
+test('guards png sequence export behind directory access support', async () => {
+  const exportSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'export-video.js'), 'utf8');
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(exportSource).toContain('async function exportPngSequence');
+  expect(exportSource).toContain('showDirectoryPicker');
+  expect(exportSource).toContain('image/png');
+  expect(exportSource).toContain('score-scroll-png-');
+  expect(exportSource).toContain('runPngExportFlow');
+  expect(appSource).toContain('exportFeature.runPngExportFlow()');
+});
+
+test('writes transparent png frames into an auto-created subfolder', async () => {
+  const exportSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'export-video.js'), 'utf8');
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(exportSource).toContain('createWritable');
+  expect(exportSource).toContain('toBlob');
+  expect(exportSource).toContain('frame_');
+  expect(exportSource).toContain('transparentBackground: true');
+  expect(appSource).toContain('function renderCanvas(currentX, options = {})');
+  expect(appSource).toContain('const { transparentBackground = false } = options;');
+});
+
+test('exports numbered png frames through the directory access api', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const exportResult = await page.evaluate(async () => {
+    const { createExportVideoFeature } = await import('/scripts/features/export-video.js');
+
+    /** @type {Array<Record<string, unknown>>} */
+    const writes = [];
+    /** @type {HTMLCanvasElement} */
+    let canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+
+    /** @type {CanvasRenderingContext2D | null} */
+    let ctx = canvas.getContext('2d');
+    let cancelVideoExport = false;
+    let cachedViewportWidth = 800;
+    let globalZoom = 1;
+    let smoothState = { playbackSimTime: 0, smoothVx: 0, smoothX: 0 };
+
+    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function toBlob(callback, type) {
+      callback(new Blob(['png'], { type: type || 'image/png' }));
+    };
+
+    Object.defineProperty(window, 'showDirectoryPicker', {
+      configurable: true,
+      value: async () => ({
+        async getDirectoryHandle(name, options) {
+          writes.push({ type: 'directory', name, create: options?.create === true });
+          return {
+            async getFileHandle(fileName, fileOptions) {
+              writes.push({ type: 'file-handle', fileName, create: fileOptions?.create === true });
+              return {
+                async createWritable() {
+                  return {
+                    async abort() {},
+                    async close() {},
+                    async write(blob) {
+                      writes.push({ type: 'write', fileName, mime: blob.type, size: blob.size });
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      }),
+    });
+
+    const exportModal = document.createElement('div');
+    const exportModalTitle = document.createElement('div');
+    const exportProgressBar = document.createElement('div');
+    const exportProgressText = document.createElement('div');
+    const cancelExportBtn = document.createElement('button');
+    const playBtn = document.createElement('button');
+    const viewportEl = document.createElement('div');
+    Object.defineProperty(viewportEl, 'clientWidth', { configurable: true, value: 800 });
+
+    const dom = {
+      cancelExportBtn,
+      exportEndInput: null,
+      exportFpsSelect: null,
+      exportModal,
+      exportModalTitle,
+      exportProgressBar,
+      exportProgressText,
+      exportRatioSelect: null,
+      exportResSelect: null,
+      exportStartInput: null,
+      playBtn,
+      viewportEl,
+    };
+
+    const feature = createExportVideoFeature({
+      dom,
+      getAudioOffsetSec: () => 0,
+      getCachedViewportWidth: () => cachedViewportWidth,
+      getCanvas: () => canvas,
+      getCancelVideoExport: () => cancelVideoExport,
+      getCtx: () => ctx,
+      getGlobalAudioFile: () => null,
+      getGlobalScoreHeight: () => 320,
+      getGlobalZoom: () => globalZoom,
+      getInterpolatedXByTime: (timeSec) => ({ x: timeSec * 100, index: 0, atEnd: false }),
+      getIsPlaying: () => false,
+      getSmoothedTargetVelocityByTime: () => 0,
+      getSmoothState: () => smoothState,
+      getTotalDuration: () => 1,
+      renderCanvas: () => {},
+      resizeCanvas: () => {},
+      setCachedViewportWidth: (width) => {
+        cachedViewportWidth = width;
+      },
+      setCanvas: (nextCanvas) => {
+        canvas = nextCanvas;
+      },
+      setCancelVideoExport: (cancelled) => {
+        cancelVideoExport = cancelled;
+      },
+      setCtx: (nextCtx) => {
+        ctx = nextCtx;
+      },
+      setGlobalZoom: (zoom) => {
+        globalZoom = zoom;
+      },
+      setIsExportingVideoMode: () => {},
+      setSmoothState: (nextState) => {
+        smoothState = nextState;
+      },
+    });
+
+    try {
+      await feature.exportPngSequence(640, 2, '16:9', 0, 1);
+      return {
+        modalTitle: exportModalTitle.innerText,
+        progressText: exportProgressText.innerText,
+        writes,
+      };
+    } finally {
+      HTMLCanvasElement.prototype.toBlob = originalToBlob;
+      delete window.showDirectoryPicker;
+    }
+  });
+
+  const frameWrites = exportResult.writes.filter((entry) => entry.type === 'write');
+
+  expect(exportResult.modalTitle).toBe('SUCCESS!');
+  expect(exportResult.progressText).toBe('100.0%');
+  expect(exportResult.writes[0]).toMatchObject({ type: 'directory', create: true });
+  expect(exportResult.writes[0].name).toMatch(/^score-scroll-png-/);
+  expect(frameWrites).toHaveLength(2);
+  expect(frameWrites[0]).toMatchObject({ fileName: 'frame_000001.png', mime: 'image/png' });
+  expect(frameWrites[1]).toMatchObject({ fileName: 'frame_000002.png', mime: 'image/png' });
+});

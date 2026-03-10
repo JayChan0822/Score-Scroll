@@ -84,6 +84,7 @@ const {
     exportModalTitle,
     exportProgressBar,
     exportProgressText,
+    exportPngBtn,
     exportRatioSelect,
     exportResSelect,
     exportStartInput,
@@ -135,6 +136,7 @@ const dom = {
     exportModalTitle,
     exportProgressBar,
     exportProgressText,
+    exportPngBtn,
     exportRatioSelect,
     exportResSelect,
     exportStartInput,
@@ -360,11 +362,13 @@ let globalStickyLanes = {};
 window.globalAbsoluteStaffLineYs = [];
 window.globalAbsoluteSystemInternalX = Infinity;
 
-function renderCanvas(currentX) {
+function renderCanvas(currentX, options = {}) {
     if (!ctx || !canvas) return;
+    const { transparentBackground = false } = options;
 
     const noteColor = noteColorPicker ? noteColorPicker.value : defaultNoteColor;
-    const bgColor = bgColorPicker ? bgColorPicker.value : defaultBgColor;
+    const solidBgColor = bgColorPicker ? bgColorPicker.value : defaultBgColor;
+    const bgColor = transparentBackground ? 'rgba(0, 0, 0, 0)' : solidBgColor;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -590,11 +594,23 @@ function renderCanvas(currentX) {
         ctx.save(); ctx.shadowBlur = 0; ctx.globalAlpha = window.__maskOpacity;
         const maskW = window.__maskWidth; const fadeW = 40; const fadeStart = Math.max(0, maskW - fadeW);
 
-        const bgGradient = ctx.createLinearGradient(0, 0, maskW, 0);
-        let r = 0, g = 0, b = 0;
-        if (bgColor.startsWith('#') && bgColor.length === 7) { r = parseInt(bgColor.slice(1,3), 16); g = parseInt(bgColor.slice(3,5), 16); b = parseInt(bgColor.slice(5,7), 16); }
-        bgGradient.addColorStop(0, `rgba(${r},${g},${b},1)`); if (fadeStart > 0) bgGradient.addColorStop(fadeStart / maskW, `rgba(${r},${g},${b},1)`); bgGradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
-        ctx.fillStyle = bgGradient; ctx.fillRect(0, 0, maskW, canvas.height);
+        if (transparentBackground) {
+            const clearGradient = ctx.createLinearGradient(0, 0, maskW, 0);
+            clearGradient.addColorStop(0, 'rgba(0,0,0,1)');
+            if (fadeStart > 0) clearGradient.addColorStop(fadeStart / maskW, 'rgba(0,0,0,1)');
+            clearGradient.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillStyle = clearGradient;
+            ctx.fillRect(0, 0, maskW, canvas.height);
+            ctx.globalCompositeOperation = 'source-over';
+        } else {
+            const bgGradient = ctx.createLinearGradient(0, 0, maskW, 0);
+            let r = 0, g = 0, b = 0;
+            if (solidBgColor.startsWith('#') && solidBgColor.length === 7) { r = parseInt(solidBgColor.slice(1,3), 16); g = parseInt(solidBgColor.slice(3,5), 16); b = parseInt(solidBgColor.slice(5,7), 16); }
+            bgGradient.addColorStop(0, `rgba(${r},${g},${b},1)`); if (fadeStart > 0) bgGradient.addColorStop(fadeStart / maskW, `rgba(${r},${g},${b},1)`); bgGradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, maskW, canvas.height);
+        }
 
         if (window.globalAbsoluteStaffLineYs && window.globalAbsoluteStaffLineYs.length > 0) {
             ctx.save();
@@ -2630,6 +2646,7 @@ bindUiEvents({
     onCancelExport: () => exportFeature.cancelExport(),
     onDelayInput: updateFlyinParams,
     onDistInput: updateFlyinParams,
+    onExportPngClick: () => exportFeature.runPngExportFlow(),
     onExportVideoClick: () => exportFeature.runExportFlow(),
     onScatterInput: updateFlyinParams,
     onToggleCursor: handleToggleCursor,

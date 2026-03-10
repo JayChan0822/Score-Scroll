@@ -11,6 +11,7 @@ export function bindUiEvents({
     onCancelExport,
     onDelayInput,
     onDistInput,
+    onExportPngClick,
     onExportVideoClick,
     onScatterInput,
     onToggleCursor,
@@ -32,6 +33,7 @@ export function bindUiEvents({
     dom.exportRatioSelect?.addEventListener("change", handleExportRatioChange);
     dom.cancelExportBtn?.addEventListener("click", onCancelExport);
     dom.playlineRatioSlider?.addEventListener("input", handlePlaylineRatioInput);
+    dom.exportPngBtn?.addEventListener("click", onExportPngClick);
     dom.exportVideoBtn?.addEventListener("click", onExportVideoClick);
     window.addEventListener("keydown", handleWindowKeydown);
     window.addEventListener("resize", handleResize);
