@@ -16,6 +16,7 @@ import {
 import { createSvgAnalysisFeature } from "./features/svg-analysis.js";
 import { createTimelineFeature } from "./features/timeline.js";
 import { bindUiEvents } from "./features/ui-events.js";
+import { debugLog } from "./utils/debug.js";
 import { formatSeconds } from "./utils/format.js";
 import { clamp } from "./utils/math.js";
 
@@ -332,7 +333,7 @@ function compileFontSignatures(fontName) {
             });
         }
     });
-    console.log(`🔤 音乐字体引擎已切换至: [${fontName}]，特征字典已编译！`);
+    debugLog(`🔤 音乐字体引擎已切换至: [${fontName}]，特征字典已编译！`);
 }
 
 // 默认加载 Default 字典
@@ -735,7 +736,7 @@ document.getElementById('midiInput').addEventListener('change', (event) => {
             globalMidiTempos.push({ ticks: 0, bpm: 120, time: 0 });
         }
 
-        console.log(`🎵 解析到全局变速事件：共 ${globalMidiTempos.length} 处速度变化`);
+        debugLog(`🎵 解析到全局变速事件：共 ${globalMidiTempos.length} 处速度变化`);
 
         isMidiLoaded = true;
         bpmSlider.disabled = true;
@@ -747,7 +748,7 @@ document.getElementById('midiInput').addEventListener('change', (event) => {
         if (svgTags && svgTags.length > 0) {
             timelineFeature.recalculateMidiTempoMap();
         } else {
-            console.log("⏳ MIDI 已就绪，等待 SVG 乐谱导入后进行时空映射...");
+            debugLog("⏳ MIDI 已就绪，等待 SVG 乐谱导入后进行时空映射...");
         }
     };
     reader.readAsArrayBuffer(file);
@@ -874,17 +875,17 @@ function autoDetectMusicFont(svgText) {
     });
 
     if (detectedFont) {
-        console.log(`🤖 [智能嗅探] 发现目标字体: ${detectedFont} (出现 ${maxCount} 次)`);
+        debugLog(`🤖 [智能嗅探] 发现目标字体: ${detectedFont} (出现 ${maxCount} 次)`);
 
         const selectEl = document.getElementById('musicFontSelect');
         // 如果当前下拉菜单不是检测到的字体，自动帮用户切换并重新编译字典
         if (selectEl.value !== detectedFont) {
             selectEl.value = detectedFont;
             compileFontSignatures(detectedFont);
-            console.log(`🔤 引擎已自动挂载 [${detectedFont}] 特征字典！`);
+            debugLog(`🔤 引擎已自动挂载 [${detectedFont}] 特征字典！`);
         }
     } else {
-        console.log('⚠️ [智能嗅探] 未在 SVG 中明确找到已注册的音乐字体，将保持当前选择。');
+        debugLog('⚠️ [智能嗅探] 未在 SVG 中明确找到已注册的音乐字体，将保持当前选择。');
     }
 }
 
@@ -1010,7 +1011,7 @@ document.getElementById('musicFontSelect').addEventListener('change', (e) => {
 
     // 如果舞台上已经有乐谱，一键重新扫描
     if (currentRawSvgContent) {
-        console.log("🔄 检测到字体库变更，正在热重载并重新扫描当前乐谱...");
+        debugLog("🔄 检测到字体库变更，正在热重载并重新扫描当前乐谱...");
         processSvgContent(currentRawSvgContent);
     }
 });
@@ -1183,7 +1184,7 @@ function identifyAndHighlightClefs() {
         }
     });
 
-    console.log(`✅ 谱号扫描完毕：主谱号 ${foundCount} 个，绑定游离八度修饰符 ${adoptedCount} 个。`);
+    debugLog(`✅ 谱号扫描完毕：主谱号 ${foundCount} 个，绑定游离八度修饰符 ${adoptedCount} 个。`);
 }
 
 // 🌟 辅助函数：将 SVG 内部绝对坐标转换为浏览器屏幕物理坐标
@@ -1274,6 +1275,16 @@ function identifyAndHighlightInitialBarlines() {
         let absoluteLeftmostV = Math.min(...validVerticals.map(v => v.x));
         let startCluster = validVerticals.filter(vLine => vLine.x <= absoluteLeftmostV + 30);
 
+        if (startCluster.length > 1) {
+            const tallestClusterHeight = Math.max(...startCluster.map(vLine => vLine.height));
+            const dominantHeightFloor = Math.max(10, tallestClusterHeight * 0.7);
+            const dominantCluster = startCluster.filter(vLine => vLine.height >= dominantHeightFloor);
+
+            if (dominantCluster.length > 0) {
+                startCluster = dominantCluster;
+            }
+        }
+
         // 🌟 3. 核心判定：这根最左边的线是不是“起手小节线”？
         // 如果它在谱号的右边很远（说明这只是第一小节的结束线），那我们就认为这是一张没有起手小节线的谱子！
         if (leftmostClefX === Infinity || absoluteLeftmostV <= leftmostClefX + 20) {
@@ -1303,7 +1314,7 @@ function identifyAndHighlightInitialBarlines() {
         ? trueBarlineScreenX
         : projectSvgInternalXToScreenX(svgRoot, globalSystemInternalX);
 
-    console.log(`✅ 开头小节线扫描完毕，共点亮 ${foundCount} 根！起点 X 已纠正为：${globalSystemInternalX}`);
+    debugLog(`✅ 开头小节线扫描完毕，共点亮 ${foundCount} 根！起点 X 已纠正为：${globalSystemInternalX}`);
 }
 
 function identifyAndHighlightGeometricBrackets() {
@@ -1466,7 +1477,7 @@ function identifyAndHighlightGeometricBrackets() {
     });
 
     if (foundCount > 0) {
-        console.log(`✅ 几何方括号扫描完毕，共点亮 ${foundCount} 组。`);
+        debugLog(`✅ 几何方括号扫描完毕，共点亮 ${foundCount} 组。`);
     }
 }
 
@@ -1494,7 +1505,7 @@ function identifyAndHighlightInstrumentNames() {
         }
     });
 
-    console.log(`✅ 乐器名扫描完毕，共标记 ${foundCount} 个左侧文本。`);
+    debugLog(`✅ 乐器名扫描完毕，共标记 ${foundCount} 个左侧文本。`);
 }
 
 function isTimeSignatureTextRectInsideStaffBands(textRect, staffBands, isGiant = false) {
@@ -1511,6 +1522,26 @@ function isTimeSignatureTextRectInsideStaffBands(textRect, staffBands, isGiant =
     // 正常的普通小拍号，依然严格要求中心点必须落在单行五线谱内部
     const centerY = (textRect.top + textRect.bottom) / 2;
     return staffBands.some(band => centerY >= band.paddedTop && centerY <= band.paddedBottom);
+}
+
+function hasStackedTimeSignaturePartner(candidate, candidates) {
+    if (!candidate?.rect || !Array.isArray(candidates)) return false;
+
+    const { rect } = candidate;
+
+    return candidates.some(other => {
+        if (other === candidate || !other?.rect) return false;
+        if (other.isSibeliusGiant) return false;
+        if (!(other.isPureNumber || other.isStandardTimeSig)) return false;
+
+        const dx = Math.abs(rect.left - other.rect.left);
+        const dy = Math.abs(rect.top - other.rect.top);
+        const maxAlignedXGap = Math.max(6, Math.min(rect.width, other.rect.width) * 0.5);
+        const minStackGap = Math.max(4, Math.min(rect.height, other.rect.height) * 0.2);
+        const maxStackGap = Math.max(24, Math.max(rect.height, other.rect.height) * 2.5);
+
+        return dx <= maxAlignedXGap && dy >= minStackGap && dy <= maxStackGap;
+    });
 }
 
 // 🌟 拍号雷达扫描器 (终极防御版：防孤立数字、防谱外、防远离小节线)
@@ -1590,25 +1621,12 @@ function identifyAndHighlightTimeSignatures() {
     // 🌟 第二步：对候选人进行严格的交叉审查
     candidates.forEach(candidate => {
         const { el, isPureNumber, isStandardTimeSig, isSibeliusGiant, rect } = candidate;
+        const requiresPartner = !isSibeliusGiant && (isPureNumber || isStandardTimeSig);
 
-        // 🛡️ 核心修复：孤立纯数字拦截器 (必须有上下对应的数字才是真拍号)
-        // 注意：C4/4拍(Common time)等标准符号，以及 Sibelius 的私有大拍号不受此限制
-        if (isPureNumber && !isStandardTimeSig && !isSibeliusGiant) {
-            const hasPartner = candidates.some(other => {
-                if (other === candidate) return false;
-                if (!other.isPureNumber) return false;
-
-                const dx = Math.abs(rect.left - other.rect.left);
-                const dy = Math.abs(rect.top - other.rect.top);
-
-                // 认亲条件：X 轴左右对齐(偏差<15px)，且 Y 轴有明显的上下分离(5px < dy < 100px)
-                return dx < 5 && dy > 0 && dy < 5;
-            });
-
-            if (!hasPartner) {
-                rejectedSolitaryCount++;
-                return; // 杀掉！这就是多小节休止符或者框框里的小节号
-            }
+        // 🛡️ 核心修复：常规数字拍号和 Sebastian 拍号字形都必须成对出现
+        if (requiresPartner && !hasStackedTimeSignaturePartner(candidate, candidates)) {
+            rejectedSolitaryCount++;
+            return;
         }
 
         const isGiantText = isSibeliusGiant || rect.height > 80;
@@ -1642,11 +1660,16 @@ function identifyAndHighlightTimeSignatures() {
             }
         }
 
+        if (!isNearBarline) {
+            rejectedFarFromBarlineCount++;
+            return;
+        }
+
         el.classList.add('highlight-timesig');
         foundCount++;
     });
 
-    console.log(`✅ 拍号扫描：点亮 ${foundCount} 个 | 排除孤立数字 ${rejectedSolitaryCount} 个 | 排除谱外 ${rejectedOutsideStaffCount} 个 | 远离小节线 ${rejectedFarFromBarlineCount} 个。`);
+    debugLog(`✅ 拍号扫描：点亮 ${foundCount} 个 | 排除孤立数字 ${rejectedSolitaryCount} 个 | 排除谱外 ${rejectedOutsideStaffCount} 个 | 远离小节线 ${rejectedFarFromBarlineCount} 个。`);
 }
 
 function identifyAndHighlightKeySignatures() {
@@ -1691,7 +1714,7 @@ function identifyAndHighlightKeySignatures() {
         count++;
     });
 
-    console.log(`📡 变音记号初筛完成，共标记 ${count} 个候选。`);
+    debugLog(`📡 变音记号初筛完成，共标记 ${count} 个候选。`);
 }
 
 function identifyAndHighlightAccidentals() {
@@ -1794,7 +1817,7 @@ function identifyAndHighlightAccidentals() {
     });
 
     const { finalKeySignatureCount, finalAccidentalCount } = getFinalAccidentalDisplayCounts(svgRoot);
-    console.log(`🎯 变音记号识别完成：最终调号 ${finalKeySignatureCount} 个，最终临时记号 ${finalAccidentalCount} 个。`);
+    debugLog(`🎯 变音记号识别完成：最终调号 ${finalKeySignatureCount} 个，最终临时记号 ${finalAccidentalCount} 个。`);
 }
 
 function getFinalAccidentalDisplayCounts(svgRoot) {
@@ -2198,9 +2221,9 @@ function initScoreMapping(svgRoot) {
         svgTags.push({ x: uniqueBarlines[uniqueBarlines.length - 1], tick: currentGlobalTick });
     }
 
-    console.log(`📊 统计：物理小节线 ${barCount} 条 | 小节数 ${mCount} | 起始模式：${hasStartBarline ? '物理线' : '虚拟补齐'}`);
+    debugLog(`📊 统计：物理小节线 ${barCount} 条 | 小节数 ${mCount} | 起始模式：${hasStartBarline ? '物理线' : '虚拟补齐'}`);
 
-    console.log(`🎯 完美映射：生成 ${svgTags.length} 个锚点，总长度为 ${currentGlobalTick} Ticks。`);
+    debugLog(`🎯 完美映射：生成 ${svgTags.length} 个锚点，总长度为 ${currentGlobalTick} Ticks。`);
 }
 
 let smoothX = 0;

@@ -1,3 +1,5 @@
+import { debugLog } from "../utils/debug.js";
+
 export function createSvgAnalysisFeature({
     getFallbackSystemInternalX,
     getMathFlyinParams,
@@ -579,7 +581,7 @@ export function createSvgAnalysisFeature({
         });
 
         renderQueue.sort((a, b) => (a.domIndex || 0) - (b.domIndex || 0));
-        console.log(`📦 内存数据库构建：已提取强分离指令 ${renderQueue.length} 条！`);
+        debugLog(`📦 内存数据库构建：已提取强分离指令 ${renderQueue.length} 条！`);
 
         return {
             globalAbsoluteStaffLineYs,

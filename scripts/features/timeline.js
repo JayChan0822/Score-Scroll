@@ -1,5 +1,7 @@
 // @ts-check
 
+import { debugLog } from "../utils/debug.js";
+
 /**
  * @typedef {ReturnType<typeof import("../core/dom.js").getDomRefs>} DomRefs
  */
@@ -275,7 +277,7 @@ export function createTimelineFeature({
         syncTransforms();
         updateProgressUI(0);
 
-        console.log("✅ 全局变速曲线融合完毕！最终驱动数据：", nextMapData);
+        debugLog("✅ 全局变速曲线融合完毕！最终驱动数据：", nextMapData);
 
         if (dom.playBtn) {
             dom.playBtn.disabled = false;

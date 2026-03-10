@@ -388,3 +388,102 @@ test('exports numbered png frames through the directory access api', async ({ pa
   expect(frameWrites[0]).toMatchObject({ fileName: 'frame_000001.png', mime: 'image/png' });
   expect(frameWrites[1]).toMatchObject({ fileName: 'frame_000002.png', mime: 'image/png' });
 });
+
+test('gates debug instrumentation behind a shared debug logger', async () => {
+  const debugModulePath = path.resolve(__dirname, '..', 'scripts', 'utils', 'debug.js');
+
+  expect(fs.existsSync(debugModulePath)).toBe(true);
+
+  const debugSource = fs.readFileSync(debugModulePath, 'utf8');
+  expect(debugSource).toContain('export const DEBUG_LOGS_ENABLED = false');
+  expect(debugSource).toContain('export function debugLog(...args)');
+  expect(debugSource).toContain('if (!DEBUG_LOGS_ENABLED) return;');
+  expect(debugSource).toContain('console.log(...args);');
+});
+
+test('routes selected development logs through the shared debug logger', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const svgAnalysisSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js'), 'utf8');
+  const timelineSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'timeline.js'), 'utf8');
+  const audioSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'audio.js'), 'utf8');
+
+  expect(appSource).toContain('import { debugLog } from "./utils/debug.js";');
+  expect(svgAnalysisSource).toContain('import { debugLog } from "../utils/debug.js";');
+  expect(timelineSource).toContain('import { debugLog } from "../utils/debug.js";');
+  expect(audioSource).toContain('import { debugLog } from "../utils/debug.js";');
+
+  expect(appSource).not.toContain('console.log(`🔤 音乐字体引擎已切换至:');
+  expect(appSource).not.toContain('console.log(`🤖 [智能嗅探] 发现目标字体:');
+  expect(svgAnalysisSource).not.toContain('console.log(`📦 内存数据库构建：');
+  expect(timelineSource).not.toContain('console.log("✅ 全局变速曲线融合完毕！最终驱动数据：", nextMapData);');
+  expect(audioSource).not.toContain('console.log(`🎼 [乐谱分析] 检测到首个音符位于:');
+});
+
+test('keeps stacked opening time signatures while rejecting short stems and isolated sebastian digits', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'time-signature-regression.svg');
+
+  await page.goto('/index.html');
+
+  await page.evaluate(() => {
+    const sandbox = document.getElementById('svg-sandbox');
+    if (!sandbox) return;
+
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (!innerHtmlDescriptor?.get || !innerHtmlDescriptor?.set) return;
+
+    Object.defineProperty(sandbox, 'innerHTML', {
+      configurable: true,
+      get() {
+        return innerHtmlDescriptor.get.call(this);
+      },
+      set(value) {
+        if (value === '' && this.querySelector('svg')) {
+          return;
+        }
+        innerHtmlDescriptor.set.call(this, value);
+      },
+    });
+  });
+
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('text').length : 0;
+  })).toBeGreaterThan(0);
+
+  const detectionState = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const openingFours = Array.from(svg.querySelectorAll('text'))
+      .filter((el) => (el.textContent || '').trim() === '')
+      .map((el) => ({
+        text: (el.textContent || '').trim(),
+        classes: el.className.baseVal || '',
+      }));
+
+    const isolatedTwo = Array.from(svg.querySelectorAll('text'))
+      .find((el) => (el.textContent || '').trim() === '');
+
+    const shortStem = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('points') === '88,100 88,113');
+
+    const openingBarline = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('x1') === '60' && el.getAttribute('x2') === '60');
+
+    return {
+      openingFours,
+      isolatedTwoClasses: isolatedTwo?.className?.baseVal || '',
+      shortStemClasses: shortStem?.className?.baseVal || '',
+      openingBarlineClasses: openingBarline?.className?.baseVal || '',
+    };
+  });
+
+  expect(detectionState).not.toBeNull();
+  expect(detectionState.openingFours).toHaveLength(2);
+  expect(detectionState.openingFours.every((item) => item.classes.includes('highlight-timesig'))).toBe(true);
+  expect(detectionState.isolatedTwoClasses).not.toContain('highlight-timesig');
+  expect(detectionState.shortStemClasses).not.toContain('highlight-barline');
+  expect(detectionState.openingBarlineClasses).toContain('highlight-barline');
+});

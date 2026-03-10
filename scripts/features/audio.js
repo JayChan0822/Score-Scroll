@@ -1,5 +1,6 @@
 // @ts-check
 
+import { debugLog } from "../utils/debug.js";
 import { clamp } from "../utils/math.js";
 
 /**
@@ -96,7 +97,7 @@ export function createAudioFeature({
             if (firstNoteX >= p1.x && firstNoteX <= p2.x) {
                 const progress = (firstNoteX - p1.x) / (p2.x - p1.x);
                 const scoreStartTime = p1.time + progress * (p2.time - p1.time);
-                console.log(`🎼 [乐谱分析] 检测到首个音符位于: ${scoreStartTime.toFixed(3)}s`);
+                debugLog(`🎼 [乐谱分析] 检测到首个音符位于: ${scoreStartTime.toFixed(3)}s`);
                 return scoreStartTime;
             }
         }
@@ -122,7 +123,7 @@ export function createAudioFeature({
             }
 
             seekToTime(firstNoteTime);
-            console.log(`⏱️ [智能同步] 成功！乐谱首音：${firstNoteTime.toFixed(3)}s, 音频首音：${globalAudioOnsetSec.toFixed(3)}s, 偏移：${autoOffset}s`);
+            debugLog(`⏱️ [智能同步] 成功！乐谱首音：${firstNoteTime.toFixed(3)}s, 音频首音：${globalAudioOnsetSec.toFixed(3)}s, 偏移：${autoOffset}s`);
         } catch (error) {
             console.error("⚠️ 自动对齐失败:", error);
         }
@@ -155,7 +156,7 @@ export function createAudioFeature({
 
             if (rms > threshold) {
                 const onsetTime = i / sampleRate;
-                console.log(`🔊 [音频分析] 检测到第一个有效波形: ${onsetTime.toFixed(3)}s`);
+                debugLog(`🔊 [音频分析] 检测到第一个有效波形: ${onsetTime.toFixed(3)}s`);
                 return onsetTime;
             }
         }
@@ -181,7 +182,7 @@ export function createAudioFeature({
         try {
             const onset = await detectFirstAudioOnset(file);
             setGlobalAudioOnsetSec(onset);
-            console.log(`🔊 [音频分析] 独立检测完成，起音: ${onset.toFixed(3)}s`);
+            debugLog(`🔊 [音频分析] 独立检测完成，起音: ${onset.toFixed(3)}s`);
             await tryAlignAudioAndScore();
         } catch (error) {
             console.error("⚠️ 音频起音检测失败:", error);
