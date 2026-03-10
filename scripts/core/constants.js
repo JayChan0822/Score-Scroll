@@ -1,0 +1,3 @@
+export const PREVIEW_BOTTOM_BUFFER_PX = 64;
+export const PRIVATE_USE_GLYPH_REGEX = /[\uE000-\uF8FF]/;
+export const TIME_SIGNATURE_GLYPH_REGEX = /[\uE080-\uE08B\uE090-\uE099\uE0A0-\uE0A9]/;

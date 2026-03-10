@@ -1,0 +1,171 @@
+#score-canvas {
+    display: block;
+    height: 100%;
+    pointer-events: none;
+    width: 100%;
+}
+
+.noise-overlay {
+    background: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIj48ZmlsdGVyIGlkPSJub2lzZSI+PGZlVHVyYnVsZW5jZSB0eXBlPSJmcmFjdGFsTm9pc2UiIGJhc2VGcmVxdWVuY3k9IjAuNjUiIG51bSBPY3RhdmVzPSIzIiBzdGl0Y2hUaWxlcz0ic3RpdGNoIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsdGVyPSJ1cmwoI25vaXNlKSIgb3BhY2l0eT0iMSIvPjwvc3ZnPg==');
+    height: 100%;
+    left: 0;
+    opacity: 0.05;
+    pointer-events: none;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    z-index: 0;
+}
+
+.runtime-warning {
+    background: rgba(255, 179, 0, 0.14);
+    border: 1px solid rgba(255, 179, 0, 0.45);
+    border-radius: 20px;
+    color: #fff4cc;
+    margin: 0 auto 24px;
+    max-width: 960px;
+    padding: 18px 22px;
+    position: relative;
+    z-index: 20;
+}
+
+.runtime-warning p + p {
+    margin-top: 8px;
+}
+
+.runtime-warning-title {
+    color: #ffd36b;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.runtime-warning code {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    color: #ffffff;
+    padding: 2px 6px;
+}
+
+.apple-animate {
+    animation: textReveal 1s var(--easing) forwards;
+    opacity: 0;
+    transform: translateY(30px);
+}
+
+.delay-1 {
+    animation-delay: 0.15s;
+}
+
+.delay-2 {
+    animation-delay: 0.3s;
+}
+
+.delay-3 {
+    animation-delay: 0.45s;
+}
+
+@keyframes textReveal {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+header {
+    margin-bottom: 40px;
+    position: relative;
+    text-align: left;
+    z-index: 10;
+}
+
+.hero-subtitle {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    letter-spacing: 0.4em;
+    margin-bottom: 20px;
+    padding: 10px 0;
+    text-transform: uppercase;
+    width: fit-content;
+}
+
+.hero-title {
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    text-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.app-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    margin: 0 auto;
+    max-width: 2160px;
+    position: relative;
+    z-index: 10;
+}
+
+.bento-controls {
+    display: grid;
+    gap: 24px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.bento-card {
+    backdrop-filter: blur(20px);
+    background: var(--panel-bg);
+    border: 1px solid var(--border-light);
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow: hidden;
+    padding: 30px;
+    position: relative;
+    transition: all 0.5s var(--easing);
+    -webkit-backdrop-filter: blur(20px);
+}
+
+.bento-card::before {
+    background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.05), transparent 60%);
+    content: "";
+    height: 100%;
+    left: 0;
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    transition: opacity 0.5s ease;
+    width: 100%;
+}
+
+.bento-card:hover {
+    background: var(--panel-hover);
+    border-color: var(--border-hover);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    transform: translateY(-4px);
+}
+
+.bento-card:hover::before {
+    opacity: 1;
+}
+
+.bento-title {
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+}
+
+.stage-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 20px;
+}

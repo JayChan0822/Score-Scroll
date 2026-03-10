@@ -1,0 +1,42 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    min-height: 100%;
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text-main);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+    overflow-x: hidden;
+    padding: clamp(20px, 4vw, 60px) clamp(20px, 5vw, 100px);
+    position: relative;
+}
+
+:is(button, input, select):focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 4px;
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 20px;
+    }
+
+    .hero-title {
+        font-size: 2rem;
+    }
+
+    .bento-controls {
+        grid-template-columns: 1fr;
+    }
+
+    #viewport {
+        border-radius: 16px;
+    }
+}

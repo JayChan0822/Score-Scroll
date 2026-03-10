@@ -1,0 +1,14 @@
+:root {
+    --bg: #050505;
+    --panel-bg: rgba(20, 20, 20, 0.4);
+    --panel-hover: rgba(30, 30, 30, 0.6);
+    --border-light: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.3);
+    --text-main: #ffffff;
+    --text-muted: #888888;
+    --accent: #ffffff;
+    --easing: cubic-bezier(0.19, 1, 0.22, 1);
+    --score-top: 48px;
+    --viewport-bg: #000000;
+    --note-color: #ffffff;
+}

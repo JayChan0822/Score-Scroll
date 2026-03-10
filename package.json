@@ -1,0 +1,28 @@
+{
+  "name": "score-scroll",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "serve": "python3 -m http.server 4173",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:smoke": "playwright test tests/score-scroll-smoke.spec.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JayChan0822/Score-Scroll.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/JayChan0822/Score-Scroll/issues"
+  },
+  "homepage": "https://github.com/JayChan0822/Score-Scroll#readme",
+  "description": "",
+  "dependencies": {
+    "mp4-muxer": "^5.2.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
