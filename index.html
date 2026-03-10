@@ -55,19 +55,6 @@
 <div class="app-shell">
     <div class="workspace-scale-frame">
         <div class="workspace-layout">
-            <div class="stage-wrap apple-animate delay-3">
-                <div id="viewport">
-                    <canvas id="score-canvas"></canvas>
-                    <div id="svg-sandbox"></div>
-
-                    <div class="zoom-control-wrapper">
-                        <button class="zoom-btn" id="zoomOutBtn">−</button>
-                        <input type="range" id="zoomSlider" min="0.2" max="3" step="0.01" value="1">
-                        <button class="zoom-btn" id="zoomInBtn">+</button>
-                        <span id="zoomValDisplay" class="zoom-value">100%</span>
-                    </div>
-                </div>
-            </div>
             <div class="control-stack">
                 <div class="bento-card sources-card apple-animate delay-1">
                     <div class="bento-title">Sources</div>
@@ -143,23 +130,23 @@
                         <span class="slider-label slider-label-narrow">导出范围</span>
                         <div class="inline-field-group">
                             <input
-                                type="number"
-                                id="exportStartInput"
-                                class="control-number"
-                                value="0"
-                                min="0"
-                                step="0.1"
-                                placeholder="开始(秒)"
+                                    type="number"
+                                    id="exportStartInput"
+                                    class="control-number"
+                                    value="0"
+                                    min="0"
+                                    step="0.1"
+                                    placeholder="开始(秒)"
                             >
                             <span class="field-separator">至</span>
                             <input
-                                type="number"
-                                id="exportEndInput"
-                                class="control-number"
-                                value="0"
-                                min="0"
-                                step="0.1"
-                                placeholder="结束(秒)"
+                                    type="number"
+                                    id="exportEndInput"
+                                    class="control-number"
+                                    value="0"
+                                    min="0"
+                                    step="0.1"
+                                    placeholder="结束(秒)"
                             >
                         </div>
                     </div>
@@ -233,6 +220,19 @@
                             <span id="durationDisplay">/ 0.00 s</span>
                         </div>
                         <input type="range" id="progressSlider" min="0" max="1" step="0.01" value="0" disabled>
+                    </div>
+                </div>
+            </div>
+            <div class="stage-wrap apple-animate delay-3">
+                <div id="viewport">
+                    <canvas id="score-canvas"></canvas>
+                    <div id="svg-sandbox"></div>
+
+                    <div class="zoom-control-wrapper">
+                        <button class="zoom-btn" id="zoomOutBtn">−</button>
+                        <input type="range" id="zoomSlider" min="0.2" max="3" step="0.01" value="1">
+                        <button class="zoom-btn" id="zoomInBtn">+</button>
+                        <span id="zoomValDisplay" class="zoom-value">100%</span>
                     </div>
                 </div>
             </div>

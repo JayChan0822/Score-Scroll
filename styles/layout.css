@@ -116,7 +116,7 @@ header {
 .workspace-layout {
     display: grid;
     gap: 20px;
-    grid-template-columns: minmax(0, 1fr) minmax(450px, 500px);
+    grid-template-columns: minmax(450px, 500px) minmax(0, 1fr); /* 交换位置 */
 }
 
 .control-stack {
@@ -233,10 +233,10 @@ header {
     }
 
     .stage-wrap {
-        order: 1;
+        order: 2;
     }
 
     .control-stack {
-        order: 2;
+        order: 1;
     }
 }
