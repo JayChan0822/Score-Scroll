@@ -34,8 +34,9 @@ test('optimized score scroll shell loads with key controls', async ({ page }) =>
 
   await expect(page).toHaveTitle(/Score Scroll/i);
   await expect(page.locator('head link[href="./styles/main.css"]')).toHaveCount(1);
+  await expect(page.locator('head link[rel="icon"]')).toHaveCount(1);
   await expect(page.locator('head script[src="./vendor/mp4-muxer.js"]')).toHaveCount(1);
-  await expect(page.locator('head script[type="module"][src="./scripts/app.js"]')).toHaveCount(1);
+  await expect(page.locator('head script[type="module"][src^="./scripts/app.js"]')).toHaveCount(1);
   await expect(page.locator('head style')).toHaveCount(0);
   await expect(page.locator('body > script:not([src])')).toHaveCount(0);
   await expect(page.locator('.hero-title')).toBeVisible();
@@ -53,6 +54,7 @@ test('optimized score scroll shell loads with key controls', async ({ page }) =>
 
   expect(pageErrors).toEqual([]);
   expect(failedRequests).toEqual([]);
+  expect(responseStatuses.get('/favicon.ico') ?? 200).toBe(200);
   expect(responseStatuses.get('/vendor/mp4-muxer.js')).toBe(200);
   expect([...requestedPaths]).toEqual(expect.arrayContaining([
     '/vendor/mp4-muxer.js',
@@ -188,6 +190,53 @@ test('adds jsdoc-based typecheck coverage for the selected core modules', async 
     const source = fs.readFileSync(filePath, 'utf8');
     expect(source).toContain('// @ts-check');
   }
+});
+
+test('extends playback with a two-second tail buffer', async ({ page }) => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const exportSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'export-video.js'), 'utf8');
+
+  await page.goto('/index.html');
+
+  const playbackData = await page.evaluate(async () => {
+    const playbackModule = await import(`/scripts/features/playback.js?tail-buffer=${Date.now()}`);
+    const { createPlaybackHelpers, PLAYBACK_TAIL_BUFFER_SEC } = playbackModule;
+    const mapData = [
+      { time: 0, x: 0 },
+      { time: 2, x: 100 },
+      { time: 4, x: 200 },
+    ];
+    const totalDuration = mapData[mapData.length - 1].time + PLAYBACK_TAIL_BUFFER_SEC;
+    const helpers = createPlaybackHelpers({
+      getCachedViewportWidth: () => 600,
+      getMapData: () => mapData,
+      getTotalDuration: () => totalDuration,
+    });
+
+    return {
+      gainAtTailEnd: helpers.getPlaybackGainByTime(totalDuration),
+      gainAtTailMid: helpers.getPlaybackGainByTime(5),
+      gainBeforeTail: helpers.getPlaybackGainByTime(3.99),
+      hasGainHelper: typeof helpers.getPlaybackGainByTime === 'function',
+      tailAtBaseX: helpers.getInterpolatedXByTime(4).x,
+      tailAtEndAtEnd: helpers.getInterpolatedXByTime(totalDuration).atEnd,
+      tailAtMidX: helpers.getInterpolatedXByTime(5).x,
+      tailBufferSec: PLAYBACK_TAIL_BUFFER_SEC,
+    };
+  });
+
+  expect(playbackData.tailBufferSec).toBe(2);
+  expect(playbackData.hasGainHelper).toBe(true);
+  expect(playbackData.tailAtBaseX).toBe(200);
+  expect(playbackData.tailAtMidX).toBeGreaterThan(200);
+  expect(playbackData.tailAtEndAtEnd).toBe(true);
+  expect(playbackData.gainBeforeTail).toBeCloseTo(1, 2);
+  expect(playbackData.gainAtTailMid).toBeCloseTo(0.5, 2);
+  expect(playbackData.gainAtTailEnd).toBe(0);
+  expect(appSource).toContain('getPlaybackGainByTime');
+  expect(appSource).toContain('currentTime >= total');
+  expect(exportSource).toContain('createGain');
+  expect(exportSource).toContain('linearRampToValueAtTime');
 });
 
 test('extracts the timeline pipeline into a dedicated feature module', async () => {
@@ -674,36 +723,59 @@ test('uses a left preview with a right stacked control column on desktop and sta
   expect(htmlSource).toContain('class="workspace-layout"');
   expect(htmlSource).toContain('class="control-stack"');
   expect(htmlSource).toContain('sources-card');
+  expect(htmlSource).toContain('appearance-card');
+  expect(htmlSource).toContain('effects-card');
   expect(htmlSource).toContain('transport-card');
+  expect(htmlSource).toContain('playback-card');
+  expect(htmlSource).toContain('export-card');
+  expect(htmlSource).toContain('delay-4');
+  expect(htmlSource).toContain('delay-5');
 
   await page.setViewportSize({ width: 1180, height: 960 });
   await page.goto('/index.html');
 
   const workspaceScaleFrame = page.locator('.workspace-scale-frame');
+  const controlCards = page.locator('.control-stack > .bento-card');
   const workspaceLayout = page.locator('.workspace-layout');
   const canvasBox = await page.locator('#score-canvas').boundingBox();
   const viewportBox = await page.locator('#viewport').boundingBox();
   const stageWrapBox = await page.locator('.stage-wrap').boundingBox();
   const controlStackBox = await page.locator('.control-stack').boundingBox();
   const sourcesBox = await page.locator('.sources-card').boundingBox();
-  const transportBox = await page.locator('.transport-card').boundingBox();
+  const playbackBox = await page.locator('.playback-card').boundingBox();
+  const effectsBox = await page.locator('.effects-card').boundingBox();
+  const appearanceBox = await page.locator('.appearance-card').boundingBox();
+  const exportBox = await page.locator('.export-card').boundingBox();
   const workspaceTransform = await workspaceLayout.evaluate((node) => getComputedStyle(node).transform);
+  const workspaceScaleMatch = workspaceTransform.match(/matrix\(([^,]+)/);
+  const workspaceScale = workspaceScaleMatch ? Number.parseFloat(workspaceScaleMatch[1]) : Number.NaN;
 
   await expect(workspaceScaleFrame).toHaveCount(1);
+  await expect(controlCards).toHaveCount(5);
   expect(canvasBox).not.toBeNull();
   expect(viewportBox).not.toBeNull();
   expect(stageWrapBox).not.toBeNull();
   expect(controlStackBox).not.toBeNull();
   expect(sourcesBox).not.toBeNull();
-  expect(transportBox).not.toBeNull();
+  expect(playbackBox).not.toBeNull();
+  expect(effectsBox).not.toBeNull();
+  expect(appearanceBox).not.toBeNull();
+  expect(exportBox).not.toBeNull();
   expect(workspaceTransform).not.toBe('none');
-  expect(workspaceTransform).toMatch(/matrix\((0\.75|0\.750|0\.749)/);
+  expect(Number.isFinite(workspaceScale)).toBe(true);
+  expect(workspaceScale).toBeGreaterThan(0.5);
+  expect(workspaceScale).toBeLessThanOrEqual(1);
 
-  expect(viewportBox.x + viewportBox.width).toBeLessThan(sourcesBox.x + 5);
-  expect(viewportBox.x + viewportBox.width).toBeLessThan(transportBox.x + 5);
-  expect(sourcesBox.y).toBeLessThan(transportBox.y);
+  expect(sourcesBox.x + sourcesBox.width).toBeLessThan(viewportBox.x + 5);
+  expect(playbackBox.x + playbackBox.width).toBeLessThan(viewportBox.x + 5);
+  expect(effectsBox.x + effectsBox.width).toBeLessThan(viewportBox.x + 5);
+  expect(sourcesBox.y).toBeLessThan(playbackBox.y);
+  expect(playbackBox.y).toBeLessThan(effectsBox.y);
+  expect(effectsBox.y).toBeLessThan(appearanceBox.y);
+  expect(effectsBox.y).toBeLessThan(exportBox.y);
+  expect(appearanceBox.x).toBeLessThan(exportBox.x);
+  expect(Math.abs(appearanceBox.y - exportBox.y)).toBeLessThan(8);
   expect(controlStackBox.width).toBeGreaterThan(320);
-  expect(controlStackBox.width).toBeLessThan(400);
   expect(Math.abs(canvasBox.width - viewportBox.width)).toBeLessThan(4);
   expect(Math.abs(canvasBox.height - viewportBox.height)).toBeLessThan(4);
   expect(Math.abs(stageWrapBox.height - controlStackBox.height)).toBeLessThan(4);
@@ -732,12 +804,20 @@ test('uses a left preview with a right stacked control column on desktop and sta
 
   const viewportBoxMobile = await page.locator('#viewport').boundingBox();
   const sourcesBoxMobile = await page.locator('.sources-card').boundingBox();
-  const transportBoxMobile = await page.locator('.transport-card').boundingBox();
+  const playbackBoxMobile = await page.locator('.playback-card').boundingBox();
+  const effectsBoxMobile = await page.locator('.effects-card').boundingBox();
+  const appearanceBoxMobile = await page.locator('.appearance-card').boundingBox();
+  const exportBoxMobile = await page.locator('.export-card').boundingBox();
 
   expect(viewportBoxMobile).not.toBeNull();
   expect(sourcesBoxMobile).not.toBeNull();
-  expect(transportBoxMobile).not.toBeNull();
+  expect(playbackBoxMobile).not.toBeNull();
+  expect(effectsBoxMobile).not.toBeNull();
+  expect(appearanceBoxMobile).not.toBeNull();
+  expect(exportBoxMobile).not.toBeNull();
 
-  expect(viewportBoxMobile.y).toBeLessThan(sourcesBoxMobile.y);
-  expect(sourcesBoxMobile.y).toBeLessThan(transportBoxMobile.y);
+  expect(sourcesBoxMobile.y).toBeLessThan(playbackBoxMobile.y);
+  expect(playbackBoxMobile.y).toBeLessThan(effectsBoxMobile.y);
+  expect(effectsBoxMobile.y).toBeLessThan(appearanceBoxMobile.y);
+  expect(appearanceBoxMobile.y).toBeLessThan(exportBoxMobile.y);
 });

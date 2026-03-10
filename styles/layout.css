@@ -66,6 +66,14 @@
     animation-delay: 0.45s;
 }
 
+.delay-4 {
+    animation-delay: 0.6s;
+}
+
+.delay-5 {
+    animation-delay: 0.75s;
+}
+
 @keyframes textReveal {
     to {
         opacity: 1;
@@ -116,13 +124,19 @@ header {
 .workspace-layout {
     display: grid;
     gap: 20px;
-    grid-template-columns: minmax(450px, 500px) minmax(0, 1fr); /* 交换位置 */
+    grid-template-columns: minmax(550px, 600px) minmax(0, 1fr); /* 交换位置 */
 }
 
 .control-stack {
-    display: flex;
-    flex-direction: column;
+    align-content: start;
+    display: grid;
     gap: 24px;
+    grid-template-areas:
+        "sources sources"
+        "playback playback"
+        "effects effects"
+        "appearance export";
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .bento-card {
@@ -185,14 +199,51 @@ header {
     align-self: stretch;
 }
 
+.control-stack > .bento-card,
 .sources-card,
-.transport-card {
+.transport-card,
+.appearance-card,
+.effects-card,
+.playback-card,
+.export-card {
     min-width: 0;
 }
 
-.sources-card,
-.transport-card {
-    flex: 0 0 auto;
+.control-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.control-section .section-divider {
+    margin: 4px 0;
+}
+
+.sources-card {
+    grid-area: sources;
+}
+
+.transport-card,
+.playback-card {
+    grid-area: playback;
+}
+
+.effects-card {
+    grid-area: effects;
+}
+
+.appearance-card {
+    grid-area: appearance;
+}
+
+.export-card {
+    grid-area: export;
+}
+
+.appearance-card .btn-group:last-child button,
+.export-card .btn-group:last-child button {
+    flex: 1 1 calc(50% - 6px);
 }
 
 @media (min-width: 901px) {
@@ -237,6 +288,13 @@ header {
     }
 
     .control-stack {
+        grid-template-areas:
+            "sources"
+            "playback"
+            "effects"
+            "appearance"
+            "export";
+        grid-template-columns: 1fr;
         order: 1;
     }
 }

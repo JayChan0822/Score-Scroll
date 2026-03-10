@@ -33,11 +33,13 @@ import { clamp } from "../utils/math.js";
  * @typedef {Object} PlaybackHelpers
  * @property {(state: PlaybackState | null | undefined, startTime: number, targetTime: number, maxStepSec?: number) => PlaybackState} advancePlaybackStateToTime
  * @property {(currentTime: number) => number} findCurrentIndexByTime
+ * @property {(currentTime: number) => number} getPlaybackGainByTime
  * @property {(currentTime: number) => InterpolatedPosition} getInterpolatedXByTime
  * @property {(currentTime: number) => number} getSmoothedTargetVelocityByTime
  */
 
 export const PLAYBACK_SIMULATION_STEP_SEC = 1 / 120;
+export const PLAYBACK_TAIL_BUFFER_SEC = 2;
 const VELOCITY_SAMPLE_WINDOW_SEC = 0.4;
 const MAX_TARGET_VELOCITY_PX_PER_SEC = 2500;
 const PHASE_KP = 2.5;
@@ -53,6 +55,44 @@ export function createPlaybackHelpers({
     getMapData,
     getTotalDuration,
 }) {
+    function getRawDuration() {
+        const mapData = getMapData();
+        if (mapData.length < 2) return 0;
+        return mapData[mapData.length - 1].time;
+    }
+
+    function getTailVelocity() {
+        const mapData = getMapData();
+        if (mapData.length < 2) return 0;
+
+        const previousPoint = mapData[mapData.length - 2];
+        const finalPoint = mapData[mapData.length - 1];
+        const duration = Math.max(1e-4, finalPoint.time - previousPoint.time);
+        const velocity = (finalPoint.x - previousPoint.x) / duration;
+
+        return clamp(velocity, -MAX_TARGET_VELOCITY_PX_PER_SEC, MAX_TARGET_VELOCITY_PX_PER_SEC);
+    }
+
+    /**
+     * @param {number} currentTime
+     * @returns {number}
+     */
+    function getPlaybackGainByTime(currentTime) {
+        const rawDuration = getRawDuration();
+        const total = getTotalDuration();
+
+        if (rawDuration <= 0 || total <= rawDuration || currentTime <= rawDuration) {
+            return 1;
+        }
+
+        if (currentTime >= total) {
+            return 0;
+        }
+
+        const fadeDuration = Math.max(1e-4, total - rawDuration);
+        return clamp((total - currentTime) / fadeDuration, 0, 1);
+    }
+
     /** @param {number} currentTime */
     function findCurrentIndexByTime(currentTime) {
         const mapData = getMapData();
@@ -86,9 +126,23 @@ export function createPlaybackHelpers({
         const mapData = getMapData();
         if (mapData.length < 2) return { x: 0, index: 0, atEnd: false };
 
+        const rawDuration = getRawDuration();
         const total = getTotalDuration();
         if (currentTime >= total) {
-            return { x: mapData[mapData.length - 1].x, index: mapData.length - 1, atEnd: true };
+            const tailDistance = Math.max(0, total - rawDuration) * getTailVelocity();
+            return {
+                x: mapData[mapData.length - 1].x + tailDistance,
+                index: mapData.length - 1,
+                atEnd: true,
+            };
+        }
+
+        if (currentTime >= rawDuration) {
+            return {
+                x: mapData[mapData.length - 1].x + Math.max(0, currentTime - rawDuration) * getTailVelocity(),
+                index: mapData.length - 1,
+                atEnd: false,
+            };
         }
 
         const currentIndex = findCurrentIndexByTime(currentTime);
@@ -105,6 +159,11 @@ export function createPlaybackHelpers({
     function getSmoothedTargetVelocityByTime(currentTime) {
         const mapData = getMapData();
         if (mapData.length < 2) return 0;
+
+        const rawDuration = getRawDuration();
+        if (currentTime >= rawDuration) {
+            return getTailVelocity();
+        }
 
         const total = getTotalDuration();
         const half = VELOCITY_SAMPLE_WINDOW_SEC / 10;
@@ -197,6 +256,7 @@ export function createPlaybackHelpers({
     return {
         advancePlaybackStateToTime,
         findCurrentIndexByTime,
+        getPlaybackGainByTime,
         getInterpolatedXByTime,
         getSmoothedTargetVelocityByTime,
     };

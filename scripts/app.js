@@ -12,7 +12,7 @@ import { parseMidiData } from "./features/midi.js";
 import {
     createPlaybackHelpers,
     PLAYBACK_SIMULATION_STEP_SEC,
-} from "./features/playback.js";
+} from "./features/playback.js?v=20260311-playback-tail-2";
 import { createSvgAnalysisFeature } from "./features/svg-analysis.js";
 import { createTimelineFeature } from "./features/timeline.js";
 import { bindUiEvents } from "./features/ui-events.js";
@@ -21,6 +21,7 @@ import { formatSeconds } from "./utils/format.js";
 import { clamp } from "./utils/math.js";
 
 const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
+const PLAYBACK_TAIL_BUFFER_SEC = 2;
 const workspaceScaleFrame = document.querySelector(".workspace-scale-frame");
 const workspaceLayout = document.querySelector(".workspace-layout");
 
@@ -180,6 +181,7 @@ const playbackHelpers = createPlaybackHelpers({
 const {
     advancePlaybackStateToTime,
     findCurrentIndexByTime,
+    getPlaybackGainByTime,
     getInterpolatedXByTime,
     getSmoothedTargetVelocityByTime,
 } = playbackHelpers;
@@ -257,6 +259,7 @@ const exportFeature = createExportVideoFeature({
     getGlobalAudioFile: () => globalAudioFile,
     getGlobalScoreHeight: () => globalScoreHeight,
     getGlobalZoom: () => globalZoom,
+    getPlaybackGainByTime,
     getInterpolatedXByTime,
     getIsPlaying: () => isPlaying,
     getSmoothState: () => ({ playbackSimTime, smoothVx, smoothX }),
@@ -2344,7 +2347,12 @@ const ENTRANCE_TRANSLATE_DURATION_SEC = 0.8;
 
 function getTotalDuration() {
     if (mapData.length < 2) return 0;
-    return mapData[mapData.length - 1].time;
+    return mapData[mapData.length - 1].time + PLAYBACK_TAIL_BUFFER_SEC;
+}
+
+function syncAudioPlaybackGain(currentTime = elapsedBeforePause) {
+    if (!isAudioLoaded) return;
+    audioPlayer.volume = getPlaybackGainByTime(currentTime);
 }
 
 function updateProgressUI(currentTime = 0) {
@@ -2431,7 +2439,7 @@ function applyOverlayVisibility() {
 
     const toggleFlyinBtn = document.getElementById('toggleFlyinBtn');
     if (toggleFlyinBtn) {
-        toggleFlyinBtn.innerText = enableFlyin ? "Disable Fly-in" : "Enable Fly-in";
+        toggleFlyinBtn.innerText = enableFlyin ? "Hide Fly-in" : "Show Fly-in";
     }
 }
 
@@ -2485,6 +2493,7 @@ function seekToTime(targetTime) {
             if (isPlaying) audioWaiting = true;
         }
     }
+    syncAudioPlaybackGain(clamped);
 
     if (isPlaying) {
         startTime = performance.now() / 1000 - clamped;
@@ -2505,6 +2514,7 @@ function startPlayback() {
     smoothVx = getSmoothedTargetVelocityByTime(elapsedBeforePause);
     playbackSimTime = elapsedBeforePause;
     setButtonTextByState();
+    syncAudioPlaybackGain(elapsedBeforePause);
     if (isAudioLoaded) {
         let targetAudioTime = elapsedBeforePause + audioOffsetSec;
         if (targetAudioTime >= 0) {
@@ -2531,6 +2541,7 @@ function renderFrame() {
 
     const currentTime = nowSec - startTime;
     updateProgressUI(currentTime);
+    syncAudioPlaybackGain(currentTime);
 
     if (isAudioLoaded && audioWaiting) {
         if (currentTime + audioOffsetSec >= 0) {
@@ -2540,26 +2551,30 @@ function renderFrame() {
         }
     }
 
-    if (currentTime >= mapData[mapData.length - 1].time) {
-        const finalPoint = mapData[mapData.length - 1];
+    const total = getTotalDuration();
+    if (currentTime >= total) {
+        const finalPoint = getInterpolatedXByTime(total);
         smoothX = finalPoint.x;
         syncTransforms();
 
-        lastHighlightedIndex = mapData.length - 1;
+        lastHighlightedIndex = finalPoint.index;
         isPlaying = false;
         isFinished = true;
-        elapsedBeforePause = getTotalDuration();
+        elapsedBeforePause = total;
         lastRenderClock = 0;
         smoothVx = 0;
         playbackSimTime = elapsedBeforePause;
         cancelAnimationFrame(animationFrameId);
         updateProgressUI(elapsedBeforePause);
         setButtonTextByState();
-        if (isAudioLoaded) audioPlayer.pause();
+        if (isAudioLoaded) {
+            syncAudioPlaybackGain(total);
+            audioPlayer.pause();
+        }
         return;
     }
 
-    const currentIndex = findCurrentIndexByTime(currentTime);
+    const currentIndex = getInterpolatedXByTime(currentTime).index;
     const playbackState = advancePlaybackStateToTime(
         { x: smoothX, vx: smoothVx },
         playbackSimTime,
@@ -2601,6 +2616,7 @@ document.getElementById('playBtn').addEventListener('click', () => {
             lastHighlightedIndex = -1;
             syncTransforms();
             updateProgressUI(0);
+            syncAudioPlaybackGain(0);
         }
         startPlayback();
         setButtonTextByState();
@@ -2697,6 +2713,7 @@ function handleAudioOffsetInput(e) {
             audioWaiting = isPlaying; // 如果乐谱在播，音频进入等待状态
         }
     }
+    syncAudioPlaybackGain(isPlaying ? (performance.now() / 1000 - startTime) : elapsedBeforePause);
 }
 
 function handleExportRatioChange(e) {

@@ -244,6 +244,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
     display: flex;
     flex: 1;
     gap: 8px;
+    min-width: 0;
 }
 
 .control-number {
@@ -252,6 +253,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
     border-radius: 8px;
     color: var(--text-main);
     flex: 1;
+    min-width: 0;
+    width: 0;
     font-family: "SF Mono", "Menlo", monospace;
     font-size: 11px;
     outline: none;

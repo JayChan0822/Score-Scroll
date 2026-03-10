@@ -1,5 +1,7 @@
 // @ts-check
 
+const PLAYBACK_TAIL_BUFFER_SEC = 2;
+
 /**
  * @typedef {ReturnType<typeof import("../core/dom.js").getDomRefs>} DomRefs
  */
@@ -34,6 +36,7 @@
  * @property {() => File | null} getGlobalAudioFile
  * @property {() => number} getGlobalScoreHeight
  * @property {() => number} getGlobalZoom
+ * @property {(timeSec: number) => number} getPlaybackGainByTime
  * @property {(timeSec: number) => InterpolatedPosition} getInterpolatedXByTime
  * @property {() => boolean} getIsPlaying
  * @property {(timeSec: number) => number} getSmoothedTargetVelocityByTime
@@ -73,6 +76,7 @@ export function createExportVideoFeature({
     getGlobalAudioFile,
     getGlobalScoreHeight,
     getGlobalZoom,
+    getPlaybackGainByTime,
     getInterpolatedXByTime,
     getIsPlaying,
     getSmoothedTargetVelocityByTime,
@@ -431,8 +435,10 @@ export function createExportVideoFeature({
             const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
 
             const source = audioCtx.createBufferSource();
+            const gainNode = audioCtx.createGain();
             source.buffer = decodedAudio;
-            source.connect(audioCtx.destination);
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
 
             let startTimeInVideo = 0;
             let startOffsetInAudio = 0;
@@ -441,6 +447,21 @@ export function createExportVideoFeature({
                 startOffsetInAudio = initialAudioTime;
             } else {
                 startTimeInVideo = Math.abs(initialAudioTime);
+            }
+
+            const fadeStartSec = Math.max(
+                exportWindow.finalStartSec,
+                exportWindow.fullDuration - PLAYBACK_TAIL_BUFFER_SEC
+            );
+            const fadeStartOffsetSec = Math.max(0, fadeStartSec - exportWindow.finalStartSec);
+            const exportStartGain = getPlaybackGainByTime(exportWindow.finalStartSec);
+            const exportEndGain = getPlaybackGainByTime(exportWindow.finalEndSec);
+            gainNode.gain.setValueAtTime(exportStartGain, 0);
+            if (fadeStartOffsetSec > 0 && fadeStartOffsetSec < exportWindow.exportDuration) {
+                gainNode.gain.setValueAtTime(getPlaybackGainByTime(fadeStartSec), fadeStartOffsetSec);
+            }
+            if (exportEndGain !== exportStartGain || fadeStartOffsetSec > 0) {
+                gainNode.gain.linearRampToValueAtTime(exportEndGain, exportWindow.exportDuration);
             }
 
             source.start(startTimeInVideo, startOffsetInAudio);

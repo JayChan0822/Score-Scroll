@@ -176,6 +176,7 @@ export function createAudioFeature({
 
         const url = URL.createObjectURL(file);
         audioPlayer.src = url;
+        audioPlayer.volume = 1;
         audioPlayer.load();
         setIsAudioLoaded(true);
 
