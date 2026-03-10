@@ -11,7 +11,6 @@ export function createInitialState() {
         defaultNoteColor: "#ffffff",
         elapsedBeforePause: 0,
         enableFlyin: true,
-        encodedChunks: [],
         globalAudioFile: null,
         globalAudioOnsetSec: null,
         globalMidiPpq: 480,
@@ -22,7 +21,6 @@ export function createInitialState() {
         globalTimeSigs: [],
         globalZoom: 1.0,
         isAudioLoaded: false,
-        isExportingVideo: false,
         isExportingVideoMode: false,
         isFinished: false,
         isMidiLoaded: false,
@@ -42,6 +40,5 @@ export function createInitialState() {
         startTime: 0,
         stickyMinX: 0,
         svgTags: [],
-        videoEncoder: null,
     };
 }

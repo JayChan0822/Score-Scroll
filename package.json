@@ -1,7 +1,6 @@
 {
   "name": "score-scroll",
   "version": "1.0.0",
-  "main": "index.js",
   "scripts": {
     "serve": "python3 -m http.server 4173",
     "test": "echo \"Error: no test specified\" && exit 1",

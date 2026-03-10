@@ -142,3 +142,21 @@ test('binds the space shortcut without hijacking focused inputs', async ({ page 
   await page.keyboard.press('Space');
   await expect.poll(() => page.evaluate(() => window.__playShortcutClicks)).toBe(1);
 });
+
+test('removes only the currently unused code paths and config fields', async () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8'));
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const stateSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'core', 'state.js'), 'utf8');
+  const playbackSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'playback.js'), 'utf8');
+
+  expect(packageJson.main).toBeUndefined();
+  expect(appSource).not.toContain('encodedChunks');
+  expect(appSource).not.toMatch(/\bisExportingVideo\b/);
+  expect(appSource).not.toMatch(/\bvideoEncoder\b/);
+  expect(appSource).not.toContain('createPlaybackState');
+  expect(stateSource).not.toContain('encodedChunks');
+  expect(stateSource).not.toMatch(/\bisExportingVideo\b/);
+  expect(stateSource).not.toMatch(/\bvideoEncoder\b/);
+  expect(playbackSource).not.toContain('function createPlaybackState');
+  expect(playbackSource).not.toContain('createPlaybackState,');
+});

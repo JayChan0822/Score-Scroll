@@ -31,7 +31,6 @@ let {
     defaultNoteColor,
     elapsedBeforePause,
     enableFlyin,
-    encodedChunks,
     globalAudioFile,
     globalAudioOnsetSec,
     globalMidiPpq,
@@ -42,7 +41,6 @@ let {
     globalTimeSigs,
     globalZoom,
     isAudioLoaded,
-    isExportingVideo,
     isExportingVideoMode,
     isFinished,
     isMidiLoaded,
@@ -62,7 +60,6 @@ let {
     startTime,
     stickyMinX,
     svgTags,
-    videoEncoder,
 } = initialState;
 
 const {
@@ -173,7 +170,6 @@ const playbackHelpers = createPlaybackHelpers({
 
 const {
     advancePlaybackStateToTime,
-    createPlaybackState,
     findCurrentIndexByTime,
     getInterpolatedXByTime,
     getSmoothedTargetVelocityByTime,

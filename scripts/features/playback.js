@@ -71,14 +71,6 @@ export function createPlaybackHelpers({
         return clamp(velocity, -MAX_TARGET_VELOCITY_PX_PER_SEC, MAX_TARGET_VELOCITY_PX_PER_SEC);
     }
 
-    function createPlaybackState(initialTime) {
-        const safeTime = Math.max(0, initialTime || 0);
-        return {
-            x: getInterpolatedXByTime(safeTime).x,
-            vx: getSmoothedTargetVelocityByTime(safeTime),
-        };
-    }
-
     function computePhaseCorrectionVelocity(positionErrorPx, viewportWidthPx) {
         const safeError = Number.isFinite(positionErrorPx) ? positionErrorPx : 0;
         const safeViewportWidth = Number.isFinite(viewportWidthPx) && viewportWidthPx > 0
@@ -141,7 +133,6 @@ export function createPlaybackHelpers({
 
     return {
         advancePlaybackStateToTime,
-        createPlaybackState,
         findCurrentIndexByTime,
         getInterpolatedXByTime,
         getSmoothedTargetVelocityByTime,
