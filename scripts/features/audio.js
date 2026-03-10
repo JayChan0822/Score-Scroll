@@ -1,5 +1,53 @@
+// @ts-check
+
 import { clamp } from "../utils/math.js";
 
+/**
+ * @typedef {Object} TimeMapPoint
+ * @property {number} time
+ * @property {number} x
+ * @property {number} [y]
+ */
+
+/**
+ * @typedef {Object} RenderQueueItem
+ * @property {string} type
+ * @property {string} [originalD]
+ * @property {string} [text]
+ * @property {number} absMinX
+ * @property {number} absMaxX
+ */
+
+/**
+ * @typedef {ReturnType<typeof import("../core/dom.js").getDomRefs>} DomRefs
+ */
+
+/**
+ * @typedef {Object} AudioFeatureOptions
+ * @property {HTMLAudioElement} audioPlayer
+ * @property {DomRefs} dom
+ * @property {() => number | null} getGlobalAudioOnsetSec
+ * @property {() => number} getGlobalSystemInternalX
+ * @property {() => TimeMapPoint[]} getMapData
+ * @property {() => RenderQueueItem[]} getRenderQueue
+ * @property {(signature: string) => boolean} identifyNotehead
+ * @property {(timeSec: number) => void} seekToTime
+ * @property {(offsetSec: number) => void} setAudioOffsetSec
+ * @property {(file: File | null) => void} setGlobalAudioFile
+ * @property {(onsetSec: number | null) => void} setGlobalAudioOnsetSec
+ * @property {(loaded: boolean) => void} setIsAudioLoaded
+ */
+
+/**
+ * @typedef {Object} AudioFeature
+ * @property {(event: Event) => Promise<void>} handleAudioInputChange
+ * @property {() => Promise<void>} tryAlignAudioAndScore
+ */
+
+/**
+ * @param {AudioFeatureOptions} options
+ * @returns {AudioFeature}
+ */
 export function createAudioFeature({
     audioPlayer,
     dom,
@@ -14,6 +62,7 @@ export function createAudioFeature({
     setGlobalAudioOnsetSec,
     setIsAudioLoaded,
 }) {
+    /** @returns {number} */
     function getFirstNoteTime() {
         const renderQueue = getRenderQueue();
         const mapData = getMapData();
@@ -54,6 +103,7 @@ export function createAudioFeature({
         return 0;
     }
 
+    /** @returns {Promise<void>} */
     async function tryAlignAudioAndScore() {
         const globalAudioOnsetSec = getGlobalAudioOnsetSec();
         const renderQueue = getRenderQueue();
@@ -78,8 +128,17 @@ export function createAudioFeature({
         }
     }
 
+    /**
+     * @param {File} file
+     * @returns {Promise<number>}
+     */
     async function detectFirstAudioOnset(file) {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextCtor) {
+            throw new Error("AudioContext is not supported in this browser.");
+        }
+
+        const audioContext = new AudioContextCtor();
         const arrayBuffer = await file.arrayBuffer();
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
         const channelData = audioBuffer.getChannelData(0);
@@ -103,8 +162,13 @@ export function createAudioFeature({
         return 0;
     }
 
+    /**
+     * @param {Event} event
+     * @returns {Promise<void>}
+     */
     async function handleAudioInputChange(event) {
-        const file = event.target.files?.[0];
+        const input = /** @type {HTMLInputElement | null} */ (event.currentTarget ?? event.target);
+        const file = input?.files?.[0];
         if (!file) return;
 
         setGlobalAudioFile(file);

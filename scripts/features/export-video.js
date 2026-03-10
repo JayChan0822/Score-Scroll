@@ -1,3 +1,61 @@
+// @ts-check
+
+/**
+ * @typedef {ReturnType<typeof import("../core/dom.js").getDomRefs>} DomRefs
+ */
+
+/**
+ * @typedef {Object} SmoothState
+ * @property {number} playbackSimTime
+ * @property {number} smoothVx
+ * @property {number} smoothX
+ */
+
+/**
+ * @typedef {Object} InterpolatedPosition
+ * @property {number} x
+ * @property {number} index
+ * @property {boolean} atEnd
+ */
+
+/**
+ * @typedef {Object} ExportVideoFeatureOptions
+ * @property {DomRefs} dom
+ * @property {() => number} getAudioOffsetSec
+ * @property {() => number} getCachedViewportWidth
+ * @property {() => HTMLCanvasElement} getCanvas
+ * @property {() => boolean} getCancelVideoExport
+ * @property {() => CanvasRenderingContext2D | null} getCtx
+ * @property {() => File | null} getGlobalAudioFile
+ * @property {() => number} getGlobalScoreHeight
+ * @property {() => number} getGlobalZoom
+ * @property {(timeSec: number) => InterpolatedPosition} getInterpolatedXByTime
+ * @property {() => boolean} getIsPlaying
+ * @property {(timeSec: number) => number} getSmoothedTargetVelocityByTime
+ * @property {() => SmoothState} getSmoothState
+ * @property {() => number} getTotalDuration
+ * @property {(smoothX: number) => void} renderCanvas
+ * @property {() => void} resizeCanvas
+ * @property {(width: number) => void} setCachedViewportWidth
+ * @property {(canvas: HTMLCanvasElement) => void} setCanvas
+ * @property {(cancelled: boolean) => void} setCancelVideoExport
+ * @property {(ctx: CanvasRenderingContext2D | null) => void} setCtx
+ * @property {(zoom: number) => void} setGlobalZoom
+ * @property {(isExporting: boolean) => void} setIsExportingVideoMode
+ * @property {(state: SmoothState) => void} setSmoothState
+ */
+
+/**
+ * @typedef {Object} ExportVideoFeature
+ * @property {() => void} cancelExport
+ * @property {(baseRes?: number, fps?: number, aspectRatio?: string, startSec?: number, endSec?: number | null) => Promise<void>} exportHighQualityVideo
+ * @property {() => Promise<void>} runExportFlow
+ */
+
+/**
+ * @param {ExportVideoFeatureOptions} options
+ * @returns {ExportVideoFeature}
+ */
 export function createExportVideoFeature({
     dom,
     getAudioOffsetSec,
@@ -23,6 +81,14 @@ export function createExportVideoFeature({
     setIsExportingVideoMode,
     setSmoothState,
 }) {
+    /**
+     * @param {number} [baseRes=1920]
+     * @param {number} [fps=60]
+     * @param {string} [aspectRatio="auto"]
+     * @param {number} [startSec=0]
+     * @param {number | null} [endSec=null]
+     * @returns {Promise<void>}
+     */
     async function exportHighQualityVideo(baseRes = 1920, fps = 60, aspectRatio = "auto", startSec = 0, endSec = null) {
         if (!("VideoEncoder" in window)) {
             alert("浏览器不支持 WebCodecs，请使用最新版 Chrome。");
@@ -87,6 +153,10 @@ export function createExportVideoFeature({
         document.body.appendChild(exportCanvas);
 
         const exportCtx = exportCanvas.getContext("2d");
+        if (!exportCtx) {
+            document.body.removeChild(exportCanvas);
+            throw new Error("Unable to create a 2D export context.");
+        }
 
         const originalCanvas = getCanvas();
         const originalCtx = getCtx();
@@ -99,12 +169,14 @@ export function createExportVideoFeature({
         setGlobalZoom(finalExportZoom);
         setIsExportingVideoMode(true);
 
+        /** @type {any} */
         const muxerOptions = {
             target: new Mp4Muxer.ArrayBufferTarget(),
             video: { codec: "avc", width: targetWidth, height: targetHeight },
             fastStart: "in-memory",
         };
-        if (getGlobalAudioFile()) {
+        const audioFile = getGlobalAudioFile();
+        if (audioFile) {
             muxerOptions.audio = { codec: "aac", numberOfChannels: 2, sampleRate: 44100 };
         }
         const muxer = new Mp4Muxer.Muxer(muxerOptions);
@@ -142,7 +214,7 @@ export function createExportVideoFeature({
         });
 
         let audioEncoder = null;
-        if (getGlobalAudioFile()) {
+        if (audioFile) {
             audioEncoder = new AudioEncoder({
                 output: (chunk, meta) => {
                     if (!isEncoderError && !getCancelVideoExport()) muxer.addAudioChunk(chunk, meta);
@@ -154,12 +226,13 @@ export function createExportVideoFeature({
             });
             audioEncoder.configure({ codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 2, bitrate: 192000 });
 
-            const audioCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
-                2,
-                Math.ceil(exportDuration * 44100),
-                44100
-            );
-            const arrayBuffer = await getGlobalAudioFile().arrayBuffer();
+            const OfflineAudioContextCtor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+            if (!OfflineAudioContextCtor) {
+                throw new Error("OfflineAudioContext is not supported in this browser.");
+            }
+
+            const audioCtx = new OfflineAudioContextCtor(2, Math.ceil(exportDuration * 44100), 44100);
+            const arrayBuffer = await audioFile.arrayBuffer();
             const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
 
             const source = audioCtx.createBufferSource();
@@ -289,6 +362,7 @@ export function createExportVideoFeature({
         URL.revokeObjectURL(url);
     }
 
+    /** @returns {Promise<void>} */
     async function runExportFlow() {
         const selectedRatio = dom.exportRatioSelect?.value || "auto";
         const selectedWidth = parseInt(dom.exportResSelect?.value || "1920", 10);
@@ -330,20 +404,22 @@ export function createExportVideoFeature({
             if (dom.exportProgressText) dom.exportProgressText.innerText = "100.0%";
             await new Promise((resolve) => setTimeout(resolve, 800));
         } catch (error) {
-            if (error.message !== "Export cancelled") {
+            if (!(error instanceof Error) || error.message !== "Export cancelled") {
                 console.error("导出失败:", error);
                 alert("视频导出失败，请查看控制台报错。");
             }
         } finally {
-            if (dom.exportModal) {
-                dom.exportModal.classList.remove("show");
+            const exportModal = dom.exportModal;
+            if (exportModal) {
+                exportModal.classList.remove("show");
                 setTimeout(() => {
-                    dom.exportModal.style.display = "none";
+                    exportModal.style.display = "none";
                 }, 300);
             }
         }
     }
 
+    /** @returns {void} */
     function cancelExport() {
         setCancelVideoExport(true);
         if (dom.cancelExportBtn) {

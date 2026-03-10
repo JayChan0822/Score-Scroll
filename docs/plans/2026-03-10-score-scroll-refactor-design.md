@@ -2,7 +2,7 @@
 
 ## Summary
 
-This design restructures `/Users/jaychan/Documents/GitHub/Score-Scroll/index 优化版.html` from a single-file static app into a small static-site codebase that is easier to maintain. The goal is to preserve the current UI and behavior while removing obvious redundancy, cleaning formatting, and organizing code by responsibility.
+This design restructures `/Users/jaychan/Documents/GitHub/Score-Scroll/index.html` from a single-file static app into a small static-site codebase that is easier to maintain. The goal is to preserve the current UI and behavior while removing obvious redundancy, cleaning formatting, and organizing code by responsibility.
 
 The refactor will assume access through a local static server instead of opening the HTML file directly from disk. That allows the JavaScript to move to native ES modules without adding a bundler.
 
@@ -23,7 +23,7 @@ The refactor will assume access through a local static server instead of opening
 
 ## Current Problems
 
-- `/Users/jaychan/Documents/GitHub/Score-Scroll/index 优化版.html` mixes markup, styles, data, state, algorithms, rendering, and event binding in one file.
+- `/Users/jaychan/Documents/GitHub/Score-Scroll/index.html` mixes markup, styles, data, state, algorithms, rendering, and event binding in one file.
 - Inline styles are scattered throughout the HTML, making later edits error-prone.
 - Global mutable variables and DOM queries are interleaved, which makes dependency order hard to reason about.
 - The large `MusicFontRegistry` data block hides the operational logic around it.
@@ -35,7 +35,7 @@ The app will stay as a static site, but its code will be split into focused file
 
 ```text
 /Users/jaychan/Documents/GitHub/Score-Scroll/
-├─ index 优化版.html
+├─ index.html
 ├─ styles/
 │  ├─ main.css
 │  ├─ tokens.css
@@ -70,7 +70,7 @@ The app will stay as a static site, but its code will be split into focused file
 
 ### HTML
 
-`/Users/jaychan/Documents/GitHub/Score-Scroll/index 优化版.html` will keep only:
+`/Users/jaychan/Documents/GitHub/Score-Scroll/index.html` will keep only:
 
 - semantic page structure
 - controls and stage markup
@@ -182,7 +182,7 @@ Use incremental extraction instead of rewriting everything at once:
 
 ## Success Criteria
 
-- `/Users/jaychan/Documents/GitHub/Score-Scroll/index 优化版.html` becomes a thin shell.
+- `/Users/jaychan/Documents/GitHub/Score-Scroll/index.html` becomes a thin shell.
 - CSS and JavaScript are grouped by responsibility and readable in isolation.
 - The app loads correctly from a local static server with ES modules.
 - The existing feature surface remains available.

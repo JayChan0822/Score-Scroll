@@ -22,7 +22,7 @@
 
 Create a browser smoke test that:
 
-- opens `/index 优化版.html` through a local server
+- opens `/index.html` through a local server
 - expects the page title to contain `Score Scroll`
 - expects `#viewport`, `#score-canvas`, `#playBtn`, `#svgInput`, and `#exportVideoBtn` to exist
 
@@ -63,7 +63,7 @@ git commit -m "test: add smoke coverage for score scroll"
 - Create: `styles/controls.css`
 - Create: `styles/stage.css`
 - Create: `styles/modal.css`
-- Modify: `index 优化版.html`
+- Modify: `index.html`
 - Test: `tests/score-scroll-smoke.spec.js`
 
 **Step 1: Write the failing test**
@@ -97,7 +97,7 @@ Expected: PASS with the page still rendering correctly.
 **Step 5: Commit**
 
 ```bash
-git add styles index\ 优化版.html tests/score-scroll-smoke.spec.js
+git add styles index.html tests/score-scroll-smoke.spec.js
 git commit -m "refactor: extract score scroll styles"
 ```
 
@@ -109,7 +109,7 @@ git commit -m "refactor: extract score scroll styles"
 - Create: `scripts/core/state.js`
 - Create: `scripts/core/dom.js`
 - Create: `scripts/data/music-font-registry.js`
-- Modify: `index 优化版.html`
+- Modify: `index.html`
 - Test: `tests/score-scroll-smoke.spec.js`
 
 **Step 1: Write the failing test**
@@ -142,7 +142,7 @@ Expected: PASS with no initial page errors.
 **Step 5: Commit**
 
 ```bash
-git add scripts index\ 优化版.html tests/score-scroll-smoke.spec.js
+git add scripts index.html tests/score-scroll-smoke.spec.js
 git commit -m "refactor: extract score scroll app shell"
 ```
 
@@ -201,7 +201,7 @@ git commit -m "refactor: modularize render and playback logic"
 - Create: `scripts/features/export-video.js`
 - Create: `scripts/features/ui-events.js`
 - Modify: `scripts/app.js`
-- Modify: `index 优化版.html`
+- Modify: `index.html`
 - Test: `tests/score-scroll-smoke.spec.js`
 
 **Step 1: Write the failing test**
@@ -235,7 +235,7 @@ Expected: PASS with modal interaction working and no new load errors.
 **Step 5: Commit**
 
 ```bash
-git add scripts index\ 优化版.html tests/score-scroll-smoke.spec.js
+git add scripts index.html tests/score-scroll-smoke.spec.js
 git commit -m "refactor: extract audio export and ui wiring"
 ```
 
@@ -273,7 +273,7 @@ Expected: PASS.
 Also run:
 
 - `python3 -m http.server 8000`
-- open `http://127.0.0.1:8000/index%20优化版.html`
+- open `http://127.0.0.1:8000/index.html`
 - manually verify SVG upload, MIDI upload, play/pause, seek, zoom, and export modal opening
 
 **Step 5: Commit**

@@ -1,50 +1,116 @@
+// @ts-check
+
+/**
+ * @typedef {Object} DomRefs
+ * @property {HTMLInputElement | null} audioInput
+ * @property {HTMLInputElement | null} audioOffsetSlider
+ * @property {HTMLElement | null} audioOffsetVal
+ * @property {HTMLInputElement | null} bgColorPicker
+ * @property {HTMLInputElement | null} bpmSlider
+ * @property {HTMLElement | null} bpmVal
+ * @property {HTMLCanvasElement | null} canvas
+ * @property {HTMLButtonElement | null} cancelExportBtn
+ * @property {HTMLInputElement | null} delaySlider
+ * @property {HTMLElement | null} delayVal
+ * @property {HTMLInputElement | null} distSlider
+ * @property {HTMLElement | null} distVal
+ * @property {HTMLElement | null} durationDisplay
+ * @property {HTMLSelectElement | null} exportFpsSelect
+ * @property {HTMLInputElement | null} exportEndInput
+ * @property {HTMLElement | null} exportModal
+ * @property {HTMLElement | null} exportModalTitle
+ * @property {HTMLElement | null} exportProgressBar
+ * @property {HTMLElement | null} exportProgressText
+ * @property {HTMLSelectElement | null} exportRatioSelect
+ * @property {HTMLSelectElement | null} exportResSelect
+ * @property {HTMLInputElement | null} exportStartInput
+ * @property {HTMLButtonElement | null} exportVideoBtn
+ * @property {HTMLInputElement | null} glowRangeSlider
+ * @property {HTMLElement | null} glowRangeVal
+ * @property {HTMLInputElement | null} noteColorPicker
+ * @property {HTMLButtonElement | null} playBtn
+ * @property {HTMLInputElement | null} playlineRatioSlider
+ * @property {HTMLElement | null} playlineRatioVal
+ * @property {HTMLInputElement | null} progressSlider
+ * @property {HTMLElement | null} sandbox
+ * @property {HTMLInputElement | null} scatterSlider
+ * @property {HTMLElement | null} scatterVal
+ * @property {HTMLElement | null} tempoSourceHint
+ * @property {HTMLButtonElement | null} themeDarkBtn
+ * @property {HTMLButtonElement | null} themeLightBtn
+ * @property {HTMLElement | null} timeDisplay
+ * @property {HTMLButtonElement | null} toggleCursorBtn
+ * @property {HTMLButtonElement | null} toggleFlyinBtn
+ * @property {HTMLButtonElement | null} toggleHighlightBtn
+ * @property {HTMLButtonElement | null} toggleScanGlowBtn
+ * @property {HTMLElement | null} viewportEl
+ * @property {HTMLButtonElement | null} zoomInBtn
+ * @property {HTMLButtonElement | null} zoomOutBtn
+ * @property {HTMLElement | null} zoomSliderContainer
+ * @property {HTMLElement | null} zoomValDisplay
+ */
+
+/**
+ * @template {Element} T
+ * @param {Document} doc
+ * @param {string} id
+ * @returns {T | null}
+ */
+function byId(doc, id) {
+    return /** @type {T | null} */ (doc.getElementById(id));
+}
+
+/**
+ * @param {Document} [doc=document]
+ * @returns {DomRefs}
+ */
 export function getDomRefs(doc = document) {
     return {
-        audioInput: doc.getElementById("audioInput"),
-        audioOffsetSlider: doc.getElementById("audioOffsetSlider"),
-        audioOffsetVal: doc.getElementById("audioOffsetVal"),
-        bgColorPicker: doc.getElementById("bgColorPicker"),
-        bpmSlider: doc.getElementById("bpmSlider"),
-        bpmVal: doc.getElementById("bpmVal"),
-        canvas: doc.getElementById("score-canvas"),
-        cancelExportBtn: doc.getElementById("cancelExportBtn"),
-        delaySlider: doc.getElementById("delaySlider"),
-        delayVal: doc.getElementById("delayVal"),
-        distSlider: doc.getElementById("distSlider"),
-        distVal: doc.getElementById("distVal"),
-        durationDisplay: doc.getElementById("durationDisplay"),
-        exportFpsSelect: doc.getElementById("exportFpsSelect"),
-        exportEndInput: doc.getElementById("exportEndInput"),
-        exportModal: doc.getElementById("exportModal"),
-        exportModalTitle: doc.getElementById("exportModalTitle"),
-        exportProgressBar: doc.getElementById("exportProgressBar"),
-        exportProgressText: doc.getElementById("exportProgressText"),
-        exportRatioSelect: doc.getElementById("exportRatioSelect"),
-        exportResSelect: doc.getElementById("exportResSelect"),
-        exportStartInput: doc.getElementById("exportStartInput"),
-        exportVideoBtn: doc.getElementById("exportVideoBtn"),
-        glowRangeSlider: doc.getElementById("glowRangeSlider"),
-        glowRangeVal: doc.getElementById("glowRangeVal"),
-        noteColorPicker: doc.getElementById("noteColorPicker"),
-        playBtn: doc.getElementById("playBtn"),
-        playlineRatioSlider: doc.getElementById("playlineRatioSlider"),
-        playlineRatioVal: doc.getElementById("playlineRatioVal"),
-        progressSlider: doc.getElementById("progressSlider"),
-        sandbox: doc.getElementById("svg-sandbox"),
-        scatterSlider: doc.getElementById("scatterSlider"),
-        scatterVal: doc.getElementById("scatterVal"),
-        tempoSourceHint: doc.getElementById("tempoSourceHint"),
-        themeDarkBtn: doc.getElementById("themeDarkBtn"),
-        themeLightBtn: doc.getElementById("themeLightBtn"),
-        timeDisplay: doc.getElementById("timeDisplay"),
-        toggleCursorBtn: doc.getElementById("toggleCursorBtn"),
-        toggleFlyinBtn: doc.getElementById("toggleFlyinBtn"),
-        toggleHighlightBtn: doc.getElementById("toggleHighlightBtn"),
-        toggleScanGlowBtn: doc.getElementById("toggleScanGlowBtn"),
-        viewportEl: doc.getElementById("viewport"),
-        zoomInBtn: doc.getElementById("zoomInBtn"),
-        zoomOutBtn: doc.getElementById("zoomOutBtn"),
-        zoomSliderContainer: doc.getElementById("zoomSlider"),
-        zoomValDisplay: doc.getElementById("zoomValDisplay"),
+        audioInput: byId(doc, "audioInput"),
+        audioOffsetSlider: byId(doc, "audioOffsetSlider"),
+        audioOffsetVal: byId(doc, "audioOffsetVal"),
+        bgColorPicker: byId(doc, "bgColorPicker"),
+        bpmSlider: byId(doc, "bpmSlider"),
+        bpmVal: byId(doc, "bpmVal"),
+        canvas: byId(doc, "score-canvas"),
+        cancelExportBtn: byId(doc, "cancelExportBtn"),
+        delaySlider: byId(doc, "delaySlider"),
+        delayVal: byId(doc, "delayVal"),
+        distSlider: byId(doc, "distSlider"),
+        distVal: byId(doc, "distVal"),
+        durationDisplay: byId(doc, "durationDisplay"),
+        exportFpsSelect: byId(doc, "exportFpsSelect"),
+        exportEndInput: byId(doc, "exportEndInput"),
+        exportModal: byId(doc, "exportModal"),
+        exportModalTitle: byId(doc, "exportModalTitle"),
+        exportProgressBar: byId(doc, "exportProgressBar"),
+        exportProgressText: byId(doc, "exportProgressText"),
+        exportRatioSelect: byId(doc, "exportRatioSelect"),
+        exportResSelect: byId(doc, "exportResSelect"),
+        exportStartInput: byId(doc, "exportStartInput"),
+        exportVideoBtn: byId(doc, "exportVideoBtn"),
+        glowRangeSlider: byId(doc, "glowRangeSlider"),
+        glowRangeVal: byId(doc, "glowRangeVal"),
+        noteColorPicker: byId(doc, "noteColorPicker"),
+        playBtn: byId(doc, "playBtn"),
+        playlineRatioSlider: byId(doc, "playlineRatioSlider"),
+        playlineRatioVal: byId(doc, "playlineRatioVal"),
+        progressSlider: byId(doc, "progressSlider"),
+        sandbox: byId(doc, "svg-sandbox"),
+        scatterSlider: byId(doc, "scatterSlider"),
+        scatterVal: byId(doc, "scatterVal"),
+        tempoSourceHint: byId(doc, "tempoSourceHint"),
+        themeDarkBtn: byId(doc, "themeDarkBtn"),
+        themeLightBtn: byId(doc, "themeLightBtn"),
+        timeDisplay: byId(doc, "timeDisplay"),
+        toggleCursorBtn: byId(doc, "toggleCursorBtn"),
+        toggleFlyinBtn: byId(doc, "toggleFlyinBtn"),
+        toggleHighlightBtn: byId(doc, "toggleHighlightBtn"),
+        toggleScanGlowBtn: byId(doc, "toggleScanGlowBtn"),
+        viewportEl: byId(doc, "viewport"),
+        zoomInBtn: byId(doc, "zoomInBtn"),
+        zoomOutBtn: byId(doc, "zoomOutBtn"),
+        zoomSliderContainer: byId(doc, "zoomSlider"),
+        zoomValDisplay: byId(doc, "zoomValDisplay"),
     };
 }

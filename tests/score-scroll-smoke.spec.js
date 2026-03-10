@@ -60,6 +60,8 @@ test('optimized score scroll shell loads with key controls', async ({ page }) =>
     '/scripts/features/export-video.js',
     '/scripts/features/midi.js',
     '/scripts/features/playback.js',
+    '/scripts/features/svg-analysis.js',
+    '/scripts/features/timeline.js',
     '/scripts/features/ui-events.js',
     '/scripts/utils/format.js',
     '/scripts/utils/math.js',
@@ -159,4 +161,57 @@ test('removes only the currently unused code paths and config fields', async () 
   expect(stateSource).not.toMatch(/\bvideoEncoder\b/);
   expect(playbackSource).not.toContain('function createPlaybackState');
   expect(playbackSource).not.toContain('createPlaybackState,');
+});
+
+test('adds jsdoc-based typecheck coverage for the selected core modules', async () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8'));
+  const tsconfigPath = path.resolve(__dirname, '..', 'tsconfig.json');
+  const targetFiles = [
+    path.resolve(__dirname, '..', 'scripts', 'core', 'state.js'),
+    path.resolve(__dirname, '..', 'scripts', 'core', 'dom.js'),
+    path.resolve(__dirname, '..', 'scripts', 'features', 'audio.js'),
+    path.resolve(__dirname, '..', 'scripts', 'features', 'export-video.js'),
+    path.resolve(__dirname, '..', 'scripts', 'features', 'playback.js'),
+  ];
+
+  expect(packageJson.scripts?.typecheck).toBeDefined();
+  expect(fs.existsSync(tsconfigPath)).toBe(true);
+
+  const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf8'));
+  expect(tsconfig.compilerOptions?.allowJs).toBe(true);
+  expect(tsconfig.compilerOptions?.checkJs).toBe(true);
+  expect(tsconfig.compilerOptions?.noEmit).toBe(true);
+
+  for (const filePath of targetFiles) {
+    const source = fs.readFileSync(filePath, 'utf8');
+    expect(source).toContain('// @ts-check');
+  }
+});
+
+test('extracts the timeline pipeline into a dedicated feature module', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const timelineModulePath = path.resolve(__dirname, '..', 'scripts', 'features', 'timeline.js');
+
+  expect(fs.existsSync(timelineModulePath)).toBe(true);
+
+  const timelineSource = fs.readFileSync(timelineModulePath, 'utf8');
+  expect(timelineSource).toContain('export function createTimelineFeature');
+  expect(timelineSource).toContain('function extractTimeSignatures');
+  expect(timelineSource).toContain('function recalculateMidiTempoMap');
+  expect(timelineSource).toContain('function generateManualTempoMap');
+  expect(timelineSource).toContain('function fuseDataWithTempoMap');
+  expect(appSource).toContain('createTimelineFeature');
+});
+
+test('extracts svg preprocessing and render-queue analysis into a dedicated feature module', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const svgAnalysisModulePath = path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js');
+
+  expect(fs.existsSync(svgAnalysisModulePath)).toBe(true);
+
+  const svgAnalysisSource = fs.readFileSync(svgAnalysisModulePath, 'utf8');
+  expect(svgAnalysisSource).toContain('export function createSvgAnalysisFeature');
+  expect(svgAnalysisSource).toContain('function preprocessSvgColors');
+  expect(svgAnalysisSource).toContain('function buildRenderQueue');
+  expect(appSource).toContain('createSvgAnalysisFeature');
 });

@@ -1,3 +1,78 @@
+// @ts-check
+
+/**
+ * @typedef {Object} TempoEvent
+ * @property {number} ticks
+ * @property {number} bpm
+ * @property {number} time
+ */
+
+/**
+ * @typedef {Object} TimeSignaturePoint
+ * @property {number} x
+ * @property {number} num
+ * @property {number} den
+ */
+
+/**
+ * @typedef {Object} TimeMapPoint
+ * @property {number} time
+ * @property {number} x
+ * @property {number} [y]
+ */
+
+/**
+ * @typedef {Object} SvgTag
+ * @property {number} x
+ * @property {number} tick
+ * @property {number} [y]
+ */
+
+/**
+ * @typedef {Object} AppState
+ * @property {number | undefined} animationFrameId
+ * @property {number} audioOffsetSec
+ * @property {HTMLAudioElement} audioPlayer
+ * @property {boolean} audioWaiting
+ * @property {number} cachedViewportWidth
+ * @property {boolean} cancelVideoExport
+ * @property {number} currentBpm
+ * @property {string} defaultBgColor
+ * @property {string} defaultNoteColor
+ * @property {number} elapsedBeforePause
+ * @property {boolean} enableFlyin
+ * @property {File | null} globalAudioFile
+ * @property {number | null} globalAudioOnsetSec
+ * @property {number} globalMidiPpq
+ * @property {TempoEvent[]} globalMidiTempos
+ * @property {number} globalScoreHeight
+ * @property {number} globalSystemBarlineScreenX
+ * @property {number} globalSystemInternalX
+ * @property {TimeSignaturePoint[]} globalTimeSigs
+ * @property {number} globalZoom
+ * @property {boolean} isAudioLoaded
+ * @property {boolean} isExportingVideoMode
+ * @property {boolean} isFinished
+ * @property {boolean} isMidiLoaded
+ * @property {boolean} isPlaying
+ * @property {number} lastHighlightedIndex
+ * @property {number} lastRenderClock
+ * @property {number} lastUiUpdateTime
+ * @property {TimeMapPoint[]} mapData
+ * @property {number} midiDurationSec
+ * @property {number} playbackSimTime
+ * @property {number} playlineRatio
+ * @property {Array<Record<string, unknown>>} renderQueue
+ * @property {number} scanGlowRange
+ * @property {boolean} showHighlights
+ * @property {boolean} showPlayline
+ * @property {boolean} showScanGlow
+ * @property {number} startTime
+ * @property {number} stickyMinX
+ * @property {SvgTag[]} svgTags
+ */
+
+/** @returns {AppState} */
 export function createInitialState() {
     return {
         animationFrameId: undefined,

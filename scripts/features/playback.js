@@ -1,4 +1,41 @@
+// @ts-check
+
 import { clamp } from "../utils/math.js";
+
+/**
+ * @typedef {Object} TimeMapPoint
+ * @property {number} time
+ * @property {number} x
+ * @property {number} [y]
+ */
+
+/**
+ * @typedef {Object} PlaybackState
+ * @property {number} x
+ * @property {number} vx
+ */
+
+/**
+ * @typedef {Object} InterpolatedPosition
+ * @property {number} x
+ * @property {number} index
+ * @property {boolean} atEnd
+ */
+
+/**
+ * @typedef {Object} PlaybackHelpersOptions
+ * @property {() => number} getCachedViewportWidth
+ * @property {() => TimeMapPoint[]} getMapData
+ * @property {() => number} getTotalDuration
+ */
+
+/**
+ * @typedef {Object} PlaybackHelpers
+ * @property {(state: PlaybackState | null | undefined, startTime: number, targetTime: number, maxStepSec?: number) => PlaybackState} advancePlaybackStateToTime
+ * @property {(currentTime: number) => number} findCurrentIndexByTime
+ * @property {(currentTime: number) => InterpolatedPosition} getInterpolatedXByTime
+ * @property {(currentTime: number) => number} getSmoothedTargetVelocityByTime
+ */
 
 export const PLAYBACK_SIMULATION_STEP_SEC = 1 / 120;
 const VELOCITY_SAMPLE_WINDOW_SEC = 0.4;
@@ -7,11 +44,16 @@ const PHASE_KP = 2.5;
 const MAX_PHASE_CORRECTION_PX_PER_SEC = 1000;
 const PHASE_CORRECTION_SOFT_DISTANCE_VIEWPORTS = 0.35;
 
+/**
+ * @param {PlaybackHelpersOptions} options
+ * @returns {PlaybackHelpers}
+ */
 export function createPlaybackHelpers({
     getCachedViewportWidth,
     getMapData,
     getTotalDuration,
 }) {
+    /** @param {number} currentTime */
     function findCurrentIndexByTime(currentTime) {
         const mapData = getMapData();
         if (mapData.length < 2) return 0;
@@ -36,6 +78,10 @@ export function createPlaybackHelpers({
         return clamp(left, 0, mapData.length - 2);
     }
 
+    /**
+     * @param {number} currentTime
+     * @returns {InterpolatedPosition}
+     */
     function getInterpolatedXByTime(currentTime) {
         const mapData = getMapData();
         if (mapData.length < 2) return { x: 0, index: 0, atEnd: false };
@@ -55,6 +101,7 @@ export function createPlaybackHelpers({
         return { x, index: currentIndex, atEnd: false };
     }
 
+    /** @param {number} currentTime */
     function getSmoothedTargetVelocityByTime(currentTime) {
         const mapData = getMapData();
         if (mapData.length < 2) return 0;
@@ -71,6 +118,10 @@ export function createPlaybackHelpers({
         return clamp(velocity, -MAX_TARGET_VELOCITY_PX_PER_SEC, MAX_TARGET_VELOCITY_PX_PER_SEC);
     }
 
+    /**
+     * @param {number} positionErrorPx
+     * @param {number} viewportWidthPx
+     */
     function computePhaseCorrectionVelocity(positionErrorPx, viewportWidthPx) {
         const safeError = Number.isFinite(positionErrorPx) ? positionErrorPx : 0;
         const safeViewportWidth = Number.isFinite(viewportWidthPx) && viewportWidthPx > 0
@@ -94,6 +145,11 @@ export function createPlaybackHelpers({
         return Math.sign(rawCorrection) * Math.min(MAX_PHASE_CORRECTION_PX_PER_SEC, dampedCorrection);
     }
 
+    /**
+     * @param {PlaybackState | null | undefined} state
+     * @param {number} currentTime
+     * @param {number} frameDelta
+     */
     function stepPlaybackState(state, currentTime, frameDelta) {
         if (!state) return;
         const { x: targetX } = getInterpolatedXByTime(currentTime);
@@ -105,10 +161,17 @@ export function createPlaybackHelpers({
         state.x += state.vx * frameDelta;
     }
 
+    /**
+     * @param {PlaybackState | null | undefined} state
+     * @param {number} startTime
+     * @param {number} targetTime
+     * @param {number} [maxStepSec=PLAYBACK_SIMULATION_STEP_SEC]
+     * @returns {PlaybackState}
+     */
     function advancePlaybackStateToTime(state, startTime, targetTime, maxStepSec = PLAYBACK_SIMULATION_STEP_SEC) {
         const nextState = {
-            x: Number.isFinite(state?.x) ? state.x : 0,
-            vx: Number.isFinite(state?.vx) ? state.vx : 0,
+            x: state && Number.isFinite(state.x) ? state.x : 0,
+            vx: state && Number.isFinite(state.vx) ? state.vx : 0,
         };
         let currentTime = Number.isFinite(startTime) ? startTime : 0;
         const safeTargetTime = Number.isFinite(targetTime) ? targetTime : currentTime;

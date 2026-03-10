@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": [
+    "scripts/core/state.js",
+    "scripts/core/dom.js",
+    "scripts/features/audio.js",
+    "scripts/features/export-video.js",
+    "scripts/features/playback.js",
+    "scripts/features/timeline.js",
+    "types/globals.d.ts"
+  ]
+}

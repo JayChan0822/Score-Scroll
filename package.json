@@ -4,7 +4,8 @@
   "scripts": {
     "serve": "python3 -m http.server 4173",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "test:smoke": "playwright test tests/score-scroll-smoke.spec.js"
+    "test:smoke": "playwright test tests/score-scroll-smoke.spec.js",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "repository": {
     "type": "git",
@@ -22,6 +23,7 @@
     "mp4-muxer": "^5.2.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2"
+    "@playwright/test": "^1.58.2",
+    "typescript": "^5.9.3"
   }
 }

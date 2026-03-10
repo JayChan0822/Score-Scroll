@@ -13,6 +13,8 @@ import {
     createPlaybackHelpers,
     PLAYBACK_SIMULATION_STEP_SEC,
 } from "./features/playback.js";
+import { createSvgAnalysisFeature } from "./features/svg-analysis.js";
+import { createTimelineFeature } from "./features/timeline.js";
 import { bindUiEvents } from "./features/ui-events.js";
 import { formatSeconds } from "./utils/format.js";
 import { clamp } from "./utils/math.js";
@@ -198,6 +200,46 @@ const audioFeature = createAudioFeature({
     },
 });
 
+const timelineFeature = createTimelineFeature({
+    alertMessage: (message) => {
+        alert(message);
+    },
+    dom,
+    getCurrentBpm: () => currentBpm,
+    getGlobalMidiPpq: () => globalMidiPpq,
+    getGlobalMidiTempos: () => globalMidiTempos,
+    getIsMidiLoaded: () => isMidiLoaded,
+    getSvgTags: () => svgTags,
+    getTotalDuration,
+    resetPlaybackTimelineState: (firstX) => {
+        isPlaying = false;
+        cancelAnimationFrame(animationFrameId);
+        elapsedBeforePause = 0;
+        lastRenderClock = 0;
+        isFinished = false;
+        lastHighlightedIndex = -1;
+        smoothX = firstX;
+        smoothVx = 0;
+        playbackSimTime = 0;
+    },
+    setButtonTextByState,
+    setMapData: (value) => {
+        mapData = value;
+    },
+    setMidiDurationSec: (value) => {
+        midiDurationSec = value;
+    },
+    syncTransforms,
+    tryAlignAudioAndScore: () => audioFeature.tryAlignAudioAndScore(),
+    updateProgressUI,
+});
+
+const svgAnalysisFeature = createSvgAnalysisFeature({
+    getFallbackSystemInternalX: () => globalSystemInternalX,
+    getMathFlyinParams,
+    identifyClefOrBrace,
+});
+
 const exportFeature = createExportVideoFeature({
     dom,
     getAudioOffsetSec: () => audioOffsetSec,
@@ -317,366 +359,6 @@ let globalStickyLanes = {};
 // 🌟 全局缓存：用于存储原生的五线谱绝对位置，以便在遮罩层重新绘制桥梁
 window.globalAbsoluteStaffLineYs = [];
 window.globalAbsoluteSystemInternalX = Infinity;
-
-function buildRenderQueue(svgRoot) {
-    renderQueue = [];
-    globalStickyLanes = {};
-    window.globalAbsoluteStaffLineYs = [];
-    window.globalAbsoluteSystemInternalX = Infinity;
-    if (!svgRoot) return;
-
-    let domCounter = 0;
-    svgRoot.querySelectorAll('*').forEach(el => el.dataset.domIndex = domCounter++);
-
-    function getAbsoluteMatrix(el) {
-        let ctm = el.getCTM();
-        return ctm ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f } : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-    }
-
-    function getAbsoluteXLimits(box, matrix) {
-        const x1 = matrix.a * box.x + matrix.c * box.y + matrix.e;
-        const x2 = matrix.a * (box.x + box.width) + matrix.c * box.y + matrix.e;
-        const x3 = matrix.a * box.x + matrix.c * (box.y + box.height) + matrix.e;
-        const x4 = matrix.a * (box.x + box.width) + matrix.c * (box.y + box.height) + matrix.e;
-        return { minX: Math.min(x1, x2, x3, x4), maxX: Math.max(x1, x2, x3, x4) };
-    }
-
-    function getSymbolType(el) {
-        if (el.classList.contains('highlight-instname')) return 'InstName';
-        if (el.classList.contains('highlight-clef')) return 'Clef';
-        if (el.classList.contains('highlight-keysig')) return 'KeySig';
-        if (el.classList.contains('highlight-timesig')) return 'TimeSig';
-        if (el.classList.contains('highlight-barline')) return 'Barline';
-        if (el.classList.contains('highlight-brace')) return 'Brace';
-        if (el.classList.contains('highlight-accidental')) return 'Accidental';
-        return null;
-    }
-
-    // 🌟 提取真实描边粗细的工具函数
-    function extractStrokeWidth(el) {
-        const computedSW = window.getComputedStyle(el).strokeWidth;
-        const attrSW = el.getAttribute('stroke-width');
-        let lw = computedSW ? parseFloat(computedSW) : (attrSW ? parseFloat(attrSW) : 1);
-        return (isNaN(lw) || lw <= 0) ? 1 : lw;
-    }
-
-    const lines = svgRoot.querySelectorAll('line, polyline');
-    lines.forEach(el => {
-        const fillRole = 'none';
-        const strokeRole = el.dataset.roleStroke || 'fg';
-        const lineWidth = extractStrokeWidth(el);
-        const matrix = getAbsoluteMatrix(el);
-        let box = { x: 0, y: 0, width: 0, height: 0 };
-        try { box = el.getBBox(); } catch (e) {}
-        const symbolType = getSymbolType(el);
-
-        if (el.tagName.toLowerCase() === 'line') {
-            const limits = getAbsoluteXLimits(box, matrix);
-            const lx1 = parseFloat(el.getAttribute('x1')), ly1 = parseFloat(el.getAttribute('y1'));
-            const lx2 = parseFloat(el.getAttribute('x2')), ly2 = parseFloat(el.getAttribute('y2'));
-            if (Math.abs(ly1 - ly2) < 1 && Math.abs(lx1 - lx2) > 100) {
-                window.globalAbsoluteStaffLineYs.push({ y: matrix.b * lx1 + matrix.d * ly1 + matrix.f, width: lineWidth * Math.abs(matrix.d || 1) });
-            }
-            renderQueue.push({
-                type: 'line', domIndex: parseInt(el.dataset.domIndex) || 0,
-                localX1: lx1, localY1: ly1, localX2: lx2, localY2: ly2,
-                lineWidth: lineWidth, fillRole, strokeRole, matrix: matrix,
-                absMinX: limits.minX, absMaxX: limits.maxX, symbolType: symbolType,
-                centerY: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams()
-            });
-        } else if (el.tagName.toLowerCase() === 'polyline') {
-            const pointsStr = el.getAttribute('points');
-            if (!pointsStr) return;
-            const coords = pointsStr.trim().split(/\s+|,/).filter(n => n !== '').map(Number);
-            if (coords.length < 4) return;
-            const lx1 = coords[0], ly1 = coords[1], lx2 = coords[coords.length - 2], ly2 = coords[coords.length - 1];
-            if (Math.abs(ly1 - ly2) < 1 && Math.abs(lx1 - lx2) > 100) {
-                window.globalAbsoluteStaffLineYs.push({ y: matrix.b * lx1 + matrix.d * ly1 + matrix.f, width: lineWidth * Math.abs(matrix.d || 1) });
-            }
-            for (let i = 0; i < coords.length - 2; i += 2) {
-                const ltx1 = coords[i], lty1 = coords[i + 1], ltx2 = coords[i + 2], lty2 = coords[i + 3];
-                const tx1 = matrix.a * ltx1 + matrix.c * lty1 + matrix.e, tx2 = matrix.a * ltx2 + matrix.c * lty2 + matrix.e;
-                renderQueue.push({
-                    type: 'line', domIndex: parseInt(el.dataset.domIndex) || 0,
-                    localX1: ltx1, localY1: lty1, localX2: ltx2, localY2: lty2,
-                    lineWidth: lineWidth, fillRole, strokeRole, matrix: matrix,
-                    absMinX: Math.min(tx1, tx2), absMaxX: Math.max(tx1, tx2),
-                    symbolType: symbolType, centerY: matrix.b * ltx1 + matrix.d * lty1 + matrix.f, ...getMathFlyinParams()
-                });
-            }
-        }
-    });
-
-    const rects = svgRoot.querySelectorAll('rect');
-    rects.forEach(el => {
-        let fillRole = el.dataset.roleFill;
-        if (!fillRole) {
-            let curr = el, fill = '';
-            while (curr && curr !== svgRoot) {
-                if (curr.hasAttribute('fill')) { fill = curr.getAttribute('fill').trim().toLowerCase().replace(/\s+/g, ''); break; }
-                curr = curr.parentElement;
-            }
-            if (fill === '#ffffff' || fill === '#fff' || fill === 'white' || fill === 'rgb(255,255,255)') fillRole = 'bg';
-            else if (fill === 'none' || fill === 'transparent') fillRole = 'none';
-            else fillRole = 'fg';
-        }
-        const strokeRole = el.dataset.roleStroke || 'none';
-        if (fillRole === 'none' && strokeRole === 'none') return;
-
-        const matrix = getAbsoluteMatrix(el);
-        let box = { x: 0, y: 0, width: 0, height: 0 };
-        try { box = el.getBBox(); } catch (e) {}
-        if (box.width === 0 && box.height === 0) {
-            box.x = parseFloat(el.getAttribute('x')) || 0; box.y = parseFloat(el.getAttribute('y')) || 0;
-            box.width = parseFloat(el.getAttribute('width')) || 0; box.height = parseFloat(el.getAttribute('height')) || 0;
-        }
-
-        const limits = getAbsoluteXLimits(box, matrix);
-        renderQueue.push({
-            type: 'rect', domIndex: parseInt(el.dataset.domIndex) || 0,
-            localX: box.x, localY: box.y, width: box.width, height: box.height,
-            fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix: matrix,
-            absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
-            centerY: matrix.b * box.x + matrix.d * (box.y + box.height/2) + matrix.f,
-            centerX: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams()
-        });
-    });
-
-    const polygons = svgRoot.querySelectorAll('polygon');
-    polygons.forEach(el => {
-        const fillRole = el.dataset.roleFill || 'fg', strokeRole = el.dataset.roleStroke || 'none';
-        if (fillRole === 'none' && strokeRole === 'none') return;
-        const pointsStr = el.getAttribute('points');
-        if (!pointsStr) return;
-        const coords = pointsStr.trim().split(/\s+|,/).filter(n => n !== '').map(Number);
-        if (coords.length < 6) return;
-
-        const matrix = getAbsoluteMatrix(el);
-        let box = { x: 0, y: 0, width: 0, height: 0 };
-        try { box = el.getBBox(); } catch (e) {}
-        if (box.width === 0 && box.height === 0) {
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-            for (let i = 0; i < coords.length; i += 2) {
-                if (coords[i] < minX) minX = coords[i]; if (coords[i] > maxX) maxX = coords[i];
-                if (coords[i+1] < minY) minY = coords[i+1]; if (coords[i+1] > maxY) maxY = coords[i+1];
-            }
-            box = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-        }
-
-        let d = `M ${coords[0]} ${coords[1]} `;
-        for(let i = 2; i < coords.length; i += 2) d += `L ${coords[i]} ${coords[i+1]} `;
-        d += 'Z';
-
-        const limits = getAbsoluteXLimits(box, matrix);
-        renderQueue.push({
-            type: 'path', domIndex: parseInt(el.dataset.domIndex) || 0, path2D: new Path2D(d),
-            fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix: matrix, originalD: d,
-            absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
-            centerY: matrix.b * box.x + matrix.d * (box.y + box.height/2) + matrix.f,
-            centerX: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams()
-        });
-    });
-
-    const paths = svgRoot.querySelectorAll('path');
-    paths.forEach(el => {
-        const fillRole = el.dataset.roleFill || 'fg', strokeRole = el.dataset.roleStroke || 'none';
-        if (fillRole === 'none' && strokeRole === 'none') return;
-        const d = el.getAttribute('d');
-        if (!d) return;
-
-        const matrix = getAbsoluteMatrix(el);
-        let box = { x: 0, y: 0, width: 0, height: 0 };
-        try { box = el.getBBox(); } catch (e) {}
-        const limits = getAbsoluteXLimits(box, matrix);
-
-        renderQueue.push({
-            type: 'path', domIndex: parseInt(el.dataset.domIndex) || 0, path2D: new Path2D(d),
-            fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix: matrix, originalD: d,
-            absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
-            centerY: matrix.b * box.x + matrix.d * (box.y + box.height/2) + matrix.f,
-            centerX: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams()
-        });
-    });
-
-    const texts = svgRoot.querySelectorAll('text');
-    texts.forEach(el => {
-        const textContent = el.textContent || '';
-        if (textContent.includes('@')) return;
-
-        const matrix = getAbsoluteMatrix(el);
-        let box = { x: 0, y: 0, width: 0, height: 0 };
-        try { box = el.getBBox(); } catch (e) {}
-        const limits = getAbsoluteXLimits(box, matrix);
-        const fontNode = el.closest('[font-size]') || el, familyNode = el.closest('[font-family]') || el, weightNode = el.closest('[font-weight]') || el;
-        let fontSize = fontNode.getAttribute('font-size') || '16';
-        if (!isNaN(fontSize)) fontSize = `${fontSize}px`;
-        else if (!fontSize.includes('px') && !fontSize.includes('em')) fontSize = `${parseFloat(fontSize)}px`;
-
-        renderQueue.push({
-            type: 'text', domIndex: parseInt(el.dataset.domIndex) || 0, text: textContent,
-            x: parseFloat(el.getAttribute('x')) || 0, y: parseFloat(el.getAttribute('y')) || 0,
-            font: `${weightNode.getAttribute('font-weight') || 'normal'} ${fontSize} ${familyNode.getAttribute('font-family') || 'serif'}`,
-            fillRole: el.dataset.roleFill || 'fg', strokeRole: 'none', strokeWidth: 0,
-            matrix: matrix, absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
-            centerY: matrix.b * box.x + matrix.d * (box.y + box.height/2) + matrix.f, box: box, ...getMathFlyinParams()
-        });
-    });
-
-    // --- 五线谱去重与排挤聚类逻辑保持完全不变 ---
-    if (window.globalAbsoluteStaffLineYs.length > 0) {
-        window.globalAbsoluteStaffLineYs.sort((a, b) => a.y - b.y);
-        const deduped = [];
-        window.globalAbsoluteStaffLineYs.forEach(item => { if (deduped.length === 0 || Math.abs(item.y - deduped[deduped.length - 1].y) > 2) deduped.push(item); });
-        const validStaffLines = [];
-        for (let i = 0; i <= deduped.length - 5; i++) {
-            const fiveLines = deduped.slice(i, i + 5);
-            const gaps = [fiveLines[1].y - fiveLines[0].y, fiveLines[2].y - fiveLines[1].y, fiveLines[3].y - fiveLines[2].y, fiveLines[4].y - fiveLines[3].y];
-            const sortedGaps = gaps.slice().sort((a, b) => a - b);
-            const staffSpace = sortedGaps[Math.floor(sortedGaps.length / 2)] || 0;
-            if (!(staffSpace > 0.5)) continue;
-            if (Math.max(...gaps.map(gap => Math.abs(gap - staffSpace))) <= Math.max(1.25, staffSpace * 0.22)) validStaffLines.push(...fiveLines);
-        }
-        const finalCleanStaffLines = [];
-        validStaffLines.forEach(item => { if (finalCleanStaffLines.length === 0 || Math.abs(item.y - finalCleanStaffLines[finalCleanStaffLines.length - 1].y) > 1) finalCleanStaffLines.push(item); });
-        window.globalAbsoluteStaffLineYs = finalCleanStaffLines;
-    }
-
-    let initialBarlines = renderQueue.filter(item => item.symbolType === 'Barline');
-    if (initialBarlines.length > 0) {
-        const absoluteLeftmostBarlineX = Math.min(...initialBarlines.map(b => b.absMinX));
-        const startCluster = initialBarlines.filter(b => b.absMinX <= absoluteLeftmostBarlineX + 30);
-        window.globalAbsoluteSystemInternalX = Math.max(...startCluster.map(b => b.absMinX));
-    } else {
-        // 🌟 核心修复：当没有起始小节线时，不要归 0！
-        // 而是直接继承之前算好的真实五线谱最左端点 (globalSystemInternalX)
-        window.globalAbsoluteSystemInternalX = globalSystemInternalX || 0;
-    }
-
-    const stickyTypesMap = { 'InstName': 'inst', 'Clef': 'clef', 'KeySig': 'key', 'TimeSig': 'time', 'Barline': 'bar', 'Brace': 'brace' };
-    const stickies = renderQueue.filter(item => item.symbolType && stickyTypesMap[item.symbolType]);
-    const CLUSTER_THRESHOLD_X = 35;
-    const globalLanes = [];
-
-    // 🌟 终极重构：五线谱物理结界 + 谱号兜底
-    const staffLineYs = window.globalAbsoluteStaffLineYs.map(l => l.y);
-    const staffBands = buildTimeSignatureStaffBandsFromLineYs(staffLineYs);
-
-    if (staffBands && staffBands.length > 0) {
-        // 方案 A：基于真实的五线谱带划分多行
-        staffBands.forEach((band, index) => {
-            globalLanes.push({
-                anchorY: (band.top + band.bottom) / 2,
-                bandTop: band.paddedTop,
-                bandBottom: band.paddedBottom,
-                staffSpace: band.staffSpace, // 🌟 新增：把这行专属的线距存进口袋
-                items: [],
-                laneId: `lane-${index}`
-            });
-        });
-
-        stickies.forEach(item => {
-            let targetLane = null;
-            // 优先严格匹配：元素的 centerY 是否落在这个五线谱带的结界范围内
-            targetLane = globalLanes.find(lane => item.centerY >= lane.bandTop && item.centerY <= lane.bandBottom);
-
-            // 如果没匹配上（比如悬浮在很高处的 8va 记号），降级寻找距离中心最近的谱表
-            if (!targetLane) {
-                let minDiff = Infinity;
-                globalLanes.forEach(lane => {
-                    const diff = Math.abs(lane.anchorY - item.centerY);
-                    if (diff < minDiff) { minDiff = diff; targetLane = lane; }
-                });
-            }
-            if (targetLane) targetLane.items.push(item);
-        });
-    } else {
-        // 方案 B：兜底方案，尊重无五线谱线时的“一个谱号对应一行”逻辑
-        const allClefs = stickies.filter(item => item.symbolType === 'Clef');
-        if (allClefs.length > 0) {
-            let minClefX = Math.min(...allClefs.map(c => c.absMinX));
-            const systemClefs = allClefs.filter(c => c.absMinX <= minClefX + 250);
-
-            // 收紧合并容差到 15px，防止多行被错误合并
-            systemClefs.forEach(clef => {
-                let foundLane = globalLanes.find(lane => Math.abs(lane.anchorY - clef.centerY) < 15);
-                if (!foundLane) {
-                    globalLanes.push({ anchorY: clef.centerY, items: [], laneId: `lane-${globalLanes.length}` });
-                }
-            });
-        }
-
-        if (globalLanes.length > 0) {
-            stickies.forEach(item => {
-                let targetLane = null;
-                let minDiff = Infinity;
-                globalLanes.forEach(lane => {
-                    const diff = Math.abs(lane.anchorY - item.centerY);
-                    if (diff < minDiff) { minDiff = diff; targetLane = lane; }
-                });
-                if (targetLane && minDiff < 200) targetLane.items.push(item);
-            });
-        }
-    }
-
-    let globalMinX = Infinity;
-    globalLanes.forEach(lane => { lane.items.forEach(item => { if (stickyTypesMap[item.symbolType] === 'inst') return; if (item.absMinX < globalMinX) globalMinX = item.absMinX; }); });
-    stickyMinX = (globalMinX === Infinity) ? 0 : globalMinX;
-
-    globalLanes.forEach(lane => {
-        const currentStaffSpace = lane.staffSpace || 10;
-        const itemsByType = { inst: [], clef: [], key: [], time: [], bar: [], brace: [] };
-        lane.items.forEach(item => itemsByType[stickyTypesMap[item.symbolType]].push(item));
-        const typeBlocks = {};
-
-        ['inst', 'clef', 'key', 'time', 'bar', 'brace'].forEach(type => {
-            let items = itemsByType[type];
-            if (items.length === 0) return;
-            items.sort((a, b) => a.absMinX - b.absMinX);
-            let currentBlock = { minX: items[0].absMinX, maxX: items[0].absMaxX, items: [items[0]] };
-            let blocks = [];
-            for (let i = 1; i < items.length; i++) {
-                let item = items[i], lastItem = currentBlock.items[currentBlock.items.length - 1];
-                if (item.absMinX - currentBlock.maxX < CLUSTER_THRESHOLD_X) {
-                    currentBlock.items.push(item);
-                    if (item.absMaxX > currentBlock.maxX) currentBlock.maxX = item.absMaxX;
-                }
-                else { currentBlock.width = currentBlock.maxX - currentBlock.minX; blocks.push(currentBlock); currentBlock = { minX: item.absMinX, maxX: item.absMaxX, items: [item] }; }
-            }
-            currentBlock.width = currentBlock.maxX - currentBlock.minX; blocks.push(currentBlock); typeBlocks[type] = blocks;
-        });
-
-        const baseWidths = { inst: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
-        ['inst', 'clef', 'key', 'time', 'bar', 'brace'].forEach(type => { if (typeBlocks[type] && typeBlocks[type].length > 0) { const firstBlock = typeBlocks[type][0]; if (firstBlock.minX <= stickyMinX + 200) baseWidths[type] = firstBlock.width; } });
-        globalStickyLanes[lane.laneId] = { typeBlocks, baseWidths };
-
-        ['inst', 'clef', 'key', 'time', 'bar', 'brace'].forEach(type => {
-            if (!typeBlocks[type]) return;
-            const anchorX = typeBlocks[type][0].minX;
-            typeBlocks[type].forEach((block, index) => {
-                const lockDistance = Math.max(0, block.minX - anchorX);
-                let isMidClef = (type === 'clef' && index > 0);
-                block.items.forEach(item => {
-                    item.isSticky = true; item.stickyType = type; item.laneId = lane.laneId;
-                    item.blockIndex = index; item.lockDistance = lockDistance; item.blockMinX = block.minX; item.blockCenterY = block.items[0].centerY;
-                    item.isMidClef = isMidClef; item.midClefOffsetY = 0;
-                    item.staffSpace = currentStaffSpace;
-                    if (isMidClef && item.type === 'path' && item.originalD) {
-                        const sigStr = item.originalD.replace(/[^a-zA-Z]/g, '').toUpperCase();
-                        const specificType = identifyClefOrBrace(sigStr, item.originalD);
-                        if (specificType && specificType.includes('Bass')) {
-                            item.midClefOffsetY = currentStaffSpace * 0.3;
-                        } else if (specificType && specificType.includes('Treble')) {
-                            item.midClefOffsetY = -currentStaffSpace * 0.3;
-                        }
-                    }
-                });
-            });
-        });
-    });
-
-    renderQueue.sort((a, b) => (a.domIndex || 0) - (b.domIndex || 0));
-    console.log(`📦 内存数据库构建：已提取强分离指令 ${renderQueue.length} 条！`);
-}
 
 function renderCanvas(currentX) {
     if (!ctx || !canvas) return;
@@ -995,71 +677,6 @@ function resizeCanvas() {
     }
 }
 
-function preprocessSvgColors(svgNode) {
-    // 🌟 智能检测是否为“背景遮罩色”（兼容纯白、极其接近白色的米灰/纸色）
-    const isBgColor = (c) => {
-        if (!c) return false;
-        c = c.toLowerCase().replace(/\s+/g, '');
-        if (['none', 'transparent', 'rgba(0,0,0,0)', ''].includes(c)) return false;
-        if (c === '#ffffff' || c === '#fff' || c === 'white') return true;
-        if (c.startsWith('#') && c.length >= 7) {
-            const r = parseInt(c.slice(1,3), 16), g = parseInt(c.slice(3,5), 16), b = parseInt(c.slice(5,7), 16);
-            if (r > 240 && g > 240 && b > 240) return true; // 宽容处理 Dorico 的浅色纸张
-        }
-        if (c.startsWith('rgb')) {
-            const match = c.match(/[\d.]+/g);
-            if (match && match.length >= 3 && match[0] > 240 && match[1] > 240 && match[2] > 240) return true;
-        }
-        return false;
-    };
-
-    const isNoneColor = (c) => {
-        if (!c) return true;
-        c = c.toLowerCase().replace(/\s+/g, '');
-        return ['none', 'transparent', 'rgba(0,0,0,0)', ''].includes(c);
-    };
-
-    svgNode.querySelectorAll('*').forEach(el => {
-        if (el.tagName.toLowerCase() === 'style') return;
-
-        const computedStyle = window.getComputedStyle(el);
-        const fillOpacity = el.getAttribute('fill-opacity');
-        const opacity = el.getAttribute('opacity');
-
-        if (computedStyle.opacity === '0' || fillOpacity === '0' || opacity === '0' || computedStyle.display === 'none') {
-            el.dataset.roleFill = 'none';
-            el.dataset.roleStroke = 'none';
-            return;
-        }
-
-        // 溯源 Fill
-        let fill = '';
-        let currFill = el;
-        while (currFill && currFill !== svgNode) {
-            if (currFill.hasAttribute('fill')) { fill = currFill.getAttribute('fill'); break; }
-            currFill = currFill.parentElement;
-        }
-        if (!fill) fill = computedStyle.fill;
-
-        if (isBgColor(fill)) el.dataset.roleFill = 'bg';
-        else if (isNoneColor(fill)) el.dataset.roleFill = 'none';
-        else el.dataset.roleFill = 'fg';
-
-        // 溯源 Stroke
-        let stroke = '';
-        let currStroke = el;
-        while (currStroke && currStroke !== svgNode) {
-            if (currStroke.hasAttribute('stroke')) { stroke = currStroke.getAttribute('stroke'); break; }
-            currStroke = currStroke.parentElement;
-        }
-        if (!stroke) stroke = computedStyle.stroke;
-
-        if (isBgColor(stroke)) el.dataset.roleStroke = 'bg';
-        else if (isNoneColor(stroke)) el.dataset.roleStroke = 'none';
-        else el.dataset.roleStroke = 'fg';
-    });
-}
-
 function syncTransforms() {
     if (typeof renderCanvas === 'function') renderCanvas(smoothX);
 }
@@ -1072,7 +689,7 @@ bpmSlider.addEventListener('input', () => {
     tempoSourceHint.innerText = `MODE: MANUAL BPM`;
 
     if (!isMidiLoaded && svgTags.length > 0) {
-        generateManualTempoMap();
+        timelineFeature.generateManualTempoMap();
     }
 });
 
@@ -1112,7 +729,7 @@ document.getElementById('midiInput').addEventListener('change', (event) => {
 
         // 调用刚刚分离出的计算函数
         if (svgTags && svgTags.length > 0) {
-            recalculateMidiTempoMap();
+            timelineFeature.recalculateMidiTempoMap();
         } else {
             console.log("⏳ MIDI 已就绪，等待 SVG 乐谱导入后进行时空映射...");
         }
@@ -1278,7 +895,7 @@ function processSvgContent(svgContent) {
         if (!isPlaying && typeof renderCanvas === 'function') renderCanvas(smoothX);
     });
 
-    preprocessSvgColors(newSvgRoot);
+    svgAnalysisFeature.preprocessSvgColors(newSvgRoot);
 
     const originalQuerySelector = document.querySelector.bind(document);
     document.querySelector = function(selector) {
@@ -1297,13 +914,18 @@ function processSvgContent(svgContent) {
 
     document.querySelector = originalQuerySelector;
 
-    buildRenderQueue(newSvgRoot);
+    const svgAnalysis = svgAnalysisFeature.buildRenderQueue(newSvgRoot);
+    renderQueue = svgAnalysis.renderQueue;
+    stickyMinX = svgAnalysis.stickyMinX;
+    globalStickyLanes = svgAnalysis.globalStickyLanes;
+    window.globalAbsoluteStaffLineYs = svgAnalysis.globalAbsoluteStaffLineYs;
+    window.globalAbsoluteSystemInternalX = svgAnalysis.globalAbsoluteSystemInternalX;
     initScoreMapping(newSvgRoot);
 
     if (!isMidiLoaded && svgTags.length > 0) {
-        generateManualTempoMap();
+        timelineFeature.generateManualTempoMap();
     } else if (isMidiLoaded && svgTags.length > 0) {
-        recalculateMidiTempoMap();
+        timelineFeature.recalculateMidiTempoMap();
     } else {
         smoothX = 0;
         updateProgressUI(0);
@@ -2248,78 +1870,6 @@ function propagateAccidentalContagion(accidentals, noteheads, staffBands, staffS
     return infectedIds;
 }
 
-// 🌟 辅助：拍号解析器，将视觉拍号转化为数学比例
-function extractTimeSignatures(queue) {
-    const tsItems = queue.filter(item => item.symbolType === 'TimeSig' && item.type === 'text');
-    const groups = [];
-
-    // 1. 按 X 坐标聚类（把上下叠在一起的分子分母抓到同一组）
-    tsItems.forEach(item => {
-        let found = groups.find(g => Math.abs(g.x - item.absMinX) < 30);
-        if (!found) {
-            found = { x: item.absMinX, items: [] };
-            groups.push(found);
-        }
-        found.items.push(item);
-    });
-
-    const timeSigs = [];
-    const puaToNum = {
-        // Sibelius 私有大拍号
-        '':0, '':1, '':2, '':3, '':4, '':5, '':6, '':7, '':8, '':9,
-        '':0, '':1, '':2, '':3, '':4, '':5, '':6, '':7, '':8, '':9,
-        // 🌟 新增：SMuFL 标准音乐字体拍号 (Bravura, Petaluma, Leland 等通用)
-        '':0, '':1, '':2, '':3, '':4, '':5, '':6, '':7, '':8, '':9
-    };
-
-    // 2. 解析每一组的分子和分母
-    groups.forEach(g => {
-        g.items.sort((a, b) => a.centerY - b.centerY);
-        const chars = g.items.map(i => i.text.trim()).filter(t => t);
-        if (chars.length === 0) return;
-
-        let num = 4, den = 4;
-        const joined = chars.join('');
-
-        const isCommonTime = ['C', 'c', ''].includes(joined) || joined.includes('\uE08A');
-
-        // 🌟 加固：拦截 2/2 拍 (Cut Time / Alla Breve)
-        // 包含：美分符号 ¢, SMuFL 标准字符 (U+E08B)
-        const isCutTime = ['¢', ''].includes(joined) || joined.includes('\uE08B');
-
-        if (isCommonTime) {
-            timeSigs.push({x: g.x, num: 4, den: 4});
-            return;
-        }
-        if (isCutTime) {
-            timeSigs.push({x: g.x, num: 2, den: 2});
-            return;
-        }
-
-        const parsedNumbers = [];
-        chars.forEach(charStr => {
-            let val = '';
-            for(let i = 0; i < charStr.length; i++) {
-                const c = charStr[i];
-                if (/[0-9]/.test(c)) val += c;
-                else if (puaToNum[c] !== undefined) val += puaToNum[c];
-            }
-            if (val.length > 0) parsedNumbers.push(parseInt(val, 10));
-        });
-
-        if (parsedNumbers.length >= 2) {
-            num = parsedNumbers[0]; den = parsedNumbers[1];
-        } else if (parsedNumbers.length === 1) {
-            num = parsedNumbers[0]; den = 4;
-        } else { return; }
-
-        timeSigs.push({ x: g.x, num, den });
-    });
-
-    timeSigs.sort((a, b) => a.x - b.x);
-    return timeSigs;
-}
-
 // 🌟 1. 终极网格划分：加入防伪基准线与双线缝合的 Tick 映射
 function initScoreMapping(svgRoot) {
     if (!svgRoot) return;
@@ -2577,11 +2127,10 @@ function initScoreMapping(svgRoot) {
     if (uniqueBarlines.length < 2) return;
 
     // --- 3. 提取拍号 ---
-    globalTimeSigs = extractTimeSignatures(renderQueue);
-    if (globalTimeSigs.length === 0) globalTimeSigs.push({ x: -Infinity, num: 4, den: 4 });
-
+    globalTimeSigs = timelineFeature.ensureTimeSignatures(
+        timelineFeature.extractTimeSignatures(renderQueue)
+    );
     const timeSigs = globalTimeSigs;
-    if (timeSigs.length === 0) timeSigs.push({ x: -Infinity, num: 4, den: 4 });
 
     const timeSigUI = document.getElementById('timeSigDisplay');
     if (timeSigUI) {
@@ -2637,94 +2186,6 @@ function initScoreMapping(svgRoot) {
 
     console.log(`🎯 完美映射：生成 ${svgTags.length} 个锚点，总长度为 ${currentGlobalTick} Ticks。`);
 }
-
-// 🌟 2. MIDI 变速曲线重建：直接读取预先算好的 Tick
-function recalculateMidiTempoMap() {
-    if (!isMidiLoaded || globalMidiTempos.length === 0) return;
-
-    let tagTimes = [];
-    for (let i = 0; i < svgTags.length; i++) {
-        const targetTick = svgTags[i].tick; // 直接拿算好的真实时长！
-
-        let activeTempo = globalMidiTempos[0];
-        for (let j = globalMidiTempos.length - 1; j >= 0; j--) {
-            if (targetTick >= globalMidiTempos[j].ticks) {
-                activeTempo = globalMidiTempos[j];
-                break;
-            }
-        }
-
-        const ticksSinceTempo = targetTick - activeTempo.ticks;
-        const beatsSinceTempo = ticksSinceTempo / globalMidiPpq;
-        const secondsSinceTempo = beatsSinceTempo * (60 / activeTempo.bpm);
-        const absoluteTime = activeTempo.time + secondsSinceTempo;
-
-        tagTimes.push(absoluteTime);
-    }
-
-    fuseDataWithTempoMap(tagTimes);
-}
-
-// 🌟 3. 无 MIDI 时的手动测速重建：同样基于真实 Tick
-function generateManualTempoMap() {
-    if (svgTags.length === 0) return;
-
-    // 根据滑块 BPM，算出每一个 Tick 的物理时间秒数
-    const secondsPerQuarter = 60 / currentBpm;
-    const secondsPerTick = secondsPerQuarter / globalMidiPpq;
-
-    // 直接用绝对 Tick 乘以 单个 Tick 秒数
-    const tagTimes = svgTags.map(tag => tag.tick * secondsPerTick);
-
-    midiDurationSec = tagTimes[tagTimes.length - 1] || 0;
-    fuseDataWithTempoMap(tagTimes);
-}
-
-// 🌟 终极净化版：变速时空缝合 (彻底剔除旧 DOM 动画调用)
-function fuseDataWithTempoMap(tagTimes) {
-    mapData = [];
-
-    if (svgTags.length === 0) {
-        alert("未解析到乐谱坐标，请检查 SVG！");
-        return;
-    }
-
-    for (let i = 0; i < svgTags.length; i++) {
-        mapData.push({
-            time: tagTimes[i],
-            x: svgTags[i].x,
-            y: svgTags[i].y
-        });
-    }
-
-    isPlaying = false;
-    cancelAnimationFrame(animationFrameId);
-    elapsedBeforePause = 0;
-    lastRenderClock = 0;
-    isFinished = false;
-    lastHighlightedIndex = -1;
-    smoothX = mapData.length > 0 ? mapData[0].x : 0;
-    smoothVx = 0;
-    playbackSimTime = 0;
-    syncTransforms(); // 👈 这里会自动触发 renderCanvas 画出乐谱
-    updateProgressUI(0);
-
-    console.log("✅ 全局变速曲线融合完毕！最终驱动数据：", mapData);
-
-    const playBtn = document.getElementById('playBtn');
-    playBtn.disabled = false;
-    setButtonTextByState();
-
-    if (dom.exportEndInput) {
-        dom.exportEndInput.value = getTotalDuration().toFixed(2);
-    }
-
-    // 🌟 新增修复：只要时间轴（mapData）生成或重构完毕，立刻尝试与可能提前挂机的音频进行对齐！
-    if (typeof audioFeature.tryAlignAudioAndScore === 'function') {
-        audioFeature.tryAlignAudioAndScore();
-    }
-}
-
 
 let smoothX = 0;
 let smoothVx = 0;
