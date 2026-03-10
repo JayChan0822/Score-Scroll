@@ -53,9 +53,23 @@
 
 
 <div class="app-shell">
-    <div class="bento-controls">
+    <div class="workspace-layout">
+        <div class="stage-wrap apple-animate delay-3">
+            <div id="viewport">
+                <canvas id="score-canvas"></canvas>
+                <div id="svg-sandbox"></div>
 
-        <div class="bento-card apple-animate delay-1">
+                <div class="zoom-control-wrapper">
+                    <button class="zoom-btn" id="zoomOutBtn">−</button>
+                    <input type="range" id="zoomSlider" min="0.2" max="3" step="0.01" value="1">
+                    <button class="zoom-btn" id="zoomInBtn">+</button>
+                    <span id="zoomValDisplay" class="zoom-value">100%</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-stack">
+        <div class="bento-card sources-card apple-animate delay-1">
             <div class="bento-title">Sources</div>
             <label class="file-field">
                 <span>SVG 乐谱</span>
@@ -159,7 +173,7 @@
             </div>
         </div>
 
-        <div class="bento-card apple-animate delay-2">
+        <div class="bento-card transport-card apple-animate delay-2">
             <div class="bento-title">Particle & Transport</div>
 
             <div class="slider-row">
@@ -221,19 +235,6 @@
                 <input type="range" id="progressSlider" min="0" max="1" step="0.01" value="0" disabled>
             </div>
         </div>
-    </div>
-
-    <div class="stage-wrap apple-animate delay-3">
-        <div id="viewport">
-            <canvas id="score-canvas"></canvas>
-            <div id="svg-sandbox"></div>
-
-            <div class="zoom-control-wrapper">
-                <button class="zoom-btn" id="zoomOutBtn">−</button>
-                <input type="range" id="zoomSlider" min="0.2" max="3" step="0.01" value="1">
-                <button class="zoom-btn" id="zoomInBtn">+</button>
-                <span id="zoomValDisplay" class="zoom-value">100%</span>
-            </div>
         </div>
     </div>
     <div id="exportModal" class="export-modal">

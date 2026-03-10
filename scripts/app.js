@@ -303,6 +303,23 @@ function setGlobalZoom(val) {
     }
 }
 
+function fitScoreToViewportHeight() {
+    if (!viewportEl || !currentRawSvgContent || isExportingVideoMode) return;
+    if (!Number.isFinite(globalScoreHeight) || globalScoreHeight <= 0) return;
+
+    const viewportHeight = viewportEl.clientHeight;
+    if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return;
+
+    const fitZoom = viewportHeight / globalScoreHeight;
+    globalZoom = clamp(fitZoom, 0.2, 3);
+    updateZoomUI();
+    resizeCanvas();
+
+    if (typeof renderCanvas === 'function') {
+        renderCanvas(smoothX);
+    }
+}
+
 zoomSliderContainer.addEventListener('input', (e) => {
     setGlobalZoom(parseFloat(e.target.value));
 });
@@ -983,11 +1000,9 @@ function processSvgContent(svgContent) {
         globalScoreHeight = svgRect.height;
         window.globalScoreTrueCenterY = globalScoreHeight / 2;
     }
-    globalScoreHeight = svgRect.height;
     sandbox.innerHTML = ''; // 销毁沙盒
 
-    resizeCanvas();
-    renderCanvas(smoothX);
+    fitScoreToViewportHeight();
 }
 
 // 改造你的文件上传监听器
@@ -2659,8 +2674,7 @@ function handleExportRatioChange(e) {
 
     viewportEl.style.margin = '0 auto';
 
-    // 呼叫底层引擎根据新容器形状重新定中心点并渲染
-    resizeCanvas();
+    fitScoreToViewportHeight();
 }
 
 function handlePlaylineRatioInput(e) {
@@ -2711,7 +2725,13 @@ bindUiEvents({
     handleWindowKeydown,
     handlePlaylineRatioInput,
     handleProgressInput,
-    handleResize: resizeCanvas,
+    handleResize: () => {
+        if (currentRawSvgContent && !isExportingVideoMode) {
+            fitScoreToViewportHeight();
+            return;
+        }
+        resizeCanvas();
+    },
     onCancelExport: () => exportFeature.cancelExport(),
     onDelayInput: updateFlyinParams,
     onDistInput: updateFlyinParams,

@@ -14,7 +14,7 @@ body {
     color: var(--text-main);
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
     overflow-x: hidden;
-    padding: clamp(20px, 4vw, 60px) clamp(20px, 5vw, 100px);
+    padding: clamp(12px, 2.5vw, 24px) clamp(12px, 1.8vw, 24px);
     position: relative;
 }
 

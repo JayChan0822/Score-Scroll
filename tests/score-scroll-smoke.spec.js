@@ -549,3 +549,99 @@ test('classifies left-of-system verticals as bracket lines without relying on ba
   expect(bracketState.innerBracketLineClasses).toContain('highlight-brace');
   expect(bracketState.innerBracketLineClasses).not.toContain('highlight-barline');
 });
+
+test('automatically fits score height on import, ratio change, and window resize', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'auto-fit-zoom.svg');
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/index.html');
+
+  await page.evaluate(() => {
+    const sandbox = document.getElementById('svg-sandbox');
+    if (!sandbox) return;
+
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (!innerHtmlDescriptor?.get || !innerHtmlDescriptor?.set) return;
+
+    Object.defineProperty(sandbox, 'innerHTML', {
+      configurable: true,
+      get() {
+        return innerHtmlDescriptor.get.call(this);
+      },
+      set(value) {
+        if (value === '' && this.querySelector('svg')) {
+          return;
+        }
+        innerHtmlDescriptor.set.call(this, value);
+      },
+    });
+  });
+
+  const initialZoom = await page.locator('#zoomValDisplay').textContent();
+
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  await expect.poll(async () => page.locator('#zoomValDisplay').textContent()).not.toBe(initialZoom);
+  const zoomAfterImport = await page.locator('#zoomValDisplay').textContent();
+
+  await page.selectOption('#exportRatioSelect', '9:16');
+  await expect.poll(async () => page.locator('#zoomValDisplay').textContent()).not.toBe(zoomAfterImport);
+  const zoomAfterRatioChange = await page.locator('#zoomValDisplay').textContent();
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  await expect.poll(async () => page.locator('#zoomValDisplay').textContent()).not.toBe(zoomAfterRatioChange);
+});
+
+test('routes ratio changes and resize handling through score auto-fit logic', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).toContain('function fitScoreToViewportHeight');
+  expect(appSource).toContain('fitScoreToViewportHeight();');
+  expect(appSource).toContain('if (currentRawSvgContent && !isExportingVideoMode) {');
+});
+
+test('uses a left preview with a right stacked control column on desktop and stacks vertically on mobile', async ({ page }) => {
+  const htmlSource = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8');
+
+  expect(htmlSource).toContain('class="workspace-layout"');
+  expect(htmlSource).toContain('class="control-stack"');
+  expect(htmlSource).toContain('sources-card');
+  expect(htmlSource).toContain('transport-card');
+
+  await page.setViewportSize({ width: 1180, height: 960 });
+  await page.goto('/index.html');
+
+  const viewportBox = await page.locator('#viewport').boundingBox();
+  const stageWrapBox = await page.locator('.stage-wrap').boundingBox();
+  const controlStackBox = await page.locator('.control-stack').boundingBox();
+  const sourcesBox = await page.locator('.sources-card').boundingBox();
+  const transportBox = await page.locator('.transport-card').boundingBox();
+
+  expect(viewportBox).not.toBeNull();
+  expect(stageWrapBox).not.toBeNull();
+  expect(controlStackBox).not.toBeNull();
+  expect(sourcesBox).not.toBeNull();
+  expect(transportBox).not.toBeNull();
+
+  expect(viewportBox.x + viewportBox.width).toBeLessThan(sourcesBox.x + 5);
+  expect(viewportBox.x + viewportBox.width).toBeLessThan(transportBox.x + 5);
+  expect(sourcesBox.y).toBeLessThan(transportBox.y);
+  expect(controlStackBox.width).toBeGreaterThan(340);
+  expect(controlStackBox.width).toBeLessThan(420);
+  expect(Math.abs(stageWrapBox.height - controlStackBox.height)).toBeLessThan(4);
+  expect(Math.abs(viewportBox.height - controlStackBox.height)).toBeLessThan(4);
+
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.reload();
+
+  const viewportBoxMobile = await page.locator('#viewport').boundingBox();
+  const sourcesBoxMobile = await page.locator('.sources-card').boundingBox();
+  const transportBoxMobile = await page.locator('.transport-card').boundingBox();
+
+  expect(viewportBoxMobile).not.toBeNull();
+  expect(sourcesBoxMobile).not.toBeNull();
+  expect(transportBoxMobile).not.toBeNull();
+
+  expect(viewportBoxMobile.y).toBeLessThan(sourcesBoxMobile.y);
+  expect(sourcesBoxMobile.y).toBeLessThan(transportBoxMobile.y);
+});

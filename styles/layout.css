@@ -104,15 +104,21 @@ header {
     flex-direction: column;
     gap: 24px;
     margin: 0 auto;
-    max-width: 2160px;
+    max-width: 3440px;
     position: relative;
     z-index: 10;
 }
 
-.bento-controls {
+.workspace-layout {
     display: grid;
+    gap: 20px;
+    grid-template-columns: minmax(0, 1fr) minmax(450px, 500px);
+}
+
+.control-stack {
+    display: flex;
+    flex-direction: column;
     gap: 24px;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
 .bento-card {
@@ -124,7 +130,7 @@ header {
     flex-direction: column;
     gap: 20px;
     overflow: hidden;
-    padding: 30px;
+    padding: 24px;
     position: relative;
     transition: all 0.5s var(--easing);
     -webkit-backdrop-filter: blur(20px);
@@ -167,5 +173,49 @@ header {
     display: flex;
     flex-direction: column;
     gap: 15px;
-    margin-top: 20px;
+    min-width: 0;
+}
+
+.stage-wrap,
+.control-stack {
+    align-self: stretch;
+}
+
+.sources-card,
+.transport-card {
+    min-width: 0;
+}
+
+.sources-card,
+.transport-card {
+    flex: 0 0 auto;
+}
+
+@media (min-width: 901px) {
+    .stage-wrap {
+        height: 100%;
+    }
+
+    .control-stack {
+        height: 100%;
+    }
+
+    .stage-wrap #viewport {
+        height: 100%;
+        min-height: 0;
+    }
+}
+
+@media (max-width: 900px) {
+    .workspace-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .stage-wrap {
+        order: 1;
+    }
+
+    .control-stack {
+        order: 2;
+    }
 }
