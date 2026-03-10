@@ -20,6 +20,10 @@ import { debugLog } from "./utils/debug.js";
 import { formatSeconds } from "./utils/format.js";
 import { clamp } from "./utils/math.js";
 
+const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
+const workspaceScaleFrame = document.querySelector(".workspace-scale-frame");
+const workspaceLayout = document.querySelector(".workspace-layout");
+
 const initialState = createInitialState();
 
 let {
@@ -318,6 +322,45 @@ function fitScoreToViewportHeight() {
     if (typeof renderCanvas === 'function') {
         renderCanvas(smoothX);
     }
+}
+
+function syncViewportSizingMode(ratio = exportRatioSelect ? exportRatioSelect.value : "auto") {
+    if (!viewportEl) return;
+
+    viewportEl.style.width = "100%";
+    viewportEl.style.maxHeight = "none";
+    viewportEl.style.margin = "0 auto";
+
+    if (window.innerWidth > DESKTOP_LAYOUT_BREAKPOINT_PX) {
+        viewportEl.style.aspectRatio = "auto";
+        viewportEl.style.height = "100%";
+        return;
+    }
+
+    if (ratio === "auto") {
+        viewportEl.style.aspectRatio = "auto";
+        viewportEl.style.height = "clamp(400px, 60vh, 800px)";
+        return;
+    }
+
+    const parts = ratio.split(":");
+    const wRatio = parseInt(parts[0], 10);
+    const hRatio = parseInt(parts[1], 10);
+
+    viewportEl.style.aspectRatio = `${wRatio} / ${hRatio}`;
+    viewportEl.style.height = "auto";
+}
+
+function syncWorkspaceScaleFrameMetrics() {
+    if (!workspaceScaleFrame || !workspaceLayout) return;
+
+    if (window.innerWidth <= DESKTOP_LAYOUT_BREAKPOINT_PX) {
+        workspaceScaleFrame.style.height = "";
+        return;
+    }
+
+    const scaleValue = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--workspace-scale")) || 1;
+    workspaceScaleFrame.style.height = `${workspaceLayout.offsetHeight * scaleValue}px`;
 }
 
 zoomSliderContainer.addEventListener('input', (e) => {
@@ -686,24 +729,26 @@ function syncViewportHeight() {
 function resizeCanvas() {
     if (!canvas || !viewportEl) return;
     syncViewportHeight();
-    // 获取视窗的物理像素尺寸
-    const rect = viewportEl.getBoundingClientRect();
+    syncWorkspaceScaleFrameMetrics();
+    // 使用布局尺寸，避免祖先 transform 缩放后再次把 canvas 写小一遍。
+    const layoutWidth = viewportEl.clientWidth || viewportEl.getBoundingClientRect().width;
+    const layoutHeight = viewportEl.clientHeight || viewportEl.getBoundingClientRect().height;
     // 获取设备的物理像素与独立像素比例 (DPR)
     const dpr = window.devicePixelRatio || 1;
 
     // 设置 Canvas 内部实际渲染分辨率 (放大)
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    canvas.width = layoutWidth * dpr;
+    canvas.height = layoutHeight * dpr;
 
     // 设置 Canvas 在屏幕上显示的 CSS 尺寸 (缩回原大小)
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
+    canvas.style.width = `${layoutWidth}px`;
+    canvas.style.height = `${layoutHeight}px`;
 
     // 归一化坐标系
     ctx.scale(dpr, dpr);
 
     // 更新全局缓存宽度
-    cachedViewportWidth = rect.width;
+    cachedViewportWidth = layoutWidth;
 
     // 🌟 核心修复：Canvas 尺寸一旦改变就会被系统强制清空，所以我们立刻补画当前帧
     if (typeof renderCanvas === 'function') {
@@ -1432,20 +1477,24 @@ function identifyAndHighlightGeometricBrackets() {
     if (independentBracketVerticals.length > 0) {
         const independentMinY = Math.min(...independentBracketVerticals.map(seg => seg.topY));
         const independentMaxY = Math.max(...independentBracketVerticals.map(seg => seg.bottomY));
+        const bracketAnchorXs = [
+            ...independentBracketVerticals.map(vertical => vertical.x),
+            globalSystemInternalX,
+        ];
         const independentConnectedHorizontals = segments.filter(seg => {
             if (seg.kind !== 'horizontal') return false;
             if (seg.length > bracketBandWidth + connectionTolerance) return false;
             if (seg.y < independentMinY - connectionTolerance || seg.y > independentMaxY + connectionTolerance) return false;
 
-            const touchesBracketVertical = independentBracketVerticals.some(vertical =>
-                Math.abs(seg.leftX - vertical.x) <= connectionTolerance ||
-                Math.abs(seg.rightX - vertical.x) <= connectionTolerance
+            const touchedAnchors = bracketAnchorXs.filter((anchorX, index) =>
+                bracketAnchorXs.findIndex(candidate => Math.abs(candidate - anchorX) <= 0.01) === index &&
+                (
+                    Math.abs(seg.leftX - anchorX) <= connectionTolerance ||
+                    Math.abs(seg.rightX - anchorX) <= connectionTolerance
+                )
             );
-            const touchesSystemBarline =
-                Math.abs(seg.leftX - globalSystemInternalX) <= connectionTolerance ||
-                Math.abs(seg.rightX - globalSystemInternalX) <= connectionTolerance;
 
-            return touchesBracketVertical && touchesSystemBarline;
+            return touchedAnchors.length >= 2;
         });
 
         const independentElements = [
@@ -2652,28 +2701,7 @@ function handleAudioOffsetInput(e) {
 
 function handleExportRatioChange(e) {
     const ratio = e.target.value;
-
-    if (ratio === 'auto') {
-        // 恢复默认模式
-        viewportEl.style.aspectRatio = 'auto';
-        viewportEl.style.height = 'clamp(400px, 60vh, 800px)';
-        viewportEl.style.width = '100%';
-        viewportEl.style.maxHeight = 'none';
-    } else {
-        const parts = ratio.split(':');
-        const wRatio = parseInt(parts[0], 10);
-        const hRatio = parseInt(parts[1], 10);
-
-        viewportEl.style.aspectRatio = `${wRatio} / ${hRatio}`;
-
-        // 🌟 修改：不论横屏还是竖屏，都强行撑满容器宽度 (100%)，高度由比例自然向下延展
-        viewportEl.style.width = '100%';
-        viewportEl.style.height = 'auto';
-        viewportEl.style.maxHeight = 'none';
-    }
-
-    viewportEl.style.margin = '0 auto';
-
+    syncViewportSizingMode(ratio);
     fitScoreToViewportHeight();
 }
 
@@ -2726,6 +2754,7 @@ bindUiEvents({
     handlePlaylineRatioInput,
     handleProgressInput,
     handleResize: () => {
+        syncViewportSizingMode();
         if (currentRawSvgContent && !isExportingVideoMode) {
             fitScoreToViewportHeight();
             return;
@@ -2745,6 +2774,7 @@ bindUiEvents({
 });
 
 window.onload = () => {
+    syncViewportSizingMode();
     resizeCanvas(); // 👈 核心修复：通电！告诉 Canvas 你的真实分辨率大小
     applyOverlayVisibility();
     updateProgressUI(0);

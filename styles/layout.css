@@ -109,6 +109,10 @@ header {
     z-index: 10;
 }
 
+.workspace-scale-frame {
+    width: 100%;
+}
+
 .workspace-layout {
     display: grid;
     gap: 20px;
@@ -192,6 +196,17 @@ header {
 }
 
 @media (min-width: 901px) {
+    .workspace-scale-frame {
+        margin: 0 auto;
+        width: calc(100% * var(--workspace-scale));
+    }
+
+    .workspace-layout {
+        transform: scale(var(--workspace-scale));
+        transform-origin: top left;
+        width: calc(100% / var(--workspace-scale));
+    }
+
     .stage-wrap {
         height: 100%;
     }
@@ -207,8 +222,14 @@ header {
 }
 
 @media (max-width: 900px) {
+    .workspace-scale-frame {
+        width: 100%;
+    }
+
     .workspace-layout {
         grid-template-columns: 1fr;
+        transform: none;
+        width: 100%;
     }
 
     .stage-wrap {

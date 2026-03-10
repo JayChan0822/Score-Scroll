@@ -53,188 +53,189 @@
 
 
 <div class="app-shell">
-    <div class="workspace-layout">
-        <div class="stage-wrap apple-animate delay-3">
-            <div id="viewport">
-                <canvas id="score-canvas"></canvas>
-                <div id="svg-sandbox"></div>
+    <div class="workspace-scale-frame">
+        <div class="workspace-layout">
+            <div class="stage-wrap apple-animate delay-3">
+                <div id="viewport">
+                    <canvas id="score-canvas"></canvas>
+                    <div id="svg-sandbox"></div>
 
-                <div class="zoom-control-wrapper">
-                    <button class="zoom-btn" id="zoomOutBtn">−</button>
-                    <input type="range" id="zoomSlider" min="0.2" max="3" step="0.01" value="1">
-                    <button class="zoom-btn" id="zoomInBtn">+</button>
-                    <span id="zoomValDisplay" class="zoom-value">100%</span>
+                    <div class="zoom-control-wrapper">
+                        <button class="zoom-btn" id="zoomOutBtn">−</button>
+                        <input type="range" id="zoomSlider" min="0.2" max="3" step="0.01" value="1">
+                        <button class="zoom-btn" id="zoomInBtn">+</button>
+                        <span id="zoomValDisplay" class="zoom-value">100%</span>
+                    </div>
                 </div>
             </div>
-        </div>
+            <div class="control-stack">
+                <div class="bento-card sources-card apple-animate delay-1">
+                    <div class="bento-title">Sources</div>
+                    <label class="file-field">
+                        <span>SVG 乐谱</span>
+                        <input type="file" id="svgInput" accept=".svg">
+                    </label>
+                    <label class="file-field">
+                        <span>MIDI 速度</span>
+                        <input type="file" id="midiInput" accept=".mid,.midi">
+                    </label>
+                    <label class="file-field">
+                        <span>音频</span>
+                        <input type="file" id="audioInput" accept="audio/*">
+                    </label>
 
-        <div class="control-stack">
-        <div class="bento-card sources-card apple-animate delay-1">
-            <div class="bento-title">Sources</div>
-            <label class="file-field">
-                <span>SVG 乐谱</span>
-                <input type="file" id="svgInput" accept=".svg">
-            </label>
-            <label class="file-field">
-                <span>MIDI 速度</span>
-                <input type="file" id="midiInput" accept=".mid,.midi">
-            </label>
-            <label class="file-field">
-                <span>音频</span>
-                <input type="file" id="audioInput" accept="audio/*">
-            </label>
+                    <div class="slider-row slider-row-compact">
+                        <span class="slider-label slider-label-narrow">音频补偿</span>
+                        <input class="range-grow" type="range" id="audioOffsetSlider" min="-5" max="5" step="0.01" value="0">
+                        <span class="slider-val"><span id="audioOffsetVal">0.00</span>s</span>
+                    </div>
+                    <div class="slider-row slider-row-tight">
+                        <span class="slider-label slider-label-narrow">音乐字体</span>
+                        <select id="musicFontSelect" class="control-select control-select-grow">
+                            <option value="Bravura" selected>Bravura</option>
+                            <option value="Sebastian">Sebastian</option>
+                            <option value="Leland">Leland</option>
+                            <option value="Maestro">Maestro</option>
+                            <option value="Petaluma">Petaluma</option>
+                            <option value="Leipzig">Leipzig</option>
+                            <option value="Golden Age">Golden Age</option>
+                            <option value="Legacy">Legacy</option>
+                            <option value="Jazz">Jazz</option>
+                            <option value="Engraver">Engraver</option>
+                            <option value="Broadway">Broadway</option>
+                            <option value="Ash">Ash</option>
+                            <option value="Opus">Opus</option>
+                            <option value="Helsinki">Helsinki</option>
+                            <option value="Inkpen2">Inkpen2</option>
+                        </select>
+                    </div>
+                    <div class="slider-row slider-row-bottom">
+                        <span class="slider-label">Theme</span>
+                        <div class="btn-group btn-group-end">
+                            <button id="themeDarkBtn" class="button-compact" type="button">Dark</button>
+                            <button id="themeLightBtn" class="button-compact" type="button">Light</button>
+                        </div>
+                    </div>
+                    <div class="slider-row slider-row-compact">
+                        <span class="slider-label slider-label-narrow">导出规格</span>
 
-            <div class="slider-row slider-row-compact">
-                <span class="slider-label slider-label-narrow">音频补偿</span>
-                <input class="range-grow" type="range" id="audioOffsetSlider" min="-5" max="5" step="0.01" value="0">
-                <span class="slider-val"><span id="audioOffsetVal">0.00</span>s</span>
-            </div>
-            <div class="slider-row slider-row-tight">
-                <span class="slider-label slider-label-narrow">音乐字体</span>
-                <select id="musicFontSelect" class="control-select control-select-grow">
-                    <option value="Bravura" selected>Bravura</option>
-                    <option value="Sebastian">Sebastian</option>
-                    <option value="Leland">Leland</option>
-                    <option value="Maestro">Maestro</option>
-                    <option value="Petaluma">Petaluma</option>
-                    <option value="Leipzig">Leipzig</option>
-                    <option value="Golden Age">Golden Age</option>
-                    <option value="Legacy">Legacy</option>
-                    <option value="Jazz">Jazz</option>
-                    <option value="Engraver">Engraver</option>
-                    <option value="Broadway">Broadway</option>
-                    <option value="Ash">Ash</option>
-                    <option value="Opus">Opus</option>
-                    <option value="Helsinki">Helsinki</option>
-                    <option value="Inkpen2">Inkpen2</option>
-                </select>
-            </div>
-            <div class="slider-row slider-row-bottom">
-                <span class="slider-label">Theme</span>
-                <div class="btn-group btn-group-end">
-                    <button id="themeDarkBtn" class="button-compact" type="button">Dark</button>
-                    <button id="themeLightBtn" class="button-compact" type="button">Light</button>
+                        <select id="exportRatioSelect" class="control-select control-select-tight control-select-grow control-select-gap">
+                            <option value="auto">Auto (自适应)</option>
+                            <option value="16:9" selected>16:9 (横屏)</option>
+                            <option value="9:16">9:16 (竖屏)</option>
+                            <option value="4:3">4:3</option>
+                            <option value="3:4">3:4</option>
+                        </select>
+
+                        <select id="exportResSelect" class="control-select control-select-tight control-select-grow control-select-gap">
+                            <option value="1920" selected>1080P</option>
+                            <option value="2560">2K</option>
+                            <option value="3840">4K</option>
+                        </select>
+
+                        <select id="exportFpsSelect" class="control-select control-select-tight control-select-fixed">
+                            <option value="30">30帧</option>
+                            <option value="60" selected>60帧</option>
+                            <option value="120">120帧</option>
+                        </select>
+                    </div>
+                    <div class="slider-row slider-row-bottom">
+                        <span class="slider-label slider-label-narrow">导出范围</span>
+                        <div class="inline-field-group">
+                            <input
+                                type="number"
+                                id="exportStartInput"
+                                class="control-number"
+                                value="0"
+                                min="0"
+                                step="0.1"
+                                placeholder="开始(秒)"
+                            >
+                            <span class="field-separator">至</span>
+                            <input
+                                type="number"
+                                id="exportEndInput"
+                                class="control-number"
+                                value="0"
+                                min="0"
+                                step="0.1"
+                                placeholder="结束(秒)"
+                            >
+                        </div>
+                    </div>
+                    <div class="btn-group btn-group-top">
+                        <button id="toggleCursorBtn" type="button">Hide Line</button>
+                        <button id="toggleHighlightBtn" type="button">Hide Glow</button>
+                        <button id="toggleScanGlowBtn" type="button">Hide Scan</button>
+                        <button id="toggleFlyinBtn" type="button">Disable Fly-in</button>
+                        <button id="exportVideoBtn" class="button-accent" type="button">Export MP4</button>
+                        <button id="exportPngBtn" class="button-accent" type="button">Export PNG</button>
+                    </div>
+                </div>
+
+                <div class="bento-card transport-card apple-animate delay-2">
+                    <div class="bento-title">Particle & Transport</div>
+
+                    <div class="slider-row">
+                        <span class="slider-label">飘入距离</span>
+                        <input type="range" id="distSlider" min="0" max="100" value="50">
+                        <span class="slider-val"><span id="distVal">50</span>%</span>
+                    </div>
+                    <div class="slider-row">
+                        <span class="slider-label">散落范围</span>
+                        <input type="range" id="scatterSlider" min="0" max="100" value="50">
+                        <span class="slider-val"><span id="scatterVal">50</span>%</span>
+                    </div>
+                    <div class="slider-row">
+                        <span class="slider-label">碎片延迟</span>
+                        <input type="range" id="delaySlider" min="0" max="100" value="50">
+                        <span class="slider-val"><span id="delayVal">50</span>%</span>
+                    </div>
+
+                    <div class="slider-row">
+                        <span class="slider-label">高光范围</span>
+                        <input type="range" id="glowRangeSlider" min="0" max="100" value="50">
+                        <span class="slider-val"><span id="glowRangeVal">50</span>%</span>
+                    </div>
+
+                    <div class="slider-row">
+                        <span class="slider-label">扫描线位置</span>
+                        <input type="range" id="playlineRatioSlider" min="0" max="100" value="50">
+                        <span class="slider-val"><span id="playlineRatioVal">50</span>%</span>
+                    </div>
+
+                    <div class="section-divider"></div>
+
+                    <div class="slider-row">
+                        <span class="slider-label">播放速度 (BPM)</span>
+                        <input type="range" id="bpmSlider" min="1" max="500" value="120">
+                        <span class="slider-val"><span id="bpmVal">120</span></span>
+                    </div>
+
+                    <div id="scoreStats" class="info-display info-display-wide">
+                        <span>BARLINES: <b id="barlineCount">0</b></span>
+                        <span>MEASURES: <b id="measureCount">0</b></span>
+                        <span>TIME SIG: <b id="timeSigDisplay">-/-</b></span>
+                    </div>
+
+                    <div id="tempoSourceHint" class="tempo-hint">MODE: MANUAL BPM</div>
+
+                    <div class="section-divider"></div>
+
+                    <div class="transport-row">
+                        <button id="playBtn" class="button-fill" disabled>Wait MIDI...</button>
+                        <span id="timeDisplay" class="info-display time-display">0.00 s</span>
+                    </div>
+
+                    <div class="progress-container progress-container-compact">
+                        <div class="progress-meta">
+                            <span>PROGRESS</span>
+                            <span id="durationDisplay">/ 0.00 s</span>
+                        </div>
+                        <input type="range" id="progressSlider" min="0" max="1" step="0.01" value="0" disabled>
+                    </div>
                 </div>
             </div>
-            <div class="slider-row slider-row-compact">
-                <span class="slider-label slider-label-narrow">导出规格</span>
-
-                <select id="exportRatioSelect" class="control-select control-select-tight control-select-grow control-select-gap">
-                    <option value="auto">Auto (自适应)</option>
-                    <option value="16:9" selected>16:9 (横屏)</option>
-                    <option value="9:16">9:16 (竖屏)</option>
-                    <option value="4:3">4:3</option>
-                    <option value="3:4">3:4</option>
-                </select>
-
-                <select id="exportResSelect" class="control-select control-select-tight control-select-grow control-select-gap">
-                    <option value="1920" selected>1080P</option>
-                    <option value="2560">2K</option>
-                    <option value="3840">4K</option>
-                </select>
-
-                <select id="exportFpsSelect" class="control-select control-select-tight control-select-fixed">
-                    <option value="30">30帧</option>
-                    <option value="60" selected>60帧</option>
-                    <option value="120">120帧</option>
-                </select>
-            </div>
-            <div class="slider-row slider-row-bottom">
-                <span class="slider-label slider-label-narrow">导出范围</span>
-                <div class="inline-field-group">
-                    <input
-                        type="number"
-                        id="exportStartInput"
-                        class="control-number"
-                        value="0"
-                        min="0"
-                        step="0.1"
-                        placeholder="开始(秒)"
-                    >
-                    <span class="field-separator">至</span>
-                    <input
-                        type="number"
-                        id="exportEndInput"
-                        class="control-number"
-                        value="0"
-                        min="0"
-                        step="0.1"
-                        placeholder="结束(秒)"
-                    >
-                </div>
-            </div>
-            <div class="btn-group btn-group-top">
-                <button id="toggleCursorBtn" type="button">Hide Line</button>
-                <button id="toggleHighlightBtn" type="button">Hide Glow</button>
-                <button id="toggleScanGlowBtn" type="button">Hide Scan</button>
-                <button id="toggleFlyinBtn" type="button">Disable Fly-in</button>
-                <button id="exportVideoBtn" class="button-accent" type="button">Export MP4</button>
-                <button id="exportPngBtn" class="button-accent" type="button">Export PNG</button>
-            </div>
-        </div>
-
-        <div class="bento-card transport-card apple-animate delay-2">
-            <div class="bento-title">Particle & Transport</div>
-
-            <div class="slider-row">
-                <span class="slider-label">飘入距离</span>
-                <input type="range" id="distSlider" min="0" max="100" value="50">
-                <span class="slider-val"><span id="distVal">50</span>%</span>
-            </div>
-            <div class="slider-row">
-                <span class="slider-label">散落范围</span>
-                <input type="range" id="scatterSlider" min="0" max="100" value="50">
-                <span class="slider-val"><span id="scatterVal">50</span>%</span>
-            </div>
-            <div class="slider-row">
-                <span class="slider-label">碎片延迟</span>
-                <input type="range" id="delaySlider" min="0" max="100" value="50">
-                <span class="slider-val"><span id="delayVal">50</span>%</span>
-            </div>
-
-            <div class="slider-row">
-                <span class="slider-label">高光范围</span>
-                <input type="range" id="glowRangeSlider" min="0" max="100" value="50">
-                <span class="slider-val"><span id="glowRangeVal">50</span>%</span>
-            </div>
-
-            <div class="slider-row">
-                <span class="slider-label">扫描线位置</span>
-                <input type="range" id="playlineRatioSlider" min="0" max="100" value="50">
-                <span class="slider-val"><span id="playlineRatioVal">50</span>%</span>
-            </div>
-
-            <div class="section-divider"></div>
-
-            <div class="slider-row">
-                <span class="slider-label">播放速度 (BPM)</span>
-                <input type="range" id="bpmSlider" min="1" max="500" value="120">
-                <span class="slider-val"><span id="bpmVal">120</span></span>
-            </div>
-
-            <div id="scoreStats" class="info-display info-display-wide">
-                <span>BARLINES: <b id="barlineCount">0</b></span>
-                <span>MEASURES: <b id="measureCount">0</b></span>
-                <span>TIME SIG: <b id="timeSigDisplay">-/-</b></span>
-            </div>
-
-            <div id="tempoSourceHint" class="tempo-hint">MODE: MANUAL BPM</div>
-
-            <div class="section-divider"></div>
-
-            <div class="transport-row">
-                <button id="playBtn" class="button-fill" disabled>Wait MIDI...</button>
-                <span id="timeDisplay" class="info-display time-display">0.00 s</span>
-            </div>
-
-            <div class="progress-container progress-container-compact">
-                <div class="progress-meta">
-                    <span>PROGRESS</span>
-                    <span id="durationDisplay">/ 0.00 s</span>
-                </div>
-                <input type="range" id="progressSlider" min="0" max="1" step="0.01" value="0" disabled>
-            </div>
-        </div>
         </div>
     </div>
     <div id="exportModal" class="export-modal">

@@ -115,8 +115,10 @@ test('positions the zoom slider at the top-left of the viewport', async ({ page 
 
   expect(viewportBox).not.toBeNull();
   expect(zoomBox).not.toBeNull();
-  expect(Math.abs((zoomBox.x - viewportBox.x) - 20)).toBeLessThan(2);
-  expect(Math.abs((zoomBox.y - viewportBox.y) - 20)).toBeLessThan(2);
+  expect(zoomBox.x - viewportBox.x).toBeGreaterThanOrEqual(0);
+  expect(zoomBox.y - viewportBox.y).toBeGreaterThanOrEqual(0);
+  expect(zoomBox.x - viewportBox.x).toBeLessThan(32);
+  expect(zoomBox.y - viewportBox.y).toBeLessThan(32);
 });
 
 test('uses the 8px minimum height threshold for initial barline detection', async () => {
@@ -550,7 +552,72 @@ test('classifies left-of-system verticals as bracket lines without relying on ba
   expect(bracketState.innerBracketLineClasses).not.toContain('highlight-barline');
 });
 
-test('automatically fits score height on import, ratio change, and window resize', async ({ page }) => {
+test('detects nested bracket cap lines that attach to another bracket vertical', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'nested-bracket-caps.svg');
+
+  await page.goto('/index.html');
+
+  await page.evaluate(() => {
+    const sandbox = document.getElementById('svg-sandbox');
+    if (!sandbox) return;
+
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (!innerHtmlDescriptor?.get || !innerHtmlDescriptor?.set) return;
+
+    Object.defineProperty(sandbox, 'innerHTML', {
+      configurable: true,
+      get() {
+        return innerHtmlDescriptor.get.call(this);
+      },
+      set(value) {
+        if (value === '' && this.querySelector('svg')) {
+          return;
+        }
+        innerHtmlDescriptor.set.call(this, value);
+      },
+    });
+  });
+
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('line, polyline').length : 0;
+  })).toBeGreaterThan(0);
+
+  const bracketCapState = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const openingBarline = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('x1') === '107.789' && el.getAttribute('x2') === '107.789');
+
+    const outerTopCap = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('points') === '100.561,70.3465 108.175,70.3465');
+
+    const nestedTopCap = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('points') === '97.4327,190.147 100.946,190.147');
+
+    const nestedBottomCap = Array.from(svg.querySelectorAll('line, polyline'))
+      .find((el) => el.getAttribute('points') === '97.4327,268.157 100.946,268.157');
+
+    return {
+      openingBarlineClasses: openingBarline?.className?.baseVal || '',
+      outerTopCapClasses: outerTopCap?.className?.baseVal || '',
+      nestedTopCapClasses: nestedTopCap?.className?.baseVal || '',
+      nestedBottomCapClasses: nestedBottomCap?.className?.baseVal || '',
+    };
+  });
+
+  expect(bracketCapState).not.toBeNull();
+  expect(bracketCapState.openingBarlineClasses).toContain('highlight-barline');
+  expect(bracketCapState.openingBarlineClasses).not.toContain('highlight-brace');
+  expect(bracketCapState.outerTopCapClasses).toContain('highlight-brace');
+  expect(bracketCapState.nestedTopCapClasses).toContain('highlight-brace');
+  expect(bracketCapState.nestedBottomCapClasses).toContain('highlight-brace');
+});
+
+test('automatically fits score height on import, window resize, and mobile ratio change', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'auto-fit-zoom.svg');
 
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -584,12 +651,12 @@ test('automatically fits score height on import, ratio change, and window resize
   await expect.poll(async () => page.locator('#zoomValDisplay').textContent()).not.toBe(initialZoom);
   const zoomAfterImport = await page.locator('#zoomValDisplay').textContent();
 
-  await page.selectOption('#exportRatioSelect', '9:16');
+  await page.setViewportSize({ width: 820, height: 900 });
   await expect.poll(async () => page.locator('#zoomValDisplay').textContent()).not.toBe(zoomAfterImport);
-  const zoomAfterRatioChange = await page.locator('#zoomValDisplay').textContent();
+  const zoomAfterResize = await page.locator('#zoomValDisplay').textContent();
 
-  await page.setViewportSize({ width: 900, height: 700 });
-  await expect.poll(async () => page.locator('#zoomValDisplay').textContent()).not.toBe(zoomAfterRatioChange);
+  await page.selectOption('#exportRatioSelect', '9:16');
+  await expect.poll(async () => page.locator('#zoomValDisplay').textContent()).not.toBe(zoomAfterResize);
 });
 
 test('routes ratio changes and resize handling through score auto-fit logic', async () => {
@@ -603,6 +670,7 @@ test('routes ratio changes and resize handling through score auto-fit logic', as
 test('uses a left preview with a right stacked control column on desktop and stacks vertically on mobile', async ({ page }) => {
   const htmlSource = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8');
 
+  expect(htmlSource).toContain('workspace-scale-frame');
   expect(htmlSource).toContain('class="workspace-layout"');
   expect(htmlSource).toContain('class="control-stack"');
   expect(htmlSource).toContain('sources-card');
@@ -611,25 +679,53 @@ test('uses a left preview with a right stacked control column on desktop and sta
   await page.setViewportSize({ width: 1180, height: 960 });
   await page.goto('/index.html');
 
+  const workspaceScaleFrame = page.locator('.workspace-scale-frame');
+  const workspaceLayout = page.locator('.workspace-layout');
+  const canvasBox = await page.locator('#score-canvas').boundingBox();
   const viewportBox = await page.locator('#viewport').boundingBox();
   const stageWrapBox = await page.locator('.stage-wrap').boundingBox();
   const controlStackBox = await page.locator('.control-stack').boundingBox();
   const sourcesBox = await page.locator('.sources-card').boundingBox();
   const transportBox = await page.locator('.transport-card').boundingBox();
+  const workspaceTransform = await workspaceLayout.evaluate((node) => getComputedStyle(node).transform);
 
+  await expect(workspaceScaleFrame).toHaveCount(1);
+  expect(canvasBox).not.toBeNull();
   expect(viewportBox).not.toBeNull();
   expect(stageWrapBox).not.toBeNull();
   expect(controlStackBox).not.toBeNull();
   expect(sourcesBox).not.toBeNull();
   expect(transportBox).not.toBeNull();
+  expect(workspaceTransform).not.toBe('none');
+  expect(workspaceTransform).toMatch(/matrix\((0\.75|0\.750|0\.749)/);
 
   expect(viewportBox.x + viewportBox.width).toBeLessThan(sourcesBox.x + 5);
   expect(viewportBox.x + viewportBox.width).toBeLessThan(transportBox.x + 5);
   expect(sourcesBox.y).toBeLessThan(transportBox.y);
-  expect(controlStackBox.width).toBeGreaterThan(340);
-  expect(controlStackBox.width).toBeLessThan(420);
+  expect(controlStackBox.width).toBeGreaterThan(320);
+  expect(controlStackBox.width).toBeLessThan(400);
+  expect(Math.abs(canvasBox.width - viewportBox.width)).toBeLessThan(4);
+  expect(Math.abs(canvasBox.height - viewportBox.height)).toBeLessThan(4);
   expect(Math.abs(stageWrapBox.height - controlStackBox.height)).toBeLessThan(4);
   expect(Math.abs(viewportBox.height - controlStackBox.height)).toBeLessThan(4);
+
+  await page.selectOption('#exportRatioSelect', '9:16');
+
+  const viewportBoxAfterRatio = await page.locator('#viewport').boundingBox();
+  const controlStackBoxAfterRatio = await page.locator('.control-stack').boundingBox();
+
+  expect(viewportBoxAfterRatio).not.toBeNull();
+  expect(controlStackBoxAfterRatio).not.toBeNull();
+  expect(Math.abs(viewportBoxAfterRatio.height - controlStackBoxAfterRatio.height)).toBeLessThan(4);
+
+  await page.setViewportSize({ width: 1024, height: 960 });
+
+  const viewportBoxAfterResize = await page.locator('#viewport').boundingBox();
+  const controlStackBoxAfterResize = await page.locator('.control-stack').boundingBox();
+
+  expect(viewportBoxAfterResize).not.toBeNull();
+  expect(controlStackBoxAfterResize).not.toBeNull();
+  expect(Math.abs(viewportBoxAfterResize.height - controlStackBoxAfterResize.height)).toBeLessThan(4);
 
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.reload();
