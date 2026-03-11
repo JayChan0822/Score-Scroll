@@ -68,6 +68,9 @@ export function createAudioFeature({
         const renderQueue = getRenderQueue();
         const mapData = getMapData();
         if (!renderQueue || renderQueue.length === 0) return 0;
+        const absoluteSystemStartX = Number.isFinite(window.globalAbsoluteSystemInternalX)
+            ? (window.globalAbsoluteSystemInternalX || 0)
+            : getGlobalSystemInternalX();
 
         let firstNoteX = Infinity;
 
@@ -83,7 +86,7 @@ export function createAudioFeature({
 
             if (sig && identifyNotehead(sig)) {
                 const centerX = item.absMinX + (item.absMaxX - item.absMinX) / 2;
-                if (centerX > getGlobalSystemInternalX() && centerX < firstNoteX) {
+                if (centerX > absoluteSystemStartX && centerX < firstNoteX) {
                     firstNoteX = centerX;
                 }
             }

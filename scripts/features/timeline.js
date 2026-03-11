@@ -20,6 +20,8 @@ import { debugLog } from "../utils/debug.js";
  * @property {number} time
  */
 
+import { decodeTimeSignatureText } from "./time-signature-decoder.js";
+
 /**
  * @typedef {Object} TimeSignaturePoint
  * @property {number} x
@@ -41,6 +43,7 @@ import { debugLog } from "../utils/debug.js";
  * @property {number} absMinX
  * @property {number} centerY
  * @property {string} [text]
+ * @property {string} [timeSigToken]
  */
 
 /**
@@ -139,7 +142,7 @@ export function createTimelineFeature({
      * @returns {TimeSignaturePoint[]}
      */
     function extractTimeSignatures(queue) {
-        const tsItems = queue.filter((item) => item.symbolType === "TimeSig" && item.type === "text");
+        const tsItems = queue.filter((item) => item.symbolType === "TimeSig");
         /** @type {TimeSignatureGroup[]} */
         const groups = [];
 
@@ -154,27 +157,28 @@ export function createTimelineFeature({
 
         /** @type {TimeSignaturePoint[]} */
         const timeSigs = [];
-        /** @type {Record<string, number>} */
-        const puaToNum = {
-            "": 0, "": 1, "": 2, "": 3, "": 4,
-            "": 5, "": 6, "": 7, "": 8, "": 9,
-            "": 0, "": 1, "": 2, "": 3, "": 4,
-            "": 5, "": 6, "": 7, "": 8, "": 9,
-            "": 0, "": 1, "": 2, "": 3, "": 4,
-            "": 5, "": 6, "": 7, "": 8, "": 9,
-        };
 
         groups.forEach((group) => {
             group.items.sort((a, b) => a.centerY - b.centerY);
-            const chars = group.items.map((item) => (item.text || "").trim()).filter(Boolean);
-            if (chars.length === 0) return;
+            const tokens = group.items.map((item) => {
+                if (typeof item.timeSigToken === "string" && item.timeSigToken.trim()) {
+                    return item.timeSigToken.trim();
+                }
+
+                if (item.type === "text") {
+                    return decodeTimeSignatureText((item.text || "").trim())?.token || "";
+                }
+
+                return "";
+            }).filter(Boolean);
+            if (tokens.length === 0) return;
 
             let num = 4;
             let den = 4;
-            const joined = chars.join("");
+            const joined = tokens.join("");
 
-            const isCommonTime = ["C", "c", ""].includes(joined) || joined.includes("\uE08A");
-            const isCutTime = ["¢", ""].includes(joined) || joined.includes("\uE08B");
+            const isCommonTime = joined === "COMMON" || tokens.includes("COMMON");
+            const isCutTime = joined === "CUT" || tokens.includes("CUT");
 
             if (isCommonTime) {
                 timeSigs.push({ x: group.x, num: 4, den: 4 });
@@ -187,14 +191,10 @@ export function createTimelineFeature({
 
             /** @type {number[]} */
             const parsedNumbers = [];
-            chars.forEach((charStr) => {
-                let value = "";
-                for (let i = 0; i < charStr.length; i++) {
-                    const char = charStr[i];
-                    if (/[0-9]/.test(char)) value += char;
-                    else if (puaToNum[char] !== undefined) value += puaToNum[char];
+            tokens.forEach((token) => {
+                if (/^\d+$/.test(token)) {
+                    parsedNumbers.push(parseInt(token, 10));
                 }
-                if (value.length > 0) parsedNumbers.push(parseInt(value, 10));
             });
 
             if (parsedNumbers.length >= 2) {

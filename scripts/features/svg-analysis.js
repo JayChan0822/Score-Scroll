@@ -169,10 +169,12 @@ export function createSvgAnalysisFeature({
         let stickyMinX = 0;
         let globalAbsoluteStaffLineYs = [];
         let globalAbsoluteSystemInternalX = Infinity;
+        let globalAbsoluteBridgeStartX = Infinity;
 
         if (!svgRoot) {
             return {
                 globalAbsoluteStaffLineYs,
+                globalAbsoluteBridgeStartX,
                 globalAbsoluteSystemInternalX,
                 globalStickyLanes,
                 renderQueue,
@@ -209,6 +211,12 @@ export function createSvgAnalysisFeature({
             return null;
         }
 
+        function getTimeSigToken(el) {
+            return typeof el.getAttribute === "function"
+                ? (el.getAttribute("data-time-sig-token") || "")
+                : "";
+        }
+
         function extractStrokeWidth(el) {
             const computedSW = window.getComputedStyle(el).strokeWidth;
             const attrSW = el.getAttribute("stroke-width");
@@ -232,7 +240,12 @@ export function createSvgAnalysisFeature({
                 const lx2 = parseFloat(el.getAttribute("x2"));
                 const ly2 = parseFloat(el.getAttribute("y2"));
                 if (Math.abs(ly1 - ly2) < 1 && Math.abs(lx1 - lx2) > 100) {
-                    globalAbsoluteStaffLineYs.push({ y: matrix.b * lx1 + matrix.d * ly1 + matrix.f, width: lineWidth * Math.abs(matrix.d || 1) });
+                    globalAbsoluteStaffLineYs.push({
+                        y: matrix.b * lx1 + matrix.d * ly1 + matrix.f,
+                        width: lineWidth * Math.abs(matrix.d || 1),
+                        minX: limits.minX,
+                        maxX: limits.maxX,
+                    });
                 }
                 renderQueue.push({
                     type: "line", domIndex: parseInt(el.dataset.domIndex) || 0,
@@ -251,7 +264,18 @@ export function createSvgAnalysisFeature({
                 const lx2 = coords[coords.length - 2];
                 const ly2 = coords[coords.length - 1];
                 if (Math.abs(ly1 - ly2) < 1 && Math.abs(lx1 - lx2) > 100) {
-                    globalAbsoluteStaffLineYs.push({ y: matrix.b * lx1 + matrix.d * ly1 + matrix.f, width: lineWidth * Math.abs(matrix.d || 1) });
+                    globalAbsoluteStaffLineYs.push({
+                        y: matrix.b * lx1 + matrix.d * ly1 + matrix.f,
+                        width: lineWidth * Math.abs(matrix.d || 1),
+                        minX: Math.min(
+                            matrix.a * lx1 + matrix.c * ly1 + matrix.e,
+                            matrix.a * lx2 + matrix.c * ly2 + matrix.e,
+                        ),
+                        maxX: Math.max(
+                            matrix.a * lx1 + matrix.c * ly1 + matrix.e,
+                            matrix.a * lx2 + matrix.c * ly2 + matrix.e,
+                        ),
+                    });
                 }
                 for (let i = 0; i < coords.length - 2; i += 2) {
                     const ltx1 = coords[i];
@@ -347,7 +371,9 @@ export function createSvgAnalysisFeature({
                 fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix, originalD: d,
                 absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
-                centerX: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams(),
+                centerX: limits.minX + (limits.maxX - limits.minX) / 2,
+                timeSigToken: getTimeSigToken(el),
+                ...getMathFlyinParams(),
             });
         });
 
@@ -368,7 +394,9 @@ export function createSvgAnalysisFeature({
                 fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix, originalD: d,
                 absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
-                centerX: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams(),
+                centerX: limits.minX + (limits.maxX - limits.minX) / 2,
+                timeSigToken: getTimeSigToken(el),
+                ...getMathFlyinParams(),
             });
         });
 
@@ -382,18 +410,25 @@ export function createSvgAnalysisFeature({
             const limits = getAbsoluteXLimits(box, matrix);
             const fontNode = el.closest("[font-size]") || el;
             const familyNode = el.closest("[font-family]") || el;
+            const styleNode = el.closest("[font-style]") || el;
             const weightNode = el.closest("[font-weight]") || el;
             let fontSize = fontNode.getAttribute("font-size") || "16";
             if (!Number.isNaN(Number(fontSize))) fontSize = `${fontSize}px`;
             else if (!fontSize.includes("px") && !fontSize.includes("em")) fontSize = `${parseFloat(fontSize)}px`;
+            const fontStyle = styleNode.getAttribute("font-style") || "normal";
+            const fontWeight = weightNode.getAttribute("font-weight") || "normal";
+            const fontFamily = familyNode.getAttribute("font-family") || "serif";
 
             renderQueue.push({
                 type: "text", domIndex: parseInt(el.dataset.domIndex) || 0, text: textContent,
                 x: parseFloat(el.getAttribute("x")) || 0, y: parseFloat(el.getAttribute("y")) || 0,
-                font: `${weightNode.getAttribute("font-weight") || "normal"} ${fontSize} ${familyNode.getAttribute("font-family") || "serif"}`,
+                font: `${fontStyle} ${fontWeight} ${fontSize} ${fontFamily}`,
                 fillRole: el.dataset.roleFill || "fg", strokeRole: "none", strokeWidth: 0,
                 matrix, absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
-                centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f, box, ...getMathFlyinParams(),
+                centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
+                timeSigToken: getTimeSigToken(el),
+                box,
+                ...getMathFlyinParams(),
             });
         });
 
@@ -438,6 +473,7 @@ export function createSvgAnalysisFeature({
         } else {
             globalAbsoluteSystemInternalX = getFallbackSystemInternalX() || 0;
         }
+        globalAbsoluteBridgeStartX = globalAbsoluteSystemInternalX;
 
         const stickyTypesMap = { InstName: "inst", Clef: "clef", KeySig: "key", TimeSig: "time", Barline: "bar", Brace: "brace" };
         const stickies = renderQueue.filter(item => item.symbolType && stickyTypesMap[item.symbolType]);
@@ -511,6 +547,17 @@ export function createSvgAnalysisFeature({
             });
         });
         stickyMinX = globalMinX === Infinity ? 0 : globalMinX;
+        if (window.hasPhysicalStartBarline === false && Number.isFinite(globalAbsoluteSystemInternalX)) {
+            const leftmostStaffLineX = globalAbsoluteStaffLineYs
+                .map((line) => line.minX)
+                .filter((value) => Number.isFinite(value));
+            if (leftmostStaffLineX.length > 0) {
+                globalAbsoluteBridgeStartX = Math.min(...leftmostStaffLineX);
+            } else if (Number.isFinite(globalMinX)) {
+                globalAbsoluteBridgeStartX = globalMinX;
+            }
+            stickyMinX = globalAbsoluteSystemInternalX;
+        }
 
         globalLanes.forEach(lane => {
             const currentStaffSpace = lane.staffSpace || 10;
@@ -585,6 +632,7 @@ export function createSvgAnalysisFeature({
 
         return {
             globalAbsoluteStaffLineYs,
+            globalAbsoluteBridgeStartX,
             globalAbsoluteSystemInternalX,
             globalStickyLanes,
             renderQueue,

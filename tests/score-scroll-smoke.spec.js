@@ -3,6 +3,60 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
+async function preserveImportedSvgDuringSmoke(page) {
+  await page.evaluate(() => {
+    const sandbox = document.getElementById('svg-sandbox');
+    if (!sandbox) return;
+
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (!innerHtmlDescriptor?.get || !innerHtmlDescriptor?.set) return;
+
+    Object.defineProperty(sandbox, 'innerHTML', {
+      configurable: true,
+      get() {
+        return innerHtmlDescriptor.get.call(this);
+      },
+      set(value) {
+        if (value === '' && this.querySelector('svg')) {
+          return;
+        }
+        innerHtmlDescriptor.set.call(this, value);
+      },
+    });
+  });
+}
+
+async function loadFixtureIntoScore(page, fixturePath) {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', fixturePath);
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+}
+
+async function getTextClassification(page, selectors) {
+  return page.evaluate((requestedSelectors) => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    return requestedSelectors.map((selector) => {
+      const el = Array.from(svg.querySelectorAll('text')).find((node) => (
+        (node.textContent || '').trim() === selector.text
+        && node.getAttribute('x') === selector.x
+        && node.getAttribute('y') === selector.y
+      ));
+
+      return {
+        ...selector,
+        exists: Boolean(el),
+        classes: el?.className?.baseVal || '',
+      };
+    });
+  }, selectors);
+}
+
 test('optimized score scroll shell loads with key controls', async ({ page }) => {
   const pageErrors = [];
   const failedRequests = [];
@@ -127,6 +181,26 @@ test('uses the 8px minimum height threshold for initial barline detection', asyn
   const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
 
   expect(appSource).toContain('vLine.height >= 8');
+});
+
+test('anchors sticky left edge to the virtual system start when no physical opening barline exists', async () => {
+  const svgAnalysisSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js'), 'utf8');
+
+  expect(svgAnalysisSource).toContain('window.hasPhysicalStartBarline === false');
+  expect(svgAnalysisSource).toContain('stickyMinX = globalAbsoluteSystemInternalX;');
+});
+
+test('uses absolute system-start coordinates in downstream barline mapping and audio alignment', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const audioSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'audio.js'), 'utf8');
+
+  expect(appSource).toContain('const absoluteSystemStartX = Number.isFinite(window.globalAbsoluteSystemInternalX)');
+  expect(appSource).not.toContain('cluster.x < globalSystemInternalX - 5');
+  expect(appSource).not.toContain('Math.abs(cluster.x - globalSystemInternalX) <= 5');
+  expect(appSource).not.toContain('uniqueBarlines.unshift(globalSystemInternalX);');
+
+  expect(audioSource).toContain('const absoluteSystemStartX = Number.isFinite(window.globalAbsoluteSystemInternalX)');
+  expect(audioSource).not.toContain('centerX > getGlobalSystemInternalX()');
 });
 
 test('binds the space shortcut without hijacking focused inputs', async ({ page }) => {
@@ -603,6 +677,483 @@ test('preserves opening barlines, instrument names, and key signatures for trans
   expect(detectionState.pianoClasses).toContain('highlight-instname');
   expect(detectionState.firstFlatClasses).toContain('highlight-keysig');
   expect(detectionState.firstFlatClasses).not.toContain('highlight-accidental');
+});
+
+test('preserves choir fixture piano opening key signatures', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'choir-with-piano-opening-keysig.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const openingPianoFlats = await getTextClassification(page, [
+    { text: '', x: '650', y: '2417' },
+    { text: '', x: '650', y: '3380' },
+  ]);
+
+  expect(openingPianoFlats).not.toBeNull();
+  expect(openingPianoFlats.every((item) => item.exists)).toBe(true);
+  expect(openingPianoFlats.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
+  expect(openingPianoFlats.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
+});
+
+test('preserves green tea fixture piano opening key signatures', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'green-tea-opening-keysig.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const openingPianoFlats = await getTextClassification(page, [
+    { text: '', x: '859', y: '1122' },
+    { text: '', x: '859', y: '1555' },
+  ]);
+
+  expect(openingPianoFlats).not.toBeNull();
+  expect(openingPianoFlats.every((item) => item.exists)).toBe(true);
+  expect(openingPianoFlats.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
+  expect(openingPianoFlats.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
+});
+
+test('preserves italic font-style for imported text when drawing to canvas', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'italic-text-preservation.svg');
+  const fixtureSvg = fs.readFileSync(fixturePath, 'utf8');
+
+  await page.goto('/index.html');
+  const extractedFont = await page.evaluate(async (svgContent) => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const host = document.createElement('div');
+    host.innerHTML = svgContent;
+    const svg = host.querySelector('svg');
+    if (!svg) return null;
+
+    document.body.appendChild(svg);
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    svg.remove();
+
+    const textItem = result.renderQueue.find((item) => item.type === 'text' && item.text === 'Col Ped.');
+    return textItem?.font || null;
+  }, fixtureSvg);
+
+  expect(extractedFont).toContain('italic');
+});
+
+test('classifies MuseScore opening semantic classes before signature guessing', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'musescore-opening-classes.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const classState = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const findElements = (token) => Array.from(svg.querySelectorAll('path'))
+      .filter((el) => (el.getAttribute('class') || '').split(/\s+/).includes(token))
+      .map((el) => ({
+        className: el.className?.baseVal || '',
+        transform: el.getAttribute('transform') || '',
+      }));
+
+    return {
+      brackets: findElements('Bracket'),
+      clefs: findElements('Clef'),
+      keySigs: findElements('KeySig'),
+      timeSigs: findElements('TimeSig'),
+    };
+  });
+
+  expect(classState).not.toBeNull();
+  expect(classState.brackets).toHaveLength(1);
+  expect(classState.clefs).toHaveLength(2);
+  expect(classState.keySigs).toHaveLength(2);
+  expect(classState.timeSigs).toHaveLength(4);
+  expect(classState.brackets[0].className).toContain('highlight-brace');
+  expect(classState.clefs.every((item) => item.className.includes('highlight-clef'))).toBe(true);
+  expect(classState.keySigs.every((item) => item.className.includes('highlight-keysig'))).toBe(true);
+  expect(classState.timeSigs.every((item) => item.className.includes('highlight-timesig'))).toBe(true);
+});
+
+test('uses the left staff edge as a virtual start anchor when no physical opening barline exists', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-single-staff.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const anchorState = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const horizontals = [];
+    const verticals = [];
+
+    Array.from(svg.querySelectorAll('polyline, line')).forEach((el) => {
+      let x1;
+      let y1;
+      let x2;
+      let y2;
+
+      if (el.tagName.toLowerCase() === 'line') {
+        x1 = Number(el.getAttribute('x1'));
+        y1 = Number(el.getAttribute('y1'));
+        x2 = Number(el.getAttribute('x2'));
+        y2 = Number(el.getAttribute('y2'));
+      } else {
+        const coords = (el.getAttribute('points') || '')
+          .trim()
+          .split(/\s+|,/)
+          .filter(Boolean)
+          .map(Number);
+        if (coords.length < 4) return;
+        x1 = coords[0];
+        y1 = coords[1];
+        x2 = coords[coords.length - 2];
+        y2 = coords[coords.length - 1];
+      }
+
+      if ([x1, y1, x2, y2].some((value) => !Number.isFinite(value))) return;
+
+      if (Math.abs(y1 - y2) < 1) {
+        horizontals.push(Math.min(x1, x2));
+      } else if (Math.abs(x1 - x2) < 1 && Math.abs(y1 - y2) >= 8) {
+        verticals.push({
+          x: x1,
+          height: Math.abs(y1 - y2),
+          classes: el.className?.baseVal || '',
+        });
+      }
+    });
+
+    verticals.sort((a, b) => a.x - b.x);
+
+    return {
+      staffLeftEdge: Math.min(...horizontals),
+      startAnchor: window.globalAbsoluteSystemInternalX,
+      hasPhysicalStartBarline: window.hasPhysicalStartBarline,
+      firstPhysicalBarline: verticals[0] || null,
+      openingBarlineCount: verticals.filter((item) => item.classes.includes('highlight-barline')).length,
+    };
+  });
+
+  expect(anchorState).not.toBeNull();
+  expect(anchorState.startAnchor).toBeCloseTo(anchorState.staffLeftEdge, 1);
+  expect(anchorState.hasPhysicalStartBarline).toBe(false);
+  expect(anchorState.firstPhysicalBarline).not.toBeNull();
+  expect(anchorState.firstPhysicalBarline.x).toBeGreaterThan(anchorState.startAnchor + 50);
+  expect(anchorState.firstPhysicalBarline.classes).not.toContain('highlight-barline');
+  expect(anchorState.openingBarlineCount).toBe(0);
+});
+
+test('recognizes the Sebastian opening treble clef variant in the no-opening-barline fixture', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-single-staff.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const clefState = await page.evaluate(() => {
+    const targetSignature = 'MCCCCCCCCLCCCLMCCCCCCMCCLCCMCCCCCCCCCCCCCLLCCCCCCCCCCCCL';
+    const clefs = Array.from(document.querySelectorAll('#svg-sandbox svg path.highlight-clef'))
+      .map((el) => {
+        return {
+          signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        };
+      });
+
+    return {
+      count: clefs.length,
+      targetMatched: clefs.some((item) => item.signature === targetSignature),
+    };
+  });
+
+  expect(clefState.count).toBeGreaterThan(0);
+  expect(clefState.targetMatched).toBe(true);
+});
+
+test('keeps Finale Ash opening time signatures decoded into the timeline', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-single-staff.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    const highlighted = Array.from(svg.querySelectorAll('text.highlight-timesig'))
+      .map((el) => (el.textContent || '').trim());
+    const display = document.getElementById('timeSigDisplay');
+    const color = display ? window.getComputedStyle(display).color : '';
+
+    return {
+      highlighted,
+      displayText: display?.textContent?.trim() || '',
+      displayColor: color,
+    };
+  });
+
+  expect(state.highlighted).toEqual(['', '']);
+  expect(state.displayText).toBe('4/4');
+  expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
+});
+
+test('recognizes visually giant opening Bravura time signatures before later meter changes', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-single-staff-bravura.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    const highlighted = Array.from(svg.querySelectorAll('text.highlight-timesig'))
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          text: (el.textContent || '').trim(),
+          token: el.getAttribute('data-time-sig-token') || '',
+          left: rect.left,
+        };
+      })
+      .sort((a, b) => a.left - b.left);
+
+    const display = document.getElementById('timeSigDisplay');
+    const color = display ? window.getComputedStyle(display).color : '';
+
+    return {
+      highlighted,
+      displayText: display?.textContent?.trim() || '',
+      displayColor: color,
+    };
+  });
+
+  expect(state.highlighted.length).toBeGreaterThanOrEqual(2);
+  expect(state.highlighted[0].token).toBe('4');
+  expect(state.highlighted[1].token).toBe('4');
+  expect(state.displayText).toBe('4/4');
+  expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
+});
+
+test('reclassifies mid-system naturals near notes as accidentals in single-line scores', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'zhangchengyao-mid-system-naturals.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    const naturalSignature = 'MCCCCCCCCCCMCCCCCCCCCCCCCC';
+    const openingTimeSigRight = Math.max(
+      ...Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => el.getBoundingClientRect().right)
+    );
+
+    const naturals = Array.from(svg.querySelectorAll('path')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+      };
+    }).filter((item) => item.signature === naturalSignature && item.left > openingTimeSigRight + 500);
+
+    return {
+      hasPhysicalStartBarline: window.hasPhysicalStartBarline,
+      openingTimeSigRight,
+      naturals,
+    };
+  });
+
+  expect(state.hasPhysicalStartBarline).toBe(false);
+  expect(state.naturals.length).toBeGreaterThan(0);
+  expect(state.naturals.every((item) => item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.naturals.every((item) => !item.classes.includes('highlight-keysig'))).toBe(true);
+});
+
+test('reclassifies mid-system flats adjacent to hollow noteheads instead of leaving them as key signatures', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'zhangchengyao-mid-system-naturals.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    const flatSignature = 'MCCLCCLMCCCLCLCLCCCCCLCLCLCCL';
+    const hollowNoteheadSignature = 'MCCCCMCCCCCCCC';
+    const openingTimeSigRight = Math.max(
+      ...Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => el.getBoundingClientRect().right)
+    );
+
+    const items = Array.from(svg.querySelectorAll('path')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+        right: rect.right,
+        centerY: rect.top + rect.height / 2,
+      };
+    });
+
+    const targets = items.filter((item) => {
+      if (item.signature !== flatSignature) return false;
+      if (item.left <= openingTimeSigRight + 500) return false;
+      return items.some((other) => {
+        const dx = other.left - item.right;
+        const dy = Math.abs(other.centerY - item.centerY);
+        return other.signature === hollowNoteheadSignature && dx >= -2 && dx <= 8 && dy <= 2;
+      });
+    });
+
+    return { targets };
+  });
+
+  expect(state.targets.length).toBeGreaterThan(0);
+  expect(state.targets.every((item) => item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.targets.every((item) => !item.classes.includes('highlight-keysig'))).toBe(true);
+});
+
+test('preserves mid-system key-signature clusters after a double barline', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'geometric-mid-keysig.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    const targetSegments = Array.from(svg.querySelectorAll('line.highlight-keysig, polyline.highlight-keysig'))
+      .map((el) => ({
+        classes: el.className?.baseVal || '',
+      }));
+
+    return {
+      targetSegments,
+    };
+  });
+
+  expect(state.targetSegments.length).toBeGreaterThanOrEqual(12);
+  expect(state.targetSegments.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
+  expect(state.targetSegments.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
+});
+
+test('preserves mid-system sharp key-signature clusters even after earlier notes in the same staff', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'zhangchengyao-mid-system-sharp-keysig.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const targetSignature = 'MCCCCCCCCMCLCCCCLCCLCCCLCCLCCCLCCCCCLCCCLCCCCCLCCLCLCCLCCLCCCLCCLCLCL';
+    const sharps = Array.from(document.querySelectorAll('#svg-sandbox svg path'))
+      .map((el) => ({
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: el.getBoundingClientRect().left,
+      }))
+      .filter((item) => item.signature === targetSignature && item.left >= 1640 && item.left <= 1675);
+
+    return { sharps };
+  });
+
+  expect(state.sharps.length).toBe(3);
+  expect(state.sharps.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
+  expect(state.sharps.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
+});
+
+test('keeps opening time-signature offset isolated from later score time signatures', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).toContain('const appliedExtraX = isPinned ? item.currentExtraX : 0;');
+  expect(appSource).toContain('tx: flyOffsetX + pinShiftX + appliedExtraX,');
+});
+
+test('anchors no-opening-barline bridge lines to the first visible sticky music glyph', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-single-staff-bravura.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    const staffLineStarts = Array.from(svg.querySelectorAll('line, polyline')).map((el) => {
+      let x1;
+      let y1;
+      let x2;
+      let y2;
+
+      if (el.tagName.toLowerCase() === 'line') {
+        x1 = Number(el.getAttribute('x1'));
+        y1 = Number(el.getAttribute('y1'));
+        x2 = Number(el.getAttribute('x2'));
+        y2 = Number(el.getAttribute('y2'));
+      } else {
+        const coords = (el.getAttribute('points') || '')
+          .trim()
+          .split(/\s+|,/)
+          .filter(Boolean)
+          .map(Number);
+        if (coords.length < 4) return null;
+        x1 = coords[0];
+        y1 = coords[1];
+        x2 = coords[coords.length - 2];
+        y2 = coords[coords.length - 1];
+      }
+
+      if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+      if (Math.abs(y1 - y2) >= 1) return null;
+      if (Math.abs(x1 - x2) <= 100) return null;
+
+      const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
+      const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
+      if (!box || !matrix) return null;
+
+      const corners = [
+        { x: box.x, y: box.y },
+        { x: box.x + box.width, y: box.y },
+        { x: box.x, y: box.y + box.height },
+        { x: box.x + box.width, y: box.y + box.height },
+      ].map((point) => ({
+        x: matrix.a * point.x + matrix.c * point.y + matrix.e,
+        y: matrix.b * point.x + matrix.d * point.y + matrix.f,
+      }));
+
+      return Math.min(...corners.map((point) => point.x));
+    }).filter((value) => Number.isFinite(value));
+
+    const openingStickies = Array.from(
+      svg.querySelectorAll('.highlight-clef, .highlight-keysig, .highlight-timesig, .highlight-brace, .highlight-barline')
+    ).map((el) => {
+      const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
+      const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
+      if (!box || !matrix) return null;
+      const corners = [
+        { x: box.x, y: box.y },
+        { x: box.x + box.width, y: box.y },
+        { x: box.x, y: box.y + box.height },
+        { x: box.x + box.width, y: box.y + box.height },
+      ].map((point) => ({
+        x: matrix.a * point.x + matrix.c * point.y + matrix.e,
+        y: matrix.b * point.x + matrix.d * point.y + matrix.f,
+      }));
+      return Math.min(...corners.map((point) => point.x));
+    }).filter((value) => Number.isFinite(value));
+
+    return {
+      bridgeStartX: window.globalAbsoluteBridgeStartX,
+      systemStartX: window.globalAbsoluteSystemInternalX,
+      leftmostStaffLineX: staffLineStarts.length ? Math.min(...staffLineStarts) : null,
+      leftmostOpeningStickyX: openingStickies.length ? Math.min(...openingStickies) : null,
+      hasPhysicalStartBarline: window.hasPhysicalStartBarline,
+    };
+  });
+
+  expect(state.hasPhysicalStartBarline).toBe(false);
+  expect(state.leftmostStaffLineX).not.toBeNull();
+  expect(state.leftmostOpeningStickyX).not.toBeNull();
+  expect(state.bridgeStartX).toBeCloseTo(state.leftmostStaffLineX, 1);
+  expect(state.bridgeStartX).toBeLessThan(state.leftmostOpeningStickyX - 1);
+  expect(state.bridgeStartX).toBeGreaterThan(state.systemStartX + 20);
+});
+
+test('decodes non-MuseScore path time signatures into the timeline', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'path-time-signature.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    const highlightedPaths = Array.from(svg.querySelectorAll('path.highlight-timesig'))
+      .map((el) => ({
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        token: el.getAttribute('data-time-sig-token') || '',
+      }));
+    const display = document.getElementById('timeSigDisplay');
+    const color = display ? window.getComputedStyle(display).color : '';
+
+    return {
+      highlightedPaths,
+      displayText: display?.textContent?.trim() || '',
+      displayColor: color,
+    };
+  });
+
+  expect(state.highlightedPaths).toHaveLength(2);
+  expect(state.displayText).toBe('4/4');
+  expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
 });
 
 test('classifies left-of-system verticals as bracket lines without relying on barline classes', async ({ page }) => {
