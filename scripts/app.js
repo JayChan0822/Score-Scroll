@@ -1274,6 +1274,25 @@ function projectSvgInternalXToScreenX(svgRoot, internalX) {
     return rect.left + internalX;
 }
 
+function projectScreenXToSvgInternalX(svgRoot, screenX) {
+    if (!svgRoot) return screenX;
+    try {
+        let pt = svgRoot.createSVGPoint();
+        pt.x = screenX;
+        pt.y = 0;
+
+        let ctm = svgRoot.getScreenCTM();
+        if (ctm) {
+            return pt.matrixTransform(ctm.inverse()).x;
+        }
+    } catch (e) {
+        console.warn("屏幕坐标反投影失败，使用兜底计算", e);
+    }
+
+    let rect = svgRoot.getBoundingClientRect();
+    return screenX - rect.left;
+}
+
 function identifyAndHighlightInitialBarlines() {
     const svgRoot = document.querySelector('#score-container svg');
     if (!svgRoot) return;
@@ -1302,7 +1321,12 @@ function identifyAndHighlightInitialBarlines() {
         if (Math.abs(y1 - y2) < 1) {
             staffLeftEdges.push(Math.min(x1, x2));
         } else if (Math.abs(x1 - x2) < 1) {
-            verticalLines.push({ element: line, x: x1, height: Math.abs(y1 - y2) });
+            verticalLines.push({
+                element: line,
+                x: x1,
+                screenX: line.getBoundingClientRect().left,
+                height: Math.abs(y1 - y2),
+            });
         }
     });
 
@@ -1311,19 +1335,12 @@ function identifyAndHighlightInitialBarlines() {
     const absoluteLeftEdge = Math.min(...staffLeftEdges);
 
     // 🌟 1. 寻找系统最左侧的谱号 (Clef) 作为视觉锚点
-    let leftmostClefX = Infinity;
+    let leftmostClefScreenX = Infinity;
     svgRoot.querySelectorAll('.highlight-clef').forEach(clef => {
         try {
-            let box = clef.getBBox();
-            let ctm = clef.getCTM();
-            if (ctm) {
-                const x1 = ctm.a * box.x + ctm.c * box.y + ctm.e;
-                const x2 = ctm.a * (box.x + box.width) + ctm.c * box.y + ctm.e;
-                const minX = Math.min(x1, x2);
-                if (minX < leftmostClefX) leftmostClefX = minX;
-            } else {
-                if (box.x < leftmostClefX) leftmostClefX = box.x;
-            }
+            const rect = clef.getBoundingClientRect();
+            if (rect.width <= 0 && rect.height <= 0) return;
+            if (rect.left < leftmostClefScreenX) leftmostClefScreenX = rect.left;
         } catch(e) {}
     });
 
@@ -1335,8 +1352,8 @@ function identifyAndHighlightInitialBarlines() {
     let foundCount = 0;
 
     if (validVerticals.length > 0) {
-        let absoluteLeftmostV = Math.min(...validVerticals.map(v => v.x));
-        let startCluster = validVerticals.filter(vLine => vLine.x <= absoluteLeftmostV + 30);
+        let absoluteLeftmostScreenV = Math.min(...validVerticals.map(v => v.screenX));
+        let startCluster = validVerticals.filter(vLine => vLine.screenX <= absoluteLeftmostScreenV + 30);
 
         if (startCluster.length > 1) {
             const tallestClusterHeight = Math.max(...startCluster.map(vLine => vLine.height));
@@ -1350,10 +1367,10 @@ function identifyAndHighlightInitialBarlines() {
 
         // 🌟 3. 核心判定：这根最左边的线是不是“起手小节线”？
         // 如果它在谱号的右边很远（说明这只是第一小节的结束线），那我们就认为这是一张没有起手小节线的谱子！
-        if (leftmostClefX === Infinity || absoluteLeftmostV <= leftmostClefX + 20) {
-            let rightmostLine = startCluster.reduce((prev, current) => (prev.x > current.x) ? prev : current);
+        if (leftmostClefScreenX === Infinity || absoluteLeftmostScreenV <= leftmostClefScreenX + 20) {
+            let rightmostLine = startCluster.reduce((prev, current) => (prev.screenX > current.screenX) ? prev : current);
             trueBarlineX = rightmostLine.x;
-            trueBarlineScreenX = rightmostLine.element.getBoundingClientRect().left;
+            trueBarlineScreenX = rightmostLine.screenX;
 
             startCluster.forEach(vLine => {
                 vLine.element.classList.add('highlight-barline');
@@ -1365,9 +1382,9 @@ function identifyAndHighlightInitialBarlines() {
     if (trueBarlineX !== null) {
         globalSystemInternalX = trueBarlineX;
     } else {
-        if (leftmostClefX !== Infinity) {
+        if (leftmostClefScreenX !== Infinity) {
             const STAFF_START_OFFSET = -4;
-            globalSystemInternalX = leftmostClefX + STAFF_START_OFFSET;
+            globalSystemInternalX = projectScreenXToSvgInternalX(svgRoot, leftmostClefScreenX) + STAFF_START_OFFSET;
         } else {
             globalSystemInternalX = absoluteLeftEdge;
         }

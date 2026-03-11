@@ -539,6 +539,72 @@ test('keeps stacked opening time signatures while rejecting short stems and isol
   expect(detectionState.openingBarlineClasses).toContain('highlight-barline');
 });
 
+test('preserves opening barlines, instrument names, and key signatures for transformed Opus SVG imports', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'green-tea-opening-anchor.svg');
+
+  await page.goto('/index.html');
+
+  await page.evaluate(() => {
+    const sandbox = document.getElementById('svg-sandbox');
+    if (!sandbox) return;
+
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (!innerHtmlDescriptor?.get || !innerHtmlDescriptor?.set) return;
+
+    Object.defineProperty(sandbox, 'innerHTML', {
+      configurable: true,
+      get() {
+        return innerHtmlDescriptor.get.call(this);
+      },
+      set(value) {
+        if (value === '' && this.querySelector('svg')) {
+          return;
+        }
+        innerHtmlDescriptor.set.call(this, value);
+      },
+    });
+  });
+
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('text').length : 0;
+  })).toBeGreaterThan(0);
+
+  const detectionState = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const openingBarlines = Array.from(svg.querySelectorAll('line, polyline'))
+      .filter((el) => (el.className?.baseVal || '').includes('highlight-barline'))
+      .map((el) => ({
+        points: el.getAttribute('points') || '',
+        x1: el.getAttribute('x1') || '',
+        x2: el.getAttribute('x2') || '',
+        classes: el.className?.baseVal || '',
+      }));
+
+    const piano = Array.from(svg.querySelectorAll('text'))
+      .find((el) => (el.textContent || '').trim() === 'Piano');
+
+    const firstFlat = Array.from(svg.querySelectorAll('text'))
+      .find((el) => (el.textContent || '').trim() === '');
+
+    return {
+      openingBarlines,
+      pianoClasses: piano?.className?.baseVal || '',
+      firstFlatClasses: firstFlat?.className?.baseVal || '',
+    };
+  });
+
+  expect(detectionState).not.toBeNull();
+  expect(detectionState.openingBarlines.length).toBeGreaterThan(0);
+  expect(detectionState.pianoClasses).toContain('highlight-instname');
+  expect(detectionState.firstFlatClasses).toContain('highlight-keysig');
+  expect(detectionState.firstFlatClasses).not.toContain('highlight-accidental');
+});
+
 test('classifies left-of-system verticals as bracket lines without relying on barline classes', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'bracket-barline-separation.svg');
 
