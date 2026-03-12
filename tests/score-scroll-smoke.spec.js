@@ -2,6 +2,7 @@ const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const vm = require('vm');
 
 async function preserveImportedSvgDuringSmoke(page) {
   await page.evaluate(() => {
@@ -181,6 +182,154 @@ test('uses the 8px minimum height threshold for initial barline detection', asyn
   const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
 
   expect(appSource).toContain('vLine.height >= 8');
+});
+
+test('registers dedicated double-whole notehead signatures for the provided round fonts', async () => {
+  const registrySource = fs.readFileSync(
+    path.resolve(__dirname, '..', 'scripts', 'data', 'music-font-registry.js'),
+    'utf8'
+  );
+  const executableSource = registrySource.replace(
+    'export const MusicFontRegistry =',
+    'globalThis.MusicFontRegistry ='
+  );
+  const context = { globalThis: {} };
+  vm.runInNewContext(executableSource, context);
+  const musicFontRegistry = context.globalThis.MusicFontRegistry;
+
+  const expectedSignatures = {
+    Ash: ['MCCCCCCCCLCCCCLCCCCCCCCCMCCCCCC'],
+    Bravura: ['MLCLCLCLCMLCLCLCLCMCCCCMCCCCCCCCCCMLCLCLCLCMLCLCLCLC'],
+    Broadway: ['MCCCCCCCCCLCCCCCCCCCCCCCCCCCCCCCCCMCCCCLCCCCLCCLCMCCCCCCCCLCCLCMCCCCC'],
+    Engraver: ['MLCCLLLLLCCCLLLLMLLLLMLLLLMCCCCCC'],
+    'Golden Age': ['MLLLCLLLMLLLCLCLLCLLLLCCLLMLLLCLLLMCC'],
+    Jazz: ['MLLLLLLMCLCCLLLLCCLLLLCCLLLLCCLLLLMLLLLLLMCCCC'],
+    Legacy: ['MLLLLMLLLLMLLLLCCCLLLLLCCLMCCCCCC'],
+    Leipzig: ['MLCCLCCCCLCCLCCLCCCCLCCMCCCCLCCCCCMLCCLCCMLCCLCC'],
+    Leland: ['MCCCCCCCMCCCCCCCCCCCCCCCCCCCCMCCCCCCCMCCCCCCCC'],
+    Maestro: ['MLLLLMLLLLMLLLLCCLLLLLCCLMCCCCCC'],
+    Petaluma: ['MCLCCCCCCCCMCLCCCCLCCCCCCLCCCMCCCCCLCCLCCCCCCCMCCCCCCCCCMCCCCCCCCCLCCMCCCCCCCCCCLCC'],
+    Sebastian: ['MCCLCCLCCLCCLCCLCCLMCCLCCLMCCLCCLMCCCCLCCCCL'],
+  };
+
+  expect(
+    Object.fromEntries(
+      Object.entries(expectedSignatures).map(([fontName, signatures]) => [
+        fontName,
+        musicFontRegistry[fontName]?.noteheads?.Notehead_DoubleWhole || null,
+      ])
+    )
+  ).toEqual(expectedSignatures);
+});
+
+test('registers all provided grand-staff brace signatures for the desktop font samples', async () => {
+  const registrySource = fs.readFileSync(
+    path.resolve(__dirname, '..', 'scripts', 'data', 'music-font-registry.js'),
+    'utf8'
+  );
+  const executableSource = registrySource.replace(
+    'export const MusicFontRegistry =',
+    'globalThis.MusicFontRegistry ='
+  );
+  const context = { globalThis: {} };
+  vm.runInNewContext(executableSource, context);
+  const musicFontRegistry = context.globalThis.MusicFontRegistry;
+
+  const expectedSignatures = {
+    Ash: [
+      'MCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCCCLCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCLCCL',
+      'MLCCCCCCCCCCLCCCCCLCCLCCCCCL',
+    ],
+    Bravura: [
+      'MCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCCCLCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCLCCL',
+      'MLCCCCCCCCCCLCCCCCLCCLCCCCCL',
+    ],
+    Broadway: [
+      'MCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCCCLCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCLCCL',
+      'MLCCCCCCCCCCLCCCCCLCCLCCCCCL',
+    ],
+    Engraver: [
+      'MCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCCCLCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCLCCL',
+      'MLCCCCCCCCCCLCCCCCLCCLCCCCCL',
+    ],
+    'Golden Age': [
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+    ],
+    Jazz: [
+      'MCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCCCLCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCLCCL',
+      'MLCCCCCCCCCCLCCCCCLCCLCCCCCL',
+    ],
+    Legacy: [
+      'MCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCCCLCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCLCCL',
+      'MLCCCCCCCCCCLCCCCCLCCLCCCCCL',
+    ],
+    Leipzig: [
+      'MCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCCCLCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCLCCL',
+      'MLCCCCCCCCCCLCCCCCLCCLCCCCCL',
+    ],
+    Leland: [
+      'MCCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCCCC',
+      'MCLCCCCLCCCCCCLCLCLCLCLCCCCC',
+    ],
+    Maestro: [
+      'MCCCLCCCCCCLCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCLCCCCCCLCCC',
+      'MCCCLCCCCCCLCCC',
+    ],
+    Petaluma: [
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+      'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCLCCC',
+    ],
+    Sebastian: [
+      'MCCCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCC',
+      'MCCCCCCCCCCCCCCCCC',
+      'MLCCCCCCLCLCLCCLC',
+    ],
+  };
+
+  expect(
+    Object.fromEntries(
+      Object.entries(expectedSignatures).map(([fontName, signatures]) => [
+        fontName,
+        musicFontRegistry[fontName]?.clefs?.['Brace (大谱表花括号)'] || null,
+      ])
+    )
+  ).toEqual(expectedSignatures);
 });
 
 test('anchors sticky left edge to the virtual system start when no physical opening barline exists', async () => {
@@ -736,6 +885,144 @@ test('preserves italic font-style for imported text when drawing to canvas', asy
   }, fixtureSvg);
 
   expect(extractedFont).toContain('italic');
+});
+
+test('keeps split opening instrument labels sticky for Dorico imports', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'water-town-opening-instruments.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', fixturePath);
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  }), { timeout: 20000 }).toBeGreaterThan(0);
+
+  const openingInstrumentParts = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const collect = (text) => Array.from(svg.querySelectorAll('text'))
+      .filter((el) => (el.textContent || '').trim() === text)
+      .map((el) => ({
+        classes: el.className?.baseVal || '',
+        fontFamily: getComputedStyle(el).fontFamily,
+      }));
+
+    return {
+      clarinet: collect('Clarinet (B'),
+      flat: collect('♭'),
+      closingParen: collect(')'),
+      piano: collect('Piano'),
+    };
+  });
+
+  expect(openingInstrumentParts).not.toBeNull();
+  expect(openingInstrumentParts.clarinet.some((item) => item.classes.includes('highlight-instname'))).toBe(true);
+  expect(openingInstrumentParts.flat.some((item) => (
+    item.classes.includes('highlight-instname') && item.fontFamily.includes('Bravura Text')
+  ))).toBe(true);
+  expect(openingInstrumentParts.closingParen.some((item) => item.classes.includes('highlight-instname'))).toBe(true);
+  expect(openingInstrumentParts.piano.some((item) => item.classes.includes('highlight-instname'))).toBe(true);
+});
+
+test('preserves opening instrument and expression fonts when drawing Dorico imports to canvas', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'water-town-opening-instruments.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.evaluate(() => {
+    if (window.__fillTextCallsInstalled) {
+      window.__fillTextCalls = [];
+      return;
+    }
+
+    const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+    window.__fillTextCallsInstalled = true;
+    window.__fillTextCalls = [];
+
+    CanvasRenderingContext2D.prototype.fillText = function patchedFillText(text, x, y, ...rest) {
+      window.__fillTextCalls.push({
+        alpha: this.globalAlpha,
+        fillStyle: this.fillStyle,
+        font: this.font,
+        text: String(text),
+        x,
+        y,
+      });
+      return originalFillText.call(this, text, x, y, ...rest);
+    };
+  });
+
+  await page.setInputFiles('#svgInput', fixturePath);
+  await expect.poll(async () => page.evaluate(() => (window.__fillTextCalls || []).length), { timeout: 20000 }).toBeGreaterThan(0);
+
+  const drawCalls = await page.evaluate(() => {
+    const calls = window.__fillTextCalls || [];
+    const collect = (text) => calls
+      .filter((call) => (call.text || '').trim() === text)
+      .map(({ alpha, fillStyle, font }) => ({ alpha, fillStyle, font }));
+
+    return {
+      clarinet: collect('Clarinet (B'),
+      flat: collect('♭'),
+      poco: collect('poco'),
+    };
+  });
+
+  expect(drawCalls.clarinet.some((call) => call.font.includes('STFangsong'))).toBe(true);
+  expect(drawCalls.flat.some((call) => call.font.includes('Bravura Text'))).toBe(true);
+  expect(drawCalls.poco.some((call) => call.font.includes('italic') && call.font.includes('Nepomuk'))).toBe(true);
+});
+
+test('reclassifies the Violin II measure-21 flat in Dorico imports as an accidental', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'water-town-opening-instruments.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', fixturePath);
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  }), { timeout: 20000 }).toBeGreaterThan(0);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const violinIILabel = Array.from(svg.querySelectorAll('text'))
+      .find((el) => (el.textContent || '').trim() === 'Violin II');
+    const violinIIRect = violinIILabel?.getBoundingClientRect() || null;
+    const violinIICenterY = violinIIRect ? violinIIRect.top + violinIIRect.height / 2 : null;
+    const flatSignature = 'MCCLCCCCCCCLMCCCCLC';
+
+    const targets = Array.from(svg.querySelectorAll('path')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+        centerY: rect.top + rect.height / 2,
+      };
+    }).filter((item) => (
+      item.signature === flatSignature
+      && item.left >= 3275
+      && item.left <= 3295
+      && violinIICenterY !== null
+      && Math.abs(item.centerY - violinIICenterY) <= 25
+    ));
+
+    return {
+      violinIICenterY,
+      targets,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.violinIICenterY).not.toBeNull();
+  expect(state.targets.length).toBeGreaterThan(0);
+  expect(state.targets.every((item) => item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.targets.every((item) => !item.classes.includes('highlight-keysig'))).toBe(true);
 });
 
 test('classifies MuseScore opening semantic classes before signature guessing', async ({ page }) => {
