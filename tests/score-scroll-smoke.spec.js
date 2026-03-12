@@ -184,6 +184,12 @@ test('uses the 8px minimum height threshold for initial barline detection', asyn
   expect(appSource).toContain('vLine.height >= 8');
 });
 
+test('keeps legacy @ manual-tag mapping disabled in score initialization', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).toContain('Legacy @ manual-tag mapping is disabled');
+});
+
 test('registers dedicated double-whole notehead signatures for the provided round fonts', async () => {
   const registrySource = fs.readFileSync(
     path.resolve(__dirname, '..', 'scripts', 'data', 'music-font-registry.js'),
@@ -330,6 +336,97 @@ test('registers all provided grand-staff brace signatures for the desktop font s
       ])
     )
   ).toEqual(expectedSignatures);
+});
+
+test('registers dedicated TAB clef signatures for the provided desktop fonts', async () => {
+  const registrySource = fs.readFileSync(
+    path.resolve(__dirname, '..', 'scripts', 'data', 'music-font-registry.js'),
+    'utf8'
+  );
+  const executableSource = registrySource.replace(
+    'export const MusicFontRegistry =',
+    'globalThis.MusicFontRegistry ='
+  );
+  const context = { globalThis: {} };
+  vm.runInNewContext(executableSource, context);
+  const musicFontRegistry = context.globalThis.MusicFontRegistry;
+
+  const expectedSignatures = {
+    Ash: [
+      'MLLLLLLLLMLLLLLLLLMLLLMCCCLLLCMCLLLCMCLLLC',
+      'MCCCLCCCLLCCCCLCMCCCCLCCCCCLCLCCMCCLCCMCCCCCCCCCCCMCCLCCCMCCCCC',
+    ],
+    Bravura: [
+      'MLLLLLLLLMLLLLLLLLMLLLMCCCLLLCMCLLLCMCLLLC',
+    ],
+    Broadway: [
+      'MLLLLLLLLMLLLLLLLLMLLLMCCCLLLCMCLLLCMCLLLC',
+      'MCCCCCCLCCCCCLCCLCCCCLCMCCCCLCCCCCCCLCCLCCCCMCCCCCLCCCMCCCCCCCLCCCCCCMCCCCCMCCLCCCCCCC',
+    ],
+    Engraver: [
+      'MLLLLLLLLMLLLLLLLLMLLLMLCCCCCCLLMCCCCLLLMCCLLL',
+      'MLLLLLLLLMLLLLLLLLMLLLMLCCCCCCLLMCCCCLLLMCCCCLLL',
+    ],
+    'Golden Age': [
+      'MLCCCCCCCCLLCCCLMCCLCCCCCCCCCCLLCCCCCCMCCCCCCLCCCCCCMLCCCCCCCCCCCCLCCCCCCCCCCCCCCMCCCCCCCCCLCCCCMLCCCCCCCC',
+    ],
+    Jazz: [
+      'MLLLLLLLLMLLLLLLLLMLLLMCCCLLLCMCLLLCMCLLLC',
+      'MCCCCLCCLCCLCLMCCLCCCCCCLCCMCCCMCCCCCCCCCCCCCMCCCCMCCLCC',
+    ],
+    Legacy: [
+      'MLLLLLLLLMLLLLLLLLMLLLMCCCLLLCMCLLLCMCLLLC',
+      'MLLLLLLLLMLLLLLLLLLMLLLMLCCCCCCLLMCCCCLLLMCCCCLLL',
+    ],
+    Leipzig: [
+      'MLLLLLLLLMLLLLLLLLMLLLMLLCCCCCCLMLLLCCMLLLCCCC',
+    ],
+    Leland: [
+      'MLLLLLLLLMLLLLLLLLMLLLMLLLCCCCCCCMCCCCLLLMCCCLLL',
+      'MLLLLLLLLMLLLLLLLLMLLLMLLLCCCCCMCCLLLMCCLLL',
+    ],
+    Maestro: [
+      'MLLLLLLLLMLLLMLLLLLLLLMLCCCCCLLMLCCLLMCCCLL',
+      'MLLLLLLLLMLLLMLLLLLLLLMLCCCCCCLLMCCCCLLLMCCCCLLL',
+    ],
+    Petaluma: [
+      'MLCLCLCCCCCLCCCLCLCCCCCCMCCCCCCCCCCCCMCCCCCCCCCCCCLCCCCMCLCCCCCCCCCCMCCCCCMCLCCCCCCCCLCCCCCCC',
+      'MCCCCCCCCCCCCCCCCCCMCLLCCCCCCCCMCCCCCCCCCCCLCCCCCCCCMCCCCLCCCCCCCCMCCLLCMCCLCCLCCCCCCCCCCCCCCCCLC',
+    ],
+    Sebastian: [
+      'MLCCCCLLMLLLLLLLLMLLLLLLLLMCCLLLMCCLLLMLLL',
+    ],
+  };
+
+  expect(
+    Object.fromEntries(
+      Object.entries(expectedSignatures).map(([fontName, signatures]) => [
+        fontName,
+        musicFontRegistry[fontName]?.clefs?.['Tab Clef (TAB谱号)'] || null,
+      ])
+    )
+  ).toEqual(expectedSignatures);
+});
+
+test('uses all-font fallback maps for clef and accidental recognition', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).toContain('let allKnownClefMap = {};');
+  expect(appSource).toContain('let allKnownAccidentalMap = {};');
+  expect(appSource).toContain('return activeSignatureMap.accidentals[sig] || allKnownAccidentalMap[sig] || null;');
+  expect(appSource).toContain('let result = activeSignatureMap.clefs[sig] || allKnownClefMap[sig] || null;');
+});
+
+test('ignores legacy @ manual tags when mapping imported scores', async ({ page }) => {
+  const svgPath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250324_水乡记忆/Scores/05 - Scroll Score - 20240324水乡记忆_b1.1 - 001.svg';
+
+  await loadFixtureIntoScore(page, svgPath);
+
+  await page.waitForTimeout(3000);
+
+  await expect(page.locator('#barlineCount')).not.toHaveText('0');
+  await expect(page.locator('#measureCount')).not.toHaveText('0');
+  await expect(page.locator('#timeSigDisplay')).not.toHaveText('-/-');
 });
 
 test('anchors sticky left edge to the virtual system start when no physical opening barline exists', async () => {
@@ -887,6 +984,104 @@ test('preserves italic font-style for imported text when drawing to canvas', asy
   expect(extractedFont).toContain('italic');
 });
 
+test('injects local font-face rules for imported SVG text fonts', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'local-text-font-loading.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => Array.from(document.querySelectorAll('style.svg-local-font-face'))
+    .map((node) => node.textContent || '')
+    .join('\n'))).toContain('local("Ounen-mouhitsu")');
+});
+
+test('requests local imported text fonts through the Font Loading API', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'local-text-font-loading.svg');
+
+  await page.goto('/index.html');
+  await page.evaluate(() => {
+    window.__fontLoadCalls = [];
+    const fontFaceSetProto = Object.getPrototypeOf(document.fonts);
+    const originalLoad = fontFaceSetProto.load;
+    fontFaceSetProto.load = function patchedLoad(font, text) {
+      window.__fontLoadCalls.push({ font, text: text ?? null });
+      return originalLoad.call(this, font, text);
+    };
+  });
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => window.__fontLoadCalls || [])).toContainEqual(
+    expect.objectContaining({ font: '16px "Ounen-mouhitsu"' })
+  );
+});
+
+test('splits adjacent treble and bass clefs into separate sticky blocks', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const analysisState = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const host = document.createElement('div');
+    host.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="220" height="140" viewBox="0 0 220 140">
+        <line x1="0" y1="40" x2="220" y2="40" stroke="#000" />
+        <line x1="0" y1="50" x2="220" y2="50" stroke="#000" />
+        <line x1="0" y1="60" x2="220" y2="60" stroke="#000" />
+        <line x1="0" y1="70" x2="220" y2="70" stroke="#000" />
+        <line x1="0" y1="80" x2="220" y2="80" stroke="#000" />
+        <path class="highlight-clef" d="M 100 50 C 102 40 108 40 110 50 C 112 60 108 60 100 50 Z" />
+        <path class="highlight-clef" d="M 135 50 L 140 50 L 140 70 C 138 68 136 64 135 60 Z" />
+      </svg>
+    `;
+
+    const svg = host.querySelector('svg');
+    document.body.appendChild(svg);
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: (sig) => {
+        if (sig === 'MCCZ') return 'Treble Clef (高音谱号)';
+        if (sig === 'MLLCZ') return 'Bass Clef (低音谱号)';
+        return null;
+      },
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    svg.remove();
+
+    const clefItems = result.renderQueue
+      .filter((item) => item.symbolType === 'Clef')
+      .map((item) => ({
+        absMinX: item.absMinX,
+        blockIndex: item.blockIndex,
+        laneId: item.laneId,
+        signature: (item.originalD || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+      }))
+      .sort((a, b) => a.absMinX - b.absMinX);
+
+    const clefBlocks = Object.values(result.globalStickyLanes)
+      .flatMap((lane) => (lane.typeBlocks.clef || []).map((block) => ({
+        minX: block.minX,
+        maxX: block.maxX,
+        count: block.items.length,
+      })))
+      .sort((a, b) => a.minX - b.minX);
+
+    return {
+      clefItems,
+      clefBlocks,
+    };
+  });
+
+  expect(analysisState.clefItems).toHaveLength(2);
+  expect(analysisState.clefItems[0].laneId).toBe(analysisState.clefItems[1].laneId);
+  expect(analysisState.clefItems.map((item) => item.blockIndex)).toEqual([0, 1]);
+  expect(analysisState.clefBlocks).toHaveLength(2);
+  expect(analysisState.clefBlocks.every((block) => block.count === 1)).toBe(true);
+});
+
 test('keeps split opening instrument labels sticky for Dorico imports', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'water-town-opening-instruments.svg');
 
@@ -973,6 +1168,52 @@ test('preserves opening instrument and expression fonts when drawing Dorico impo
   expect(drawCalls.clarinet.some((call) => call.font.includes('STFangsong'))).toBe(true);
   expect(drawCalls.flat.some((call) => call.font.includes('Bravura Text'))).toBe(true);
   expect(drawCalls.poco.some((call) => call.font.includes('italic') && call.font.includes('Nepomuk'))).toBe(true);
+});
+
+test('keeps consecutive piano lower-staff clef changes as separate sticky blocks in Wo Ai Ni Zhongguo', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250907_我爱你中国/Scores/03 - Scrolling - 我爱你中国 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: (sig) => {
+        if (sig === 'MCCCLMCLCCCCCCCLCLCCLMCCCCCCMCLCCCCCCCLCCCLLCCLCCCCCLCCCCCCCCCL') return 'Treble Clef (高音谱号)';
+        if (sig === 'MCCCCMCCCCMCCCLCCCLCCCLCCCCCCCCCCCCLCCL') return 'Bass Clef (低音谱号)';
+        return null;
+      },
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const targetClefs = result.renderQueue
+      .filter((item) => (
+        item.symbolType === 'Clef' &&
+        item.type === 'path' &&
+        item.absMinX >= 4170 &&
+        item.absMinX <= 4225
+      ))
+      .map((item) => ({
+        absMinX: item.absMinX,
+        blockIndex: item.blockIndex,
+        laneId: item.laneId,
+        signature: (item.originalD || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+      }))
+      .sort((a, b) => a.absMinX - b.absMinX);
+
+    return { targetClefs };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.targetClefs).toHaveLength(2);
+  expect(state.targetClefs[0].laneId).toBe(state.targetClefs[1].laneId);
+  expect(state.targetClefs[0].signature).toBe('MCCCLMCLCCCCCCCLCLCCLMCCCCCCMCLCCCCCCCLCCCLLCCLCCCCCLCCCCCCCCCL');
+  expect(state.targetClefs[1].signature).toBe('MCCCCMCCCCMCCCLCCCLCCCLCCCCCCCCCCCCLCCL');
+  expect(state.targetClefs[0].blockIndex).not.toBe(state.targetClefs[1].blockIndex);
 });
 
 test('reclassifies the Violin II measure-21 flat in Dorico imports as an accidental', async ({ page }) => {
@@ -1322,6 +1563,261 @@ test('preserves mid-system sharp key-signature clusters even after earlier notes
   expect(state.sharps.length).toBe(3);
   expect(state.sharps.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
   expect(state.sharps.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
+});
+
+test('keeps piano upper-staff measure-23 key-signature sharps separate from later accidentals in Changchengyao', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20251227_长城谣/Scores/01 - Full score - 长城谣 - 001 (1).svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const sharpSignature = 'MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL';
+    const sharps = Array.from(svg.querySelectorAll('path')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+        top: rect.top,
+      };
+    }).filter((item) => item.signature === sharpSignature);
+
+    const openingSharps = sharps
+      .filter((item) => item.left >= 5228 && item.left <= 5238)
+      .sort((a, b) => a.top - b.top);
+
+    const laterPianoUpperAccidental = sharps.find((item) => (
+      item.left >= 5248 &&
+      item.left <= 5258 &&
+      item.top >= -9535 &&
+      item.top <= -9498
+    )) || null;
+
+    return {
+      openingSharps,
+      laterPianoUpperAccidental,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.openingSharps.length).toBe(3);
+  expect(state.openingSharps.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
+  expect(state.openingSharps.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.laterPianoUpperAccidental).not.toBeNull();
+  expect(state.laterPianoUpperAccidental.classes).toContain('highlight-accidental');
+  expect(state.laterPianoUpperAccidental.classes).not.toContain('highlight-keysig');
+});
+
+test('preserves Changchengyao mid-score key-signature clusters with note-adjacent accidental suffixes', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20251227_长城谣/Scores/01 - Full score - 长城谣 - 001 (1).svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const summarizePaths = (signature, xMin, xMax, yMin, yMax) => Array.from(svg.querySelectorAll('path')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+        top: rect.top,
+      };
+    }).filter((item) => (
+      item.signature === signature
+      && item.left >= xMin
+      && item.left <= xMax
+      && item.top >= yMin
+      && item.top <= yMax
+    ));
+
+    return {
+      regressedFlatKeySig: summarizePaths('MCCLCCCCCCCLMCCCCLC', 1598, 1623, -9545, -9510),
+      regressedSharpKeySig: summarizePaths('MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL', 2644, 2694, -9460, -9420),
+      flatSuffixAccidental: summarizePaths('MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL', 1638, 1648, -9515, -9485),
+      naturalSuffixAccidentals: summarizePaths('MLCCLLLLCLLLMCLLCLL', 1647, 1658, -9518, -9480)
+        .concat(summarizePaths('MLCCLLLLCLLLMCLLCLL', 2711, 2719, -9441, -9398)),
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.regressedFlatKeySig).toHaveLength(4);
+  expect(state.regressedFlatKeySig.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
+  expect(state.regressedFlatKeySig.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.regressedSharpKeySig).toHaveLength(7);
+  expect(state.regressedSharpKeySig.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
+  expect(state.regressedSharpKeySig.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.flatSuffixAccidental).toHaveLength(1);
+  expect(state.flatSuffixAccidental[0].classes).toContain('highlight-accidental');
+  expect(state.flatSuffixAccidental[0].classes).not.toContain('highlight-keysig');
+  expect(state.naturalSuffixAccidentals.length).toBeGreaterThanOrEqual(4);
+  expect(state.naturalSuffixAccidentals.every((item) => item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.naturalSuffixAccidentals.every((item) => !item.classes.includes('highlight-keysig'))).toBe(true);
+});
+
+test('classifies Wu Zetian mid-score naturals and flats with the shared symbol graph', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20241227_武则天/Scores/05 - Scroll - 武则天 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const flatSignature = 'MCCLCCCCCCCLMCCCCLC';
+    const targetedFlat = Array.from(svg.querySelectorAll('path')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+        top: rect.top,
+      };
+    }).find((item) => (
+      item.signature === flatSignature &&
+      item.left >= 2518 &&
+      item.left <= 2528 &&
+      item.top >= -8460 &&
+      item.top <= -8440
+    )) || null;
+
+    const targetedNaturals = Array.from(svg.querySelectorAll('polyline, line')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+        top: rect.top,
+      };
+    }).filter((item) => (
+      (
+        item.left >= 2497 &&
+        item.left <= 2506 &&
+        item.top >= -8455 &&
+        item.top <= -8435
+      ) || (
+        item.left >= 2811 &&
+        item.left <= 2821 &&
+        item.top >= -9712 &&
+        item.top <= -9692
+      ) || (
+        item.left >= 2844 &&
+        item.left <= 2851 &&
+        item.top >= -9712 &&
+        item.top <= -9692
+      )
+    ));
+
+    return {
+      targetedFlat,
+      targetedNaturals,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.targetedFlat).not.toBeNull();
+  expect(state.targetedFlat.classes).toContain('highlight-accidental');
+  expect(state.targetedFlat.classes).not.toContain('highlight-keysig');
+  expect(state.targetedNaturals.length).toBeGreaterThanOrEqual(10);
+  expect(state.targetedNaturals.every((item) => item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.targetedNaturals.every((item) => !item.classes.includes('highlight-keysig'))).toBe(true);
+});
+
+test('recognizes Wu Zetian opening percussion clefs and fragmented opening time signatures', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20241227_武则天/Scores/04 - Full Score - Concert Pitch - 武则天 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return (rect.left + rect.right) / 2;
+    }).filter(Number.isFinite).sort((a, b) => a - b);
+    const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
+
+    const openingPercussionClefs = Array.from(svg.querySelectorAll('path')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+      };
+    }).filter((item) => (
+      item.signature === 'MLLLLMLLLL' &&
+      item.left >= systemStartX - 2 &&
+      item.left <= systemStartX + 8
+    ));
+
+    const openingTimeSigs = Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        left: rect.left,
+        token: el.getAttribute('data-time-sig-token') || '',
+      };
+    }).filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 260);
+
+    const display = document.getElementById('timeSigDisplay');
+
+    return {
+      openingPercussionClefs,
+      openingTimeSigs,
+      displayText: display?.textContent?.trim() || '',
+      displayColor: display ? getComputedStyle(display).color : '',
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.openingPercussionClefs).toHaveLength(7);
+  expect(state.openingPercussionClefs.every((item) => item.classes.includes('highlight-clef'))).toBe(true);
+  expect(state.openingTimeSigs.length).toBeGreaterThan(0);
+  expect(state.openingTimeSigs.every((item) => item.token === '4')).toBe(true);
+  expect(state.displayText).toBe('4/4');
+  expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
+});
+
+test('does not treat tablature fingering digits as time signatures in Shounen no Yume', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250826_少年的梦/Scores/02 - Score Rolling - 少年の夢 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const tabDigitHighlights = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      const inheritedFontFamily = (() => {
+        let current = el;
+        while (current) {
+          const family = current.getAttribute?.('font-family');
+          if (family) return family;
+          current = current.parentElement;
+        }
+        return '';
+      })();
+
+      return {
+        text: (el.textContent || '').trim(),
+        left: rect.left,
+        top: rect.top,
+        fontFamily: inheritedFontFamily,
+      };
+    }).filter((item) => /[0-9]/.test(item.text) && /ounen-mouhitsu/i.test(item.fontFamily));
+
+    return {
+      barlineCount: document.getElementById('barlineCount')?.textContent?.trim() || '',
+      measureCount: document.getElementById('measureCount')?.textContent?.trim() || '',
+      displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+      tabDigitHighlights,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(Number(state.barlineCount)).toBeGreaterThan(0);
+  expect(Number(state.measureCount)).toBeGreaterThan(0);
+  expect(state.tabDigitHighlights).toHaveLength(0);
 });
 
 test('keeps opening time-signature offset isolated from later score time signatures', async () => {

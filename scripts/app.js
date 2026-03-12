@@ -13,7 +13,15 @@ import {
     createPlaybackHelpers,
     PLAYBACK_SIMULATION_STEP_SEC,
 } from "./features/playback.js?v=20260311-playback-tail-2";
+import {
+    buildTrustedBarlineAnchors,
+    classifyAccidentalGroups,
+} from "./features/symbol-graph.mjs";
 import { createSvgAnalysisFeature } from "./features/svg-analysis.js";
+import {
+    clearInjectedSvgLocalFontFaces,
+    registerImportedSvgTextFonts,
+} from "./features/svg-text-fonts.js";
 import {
     decodeTimeSignaturePath,
     decodeTimeSignatureText,
@@ -386,8 +394,39 @@ zoomInBtn.addEventListener('click', () => {
 
 // 🌟 音乐字体特征注册表 (Music Font Registry)
 let activeSignatureMap = { clefs: {}, accidentals: {}, noteheads: {} };
+let allKnownClefMap = {};
+let allKnownAccidentalMap = {};
 let allKnownNoteheadMap = {};
 let currentRawSvgContent = null; // 用于切换字体时热重载 SVG
+let svgProcessingGeneration = 0;
+
+function compileKnownClefSignatures() {
+    allKnownClefMap = {};
+    Object.values(MusicFontRegistry).forEach((fontData) => {
+        if (!fontData?.clefs) return;
+        for (const [symbolName, signatures] of Object.entries(fontData.clefs)) {
+            signatures.forEach(sig => {
+                if (!(sig in allKnownClefMap)) {
+                    allKnownClefMap[sig] = symbolName;
+                }
+            });
+        }
+    });
+}
+
+function compileKnownAccidentalSignatures() {
+    allKnownAccidentalMap = {};
+    Object.values(MusicFontRegistry).forEach((fontData) => {
+        if (!fontData?.accidentals) return;
+        for (const [symbolName, signatures] of Object.entries(fontData.accidentals)) {
+            signatures.forEach(sig => {
+                if (!(sig in allKnownAccidentalMap)) {
+                    allKnownAccidentalMap[sig] = symbolName;
+                }
+            });
+        }
+    });
+}
 
 function compileKnownNoteheadSignatures() {
     allKnownNoteheadMap = {};
@@ -421,6 +460,8 @@ function compileFontSignatures(fontName) {
 }
 
 // 默认加载 Default 字典
+compileKnownClefSignatures();
+compileKnownAccidentalSignatures();
 compileKnownNoteheadSignatures();
 compileFontSignatures('Bravura');
 
@@ -881,17 +922,7 @@ themeLightBtn.addEventListener('click', () => {
  * 1. 谱号与大括号识别器 (已接入字体框架)
  */
 function identifyClefOrBrace(sig, originalD) {
-    let result = activeSignatureMap.clefs[sig] || null;
-
-    // 🌟 跨界捞人：如果当前字体没认出，去 Bravura 字典里兜底查一下
-    if (!result && MusicFontRegistry['Bravura'] && MusicFontRegistry['Bravura'].clefs) {
-        for (const [symbolName, signatures] of Object.entries(MusicFontRegistry['Bravura'].clefs)) {
-            if (signatures.includes(sig)) {
-                result = symbolName;
-                break;
-            }
-        }
-    }
+    let result = activeSignatureMap.clefs[sig] || allKnownClefMap[sig] || null;
 
     // 🎯 核心碰撞处理：打击乐谱号 vs 震音记号
     if (result === 'Percussion Clef (打击乐谱号)' && originalD) {
@@ -912,8 +943,8 @@ function identifyClefOrBrace(sig, originalD) {
                 const height = maxY - minY;
 
                 // 💡 震音记号：有一定宽度（倾斜导致的），且不会像谱号那么瘦高
-                // 💡 打击乐谱号单条竖线：极度瘦高，高度通常是宽度的 5 倍以上
-                if (width > 0.5 && height < width * 5) {
+                // 💡 这条防线只拦明显扁平的 slash，避免把 Maestro 这类偏矮的真打击乐谱号误杀。
+                if (width > 0.5 && height < width * 3.5) {
                     return null; // 它是震音记号，踢出谱号阵营！
                 }
             }
@@ -926,7 +957,7 @@ function identifyClefOrBrace(sig, originalD) {
  * 2. 变音记号识别器 (已接入字体框架)
  */
 function identifyAccidental(sig) {
-    return activeSignatureMap.accidentals[sig] || null;
+    return activeSignatureMap.accidentals[sig] || allKnownAccidentalMap[sig] || null;
 }
 
 /**
@@ -1008,7 +1039,8 @@ function autoDetectMusicFont(svgText) {
 }
 
 // 提取出的公共方法：处理 SVG 文本
-function processSvgContent(svgContent) {
+async function processSvgContent(svgContent) {
+    const processingGeneration = ++svgProcessingGeneration;
     const sandbox = document.getElementById('svg-sandbox');
     sandbox.innerHTML = svgContent;
 
@@ -1017,6 +1049,7 @@ function processSvgContent(svgContent) {
 
     // 清理旧样式
     document.querySelectorAll('.svg-extracted-style').forEach(el => el.remove());
+    clearInjectedSvgLocalFontFaces(document);
 
     const styles = newSvgRoot.querySelectorAll('style');
     styles.forEach(style => {
@@ -1026,9 +1059,10 @@ function processSvgContent(svgContent) {
         document.head.appendChild(newStyle);
     });
 
-    document.fonts.ready.then(() => {
-        if (!isPlaying && typeof renderCanvas === 'function') renderCanvas(smoothX);
-    });
+    await registerImportedSvgTextFonts(newSvgRoot, { documentRef: document, debugLog });
+    await document.fonts.ready;
+
+    if (processingGeneration !== svgProcessingGeneration) return;
 
     svgAnalysisFeature.preprocessSvgColors(newSvgRoot);
 
@@ -1107,6 +1141,13 @@ function processSvgContent(svgContent) {
     fitScoreToViewportHeight();
 }
 
+function queueSvgContentProcessing(svgContent) {
+    void processSvgContent(svgContent).catch((error) => {
+        console.error(error);
+        debugLog(`⚠️ [SVG导入] 处理失败: ${error?.message || error}`);
+    });
+}
+
 // 改造你的文件上传监听器
 document.getElementById('svgInput').addEventListener('change', (event) => {
     const file = event.target.files[0];
@@ -1116,7 +1157,7 @@ document.getElementById('svgInput').addEventListener('change', (event) => {
     reader.onload = (e) => {
         currentRawSvgContent = e.target.result; // 保存原文用于热重载
         autoDetectMusicFont(currentRawSvgContent);
-        processSvgContent(currentRawSvgContent);
+        queueSvgContentProcessing(currentRawSvgContent);
     };
     reader.readAsText(file);
 });
@@ -1129,7 +1170,7 @@ document.getElementById('musicFontSelect').addEventListener('change', (e) => {
     // 如果舞台上已经有乐谱，一键重新扫描
     if (currentRawSvgContent) {
         debugLog("🔄 检测到字体库变更，正在热重载并重新扫描当前乐谱...");
-        processSvgContent(currentRawSvgContent);
+        queueSvgContentProcessing(currentRawSvgContent);
     }
 });
 
@@ -1228,6 +1269,10 @@ function buildTimeSignatureStaffBandsFromLineYs(lineYs) {
     }
 
     return staffBands;
+}
+
+function isEligibleTimeSignatureStaffBand(band) {
+    return Boolean(band && Array.isArray(band.lineYs) && band.lineYs.length === 5);
 }
 
 function identifyAndHighlightClefs() {
@@ -1739,17 +1784,20 @@ function identifyAndHighlightInstrumentNames() {
 function isTimeSignatureTextRectInsideStaffBands(textRect, staffBands, isGiant = false) {
     if (!textRect || !Array.isArray(staffBands) || staffBands.length === 0) return false;
 
+    const eligibleBands = staffBands.filter(isEligibleTimeSignatureStaffBand);
+    if (eligibleBands.length === 0) return false;
+
     // 🌟 核心修复 1：如果是跨行大拍号，放宽判定条件！
     // 只要它的上下边界没有跑出整个“大谱表系统”的范围就算数，允许它的中心点悬空在两行谱子中间
     if (isGiant) {
-        const globalTop = Math.min(...staffBands.map(b => b.paddedTop));
-        const globalBottom = Math.max(...staffBands.map(b => b.paddedBottom));
+        const globalTop = Math.min(...eligibleBands.map(b => b.paddedTop));
+        const globalBottom = Math.max(...eligibleBands.map(b => b.paddedBottom));
         return textRect.bottom >= globalTop && textRect.top <= globalBottom;
     }
 
     // 正常的普通小拍号，依然严格要求中心点必须落在单行五线谱内部
     const centerY = (textRect.top + textRect.bottom) / 2;
-    return staffBands.some(band => centerY >= band.paddedTop && centerY <= band.paddedBottom);
+    return eligibleBands.some(band => centerY >= band.paddedTop && centerY <= band.paddedBottom);
 }
 
 function hasStackedTimeSignaturePartner(candidate, candidates) {
@@ -1769,6 +1817,146 @@ function hasStackedTimeSignaturePartner(candidate, candidates) {
 
         return dx <= maxAlignedXGap && dy >= minStackGap && dy <= maxStackGap;
     });
+}
+
+function getTimeSignatureStaffBandIndex(rect, staffBands) {
+    if (!rect || !Array.isArray(staffBands) || staffBands.length === 0) return -1;
+
+    const centerY = (rect.top + rect.bottom) / 2;
+    return staffBands.findIndex((band) => (
+        isEligibleTimeSignatureStaffBand(band) &&
+        centerY >= band.paddedTop &&
+        centerY <= band.paddedBottom
+    ));
+}
+
+function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallbackFontFamily = '') {
+    if (!svgRoot || !(globalSystemBarlineScreenX > 0)) return 0;
+
+    const openingMinX = globalSystemBarlineScreenX + 40;
+    const openingMaxX = globalSystemBarlineScreenX + 135;
+    const selectedClusterCount = 2;
+
+    const horizontalCandidates = Array.from(svgRoot.querySelectorAll('path')).map((el) => {
+        if (
+            el.classList.contains('highlight-clef') ||
+            el.classList.contains('highlight-brace') ||
+            el.classList.contains('highlight-keysig') ||
+            el.classList.contains('highlight-timesig')
+        ) {
+            return null;
+        }
+
+        const d = el.getAttribute('d');
+        if (!d) return null;
+        if (simplifySvgPathSignature(d) !== 'MLLLL') return null;
+
+        const fontFamily = getInheritedSvgFontFamily(el, fallbackFontFamily);
+        if (!/maestro/i.test(fontFamily)) return null;
+
+        const rect = el.getBoundingClientRect();
+        if (!(rect.width > 0 && rect.height > 0)) return null;
+        if (rect.left < openingMinX || rect.left > openingMaxX) return null;
+        if (rect.width > 8 || rect.height > 4) return null;
+
+        const bandIndex = getTimeSignatureStaffBandIndex(rect, staffBands);
+        if (bandIndex === -1) return null;
+
+        return {
+            el,
+            rect,
+            bandIndex,
+        };
+    }).filter(Boolean);
+
+    if (horizontalCandidates.length < 6) return 0;
+
+    const horizontalClusters = clusterSortedXs(horizontalCandidates.map((item) => item.rect.left), 12)
+        .map((cluster) => {
+            const items = horizontalCandidates.filter((item) => (
+                item.rect.left >= cluster.minX - 1 && item.rect.left <= cluster.maxX + 1
+            ));
+            const uniqueBands = new Set(items.map((item) => item.bandIndex));
+            return {
+                ...cluster,
+                items,
+                uniqueBandCount: uniqueBands.size,
+            };
+        })
+        .filter((cluster) => cluster.uniqueBandCount >= 3)
+        .sort((a, b) => a.centerX - b.centerX)
+        .slice(0, selectedClusterCount);
+
+    if (horizontalClusters.length < selectedClusterCount) return 0;
+
+    const verticalCandidates = Array.from(svgRoot.querySelectorAll('line, polyline')).map((el) => {
+        if (
+            el.classList.contains('highlight-clef') ||
+            el.classList.contains('highlight-brace') ||
+            el.classList.contains('highlight-barline') ||
+            el.classList.contains('highlight-keysig') ||
+            el.classList.contains('highlight-timesig')
+        ) {
+            return null;
+        }
+
+        const geometry = extractSimpleLineGeometry(el);
+        if (!geometry?.isVertical) return null;
+        if (geometry.left < openingMinX - 35 || geometry.left > openingMaxX - 5) return null;
+        if (geometry.height < 40 || geometry.height > 140) return null;
+
+        return {
+            el,
+            rect: geometry.rect,
+            left: geometry.left,
+        };
+    }).filter(Boolean);
+
+    if (verticalCandidates.length === 0) return 0;
+
+    const verticalClusters = clusterSortedXs(verticalCandidates.map((item) => item.left), 4)
+        .map((cluster) => ({
+            ...cluster,
+            items: verticalCandidates.filter((item) => item.left >= cluster.minX - 1 && item.left <= cluster.maxX + 1),
+        }))
+        .filter((cluster) => cluster.items.length >= 2)
+        .sort((a, b) => a.centerX - b.centerX);
+
+    if (verticalClusters.length === 0) return 0;
+
+    let highlightedCount = 0;
+    horizontalClusters.forEach((horizontalCluster) => {
+        const pairedVertical = verticalClusters.find((verticalCluster) => {
+            const dx = horizontalCluster.centerX - verticalCluster.centerX;
+            return dx >= 10 && dx <= 32;
+        });
+
+        if (!pairedVertical) return;
+
+        horizontalCluster.items.forEach(({ el }) => {
+            const wasHighlighted = el.classList.contains('highlight-timesig');
+            if (!el.classList.contains('highlight-timesig')) {
+                el.classList.add('highlight-timesig');
+            }
+            if (!el.getAttribute('data-time-sig-token')) {
+                el.setAttribute('data-time-sig-token', '4');
+            }
+            if (!wasHighlighted) highlightedCount++;
+        });
+
+        pairedVertical.items.forEach(({ el }) => {
+            const wasHighlighted = el.classList.contains('highlight-timesig');
+            if (!el.classList.contains('highlight-timesig')) {
+                el.classList.add('highlight-timesig');
+            }
+            if (!el.getAttribute('data-time-sig-token')) {
+                el.setAttribute('data-time-sig-token', '4');
+            }
+            if (!wasHighlighted) highlightedCount++;
+        });
+    });
+
+    return highlightedCount;
 }
 
 const GIANT_TIME_SIGNATURE_HEIGHT_PX = 80;
@@ -1963,6 +2151,10 @@ function identifyAndHighlightTimeSignatures() {
         foundCount++;
     });
 
+    if (foundCount === 0) {
+        foundCount += identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallbackFontFamily);
+    }
+
     debugLog(`✅ 拍号扫描：点亮 ${foundCount} 个 | 排除孤立数字 ${rejectedSolitaryCount} 个 | 排除谱外 ${rejectedOutsideStaffCount} 个 | 远离小节线 ${rejectedFarFromBarlineCount} 个。`);
 }
 
@@ -2105,12 +2297,19 @@ function identifyGeometricNaturalClusters(svgRoot, staffSpace) {
 }
 
 function collectKeySignatureCandidates(svgRoot) {
-    const horizontalYs = [];
-    svgRoot.querySelectorAll('polyline, line').forEach(line => {
-        const geometry = extractSimpleLineGeometry(line);
-        if (!geometry || !geometry.isHorizontal || geometry.width <= 24) return;
-        horizontalYs.push((geometry.top + geometry.bottom) / 2);
-    });
+    const horizontalSegments = Array.from(svgRoot.querySelectorAll('polyline, line'))
+        .map(extractSimpleLineGeometry)
+        .filter((geometry) => geometry && geometry.isHorizontal && geometry.width > 24);
+    const maxHorizontalWidth = horizontalSegments.length > 0
+        ? Math.max(...horizontalSegments.map((segment) => segment.width))
+        : 0;
+    const dominantHorizontalSegments = horizontalSegments.filter((segment) => (
+        segment.width >= Math.max(24, maxHorizontalWidth * 0.6)
+    ));
+    const candidateStaffLines = dominantHorizontalSegments.length > 0
+        ? dominantHorizontalSegments
+        : horizontalSegments;
+    const horizontalYs = candidateStaffLines.map((segment) => (segment.top + segment.bottom) / 2);
 
     let staffSpace = 10;
     if (horizontalYs.length >= 2) {
@@ -2216,18 +2415,16 @@ function identifyAndHighlightAccidentals() {
     if (!svgRoot) return;
 
     const { horizontalYs, staffSpace } = collectKeySignatureCandidates(svgRoot);
-    const verticalLineXs = [];
-    svgRoot.querySelectorAll('polyline, line').forEach((line) => {
-        const geometry = extractSimpleLineGeometry(line);
-        if (!geometry || !geometry.isVertical) return;
-        if (geometry.height <= Math.max(10, staffSpace * 3.8)) return;
-        verticalLineXs.push((geometry.left + geometry.right) / 2);
-    });
-
     const staffBands = buildTimeSignatureStaffBandsFromLineYs(horizontalYs);
+    const staffSystems = buildStaffSystemsFromBands(staffBands);
+    const trustedAnchors = buildTrustedBarlineAnchors({
+        systemStartX: globalSystemBarlineScreenX,
+        staffSystems,
+        candidateClusters: collectBarlineCandidateClusters(svgRoot, staffSpace),
+        staffSpace,
+    });
     const noteheads = [];
 
-    // 原来的 path 音符头扫描
     svgRoot.querySelectorAll('path').forEach(path => {
         const d = path.getAttribute('d');
         if (!d) return;
@@ -2237,11 +2434,11 @@ function identifyAndHighlightAccidentals() {
         noteheads.push({
             left: rect.left,
             right: rect.right,
-            centerY: rect.top + rect.height / 2
+            centerY: rect.top + rect.height / 2,
+            bandIndex: resolveStaffBandIndex(staffBands, rect.top + rect.height / 2),
         });
     });
 
-    // 🌟 新增的 Text 音符头扫描
     svgRoot.querySelectorAll('text, tspan').forEach(textEl => {
         const char = (textEl.textContent || '').trim();
         if (!char) return;
@@ -2250,7 +2447,8 @@ function identifyAndHighlightAccidentals() {
         noteheads.push({
             left: rect.left,
             right: rect.right,
-            centerY: rect.top + rect.height / 2
+            centerY: rect.top + rect.height / 2,
+            bandIndex: resolveStaffBandIndex(staffBands, rect.top + rect.height / 2),
         });
     });
 
@@ -2260,7 +2458,8 @@ function identifyAndHighlightAccidentals() {
         timeSignatureGlyphs.push({
             left: rect.left,
             right: rect.right,
-            centerY: rect.top + rect.height / 2
+            centerY: rect.top + rect.height / 2,
+            bandIndex: resolveStaffBandIndex(staffBands, rect.top + rect.height / 2),
         });
     });
 
@@ -2292,45 +2491,40 @@ function identifyAndHighlightAccidentals() {
         ...candidate,
         element: candidate.elements[0],
         centerY: (candidate.top + candidate.bottom) / 2,
+        bandIndex: resolveStaffBandIndex(staffBands, (candidate.top + candidate.bottom) / 2),
     }));
 
-    const protectedIds = identifyProtectedKeySignatureCandidates(
-        accidentalCandidates,
-        noteheads,
+    const graphCandidates = accidentalCandidates.filter((candidate) => candidate.bandIndex !== -1);
+    const classification = classifyAccidentalGroups({
+        accidentalGroups: graphCandidates,
+        noteheads: noteheads.filter((item) => item.bandIndex !== -1),
         timeSignatureGlyphs,
-        clusterSortedXs(verticalLineXs, Math.max(2, staffSpace * 0.75)),
-        staffBands,
+        trustedAnchors,
         staffSpace,
-        globalSystemBarlineScreenX
-    );
+    });
+    const keySignatureIds = new Set(classification.keySignatureIds);
+    const accidentalIds = new Set(classification.accidentalIds);
 
-    const infectedIds = propagateAccidentalContagion(
-        accidentalCandidates.filter(candidate => !protectedIds.has(candidate.id)),
-        noteheads,
-        staffBands,
-        staffSpace
-    );
-    const singleLineNearbyIds = window.hasPhysicalStartBarline === false
-        ? identifySingleLineNoteAdjacentAccidentals(
-            accidentalCandidates.filter(candidate => !protectedIds.has(candidate.id)),
-            noteheads,
-            staffBands,
-            staffSpace
-        )
-        : new Set();
+    accidentalCandidates.forEach((candidate) => {
+        const shouldBecomeAccidental = accidentalIds.has(candidate.id);
+        const shouldStayKeySignature = keySignatureIds.has(candidate.id);
 
-    let accidentalCount = 0;
-    accidentalCandidates.forEach(candidate => {
-        if (!infectedIds.has(candidate.id) && !singleLineNearbyIds.has(candidate.id)) return;
+        if (!shouldBecomeAccidental && !shouldStayKeySignature) return;
+
         candidate.elements.forEach((el) => {
-            el.classList.remove('highlight-keysig');
-            el.classList.add('highlight-accidental');
+            if (shouldBecomeAccidental) {
+                el.classList.remove('highlight-keysig');
+                el.classList.add('highlight-accidental');
+                return;
+            }
+
+            el.classList.remove('highlight-accidental');
+            el.classList.add('highlight-keysig');
         });
-        accidentalCount++;
     });
 
     const { finalKeySignatureCount, finalAccidentalCount } = getFinalAccidentalDisplayCounts(svgRoot);
-    debugLog(`🎯 变音记号识别完成：最终调号 ${finalKeySignatureCount} 个，最终临时记号 ${finalAccidentalCount} 个，调号保护 ${protectedIds.size} 个。`);
+    debugLog(`🎯 变音记号识别完成：最终调号 ${finalKeySignatureCount} 个，最终临时记号 ${finalAccidentalCount} 个，可信锚点 ${trustedAnchors.length} 个。`);
 }
 
 function getFinalAccidentalDisplayCounts(svgRoot) {
@@ -2357,6 +2551,72 @@ function resolveStaffBandIndex(staffBands, centerY) {
         if (centerY >= top && centerY <= bottom) return i;
     }
     return -1;
+}
+
+function buildStaffSystemsFromBands(staffBands) {
+    const bands = (Array.isArray(staffBands) ? staffBands : [])
+        .filter((band) => Number.isFinite(band?.top) && Number.isFinite(band?.bottom) && band.bottom > band.top)
+        .sort((a, b) => a.top - b.top);
+    if (bands.length === 0) return [];
+
+    const systems = [{ top: bands[0].top, bottom: bands[0].bottom }];
+    for (let i = 1; i < bands.length; i++) {
+        const previousBand = bands[i - 1];
+        const currentBand = bands[i];
+        const gap = currentBand.top - previousBand.bottom;
+        const systemBreakThreshold = Math.max(
+            24,
+            (previousBand.staffSpace || 0) * 10,
+            (currentBand.staffSpace || 0) * 10
+        );
+
+        if (gap > systemBreakThreshold) {
+            systems.push({ top: currentBand.top, bottom: currentBand.bottom });
+            continue;
+        }
+
+        systems[systems.length - 1].bottom = currentBand.bottom;
+    }
+
+    return systems;
+}
+
+function collectBarlineCandidateClusters(svgRoot, staffSpace) {
+    if (!svgRoot) return [];
+
+    const mergeGap = Math.max(2, staffSpace * 0.75);
+    const verticalSegments = Array.from(svgRoot.querySelectorAll('polyline, line'))
+        .map(extractSimpleLineGeometry)
+        .filter((geometry) => (
+            geometry
+            && geometry.isVertical
+            && geometry.height >= 8
+            && !geometry.element.classList.contains('highlight-brace')
+            && !geometry.element.hasAttribute('data-accidental-cluster-id')
+        ));
+
+    if (verticalSegments.length === 0) return [];
+
+    const clusteredXs = clusterSortedXs(
+        verticalSegments.map((segment) => (segment.left + segment.right) / 2),
+        mergeGap
+    );
+
+    return clusteredXs.map((cluster) => {
+        const memberSegments = verticalSegments.filter((segment) => {
+            const centerX = (segment.left + segment.right) / 2;
+            return centerX >= cluster.minX - 0.5 && centerX <= cluster.maxX + 0.5;
+        });
+        if (memberSegments.length === 0) return null;
+
+        return {
+            x: cluster.centerX,
+            minTop: Math.min(...memberSegments.map((segment) => segment.top)),
+            maxBottom: Math.max(...memberSegments.map((segment) => segment.bottom)),
+            lineCount: memberSegments.length,
+            maxLineHeight: Math.max(...memberSegments.map((segment) => segment.height)),
+        };
+    }).filter(Boolean);
 }
 
 function identifyProtectedKeySignatureCandidates(accidentals, noteheads, timeSignatureGlyphs, barlineClusters, staffBands, staffSpace, systemStartScreenX) {
@@ -2632,7 +2892,9 @@ function initScoreMapping(svgRoot) {
         }
     });
 
-    // --- B. 向后兼容：手动 @ 标记 (保持不变) ---
+    // --- B. Legacy @ manual-tag mapping is disabled ---
+    /*
+    // 向后兼容：手动 @ 标记 (已停用，保留旧逻辑供参考)
     const manualTags = [];
     svgRoot.querySelectorAll('text, tspan').forEach(el => {
         if (el.textContent.includes('@')) {
@@ -2653,6 +2915,7 @@ function initScoreMapping(svgRoot) {
         });
         return;
     }
+    */
 
     // --- C. 筛选垂直线，并应用“符干护卫” ---
     const barlineCandidates = [];
@@ -2886,7 +3149,14 @@ function initScoreMapping(svgRoot) {
             }
         }
 
-        const quarterNotesPerBar = activeSig.num * (4 / activeSig.den);
+        const safeSig = (
+            Number.isFinite(activeSig?.num) &&
+            Number.isFinite(activeSig?.den) &&
+            activeSig.num > 0 &&
+            activeSig.den > 0
+        ) ? activeSig : { num: 4, den: 4 };
+
+        const quarterNotesPerBar = safeSig.num * (4 / safeSig.den);
         const measureTotalTicks = quarterNotesPerBar * globalMidiPpq;
         const slices = Math.max(1, Math.round(measureTotalTicks / interpolationResolutionTicks));
 

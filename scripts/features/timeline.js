@@ -102,11 +102,27 @@ export function createTimelineFeature({
     updateProgressUI,
 }) {
     /**
+     * @param {TimeSignaturePoint | null | undefined} timeSig
+     * @returns {boolean}
+     */
+    function isValidTimeSignaturePoint(timeSig) {
+        return Boolean(
+            timeSig &&
+            Number.isFinite(timeSig.x) &&
+            Number.isFinite(timeSig.num) &&
+            Number.isFinite(timeSig.den) &&
+            timeSig.num > 0 &&
+            timeSig.den > 0
+        );
+    }
+
+    /**
      * @param {TimeSignaturePoint[]} timeSigs
      * @returns {TimeSignaturePoint[]}
      */
     function ensureTimeSignatures(timeSigs) {
-        return timeSigs.length > 0 ? timeSigs : [{ x: -Infinity, num: 4, den: 4 }];
+        const validTimeSigs = (Array.isArray(timeSigs) ? timeSigs : []).filter(isValidTimeSignaturePoint);
+        return validTimeSigs.length > 0 ? validTimeSigs : [{ x: -Infinity, num: 4, den: 4 }];
     }
 
     /**
@@ -207,6 +223,7 @@ export function createTimelineFeature({
                 return;
             }
 
+            if (num <= 0 || den <= 0) return;
             timeSigs.push({ x: group.x, num, den });
         });
 

@@ -5,6 +5,47 @@ export function createSvgAnalysisFeature({
     getMathFlyinParams,
     identifyClefOrBrace,
 }) {
+    function getStickyClefIdentity(item) {
+        if (!item) return null;
+
+        if (item.type === "path" && item.originalD) {
+            const sig = item.originalD.replace(/[^a-zA-Z]/g, "").toUpperCase();
+            return identifyClefOrBrace(sig, item.originalD);
+        }
+
+        if (item.type === "text" && item.text) {
+            return identifyClefOrBrace((item.text || "").trim(), null);
+        }
+
+        return null;
+    }
+
+    function getLastKnownClefIdentity(items) {
+        if (!Array.isArray(items)) return null;
+
+        for (let i = items.length - 1; i >= 0; i--) {
+            const identity = getStickyClefIdentity(items[i]);
+            if (identity) return identity;
+        }
+
+        return null;
+    }
+
+    function shouldStartNewStickyBlock(type, currentBlock, nextItem, clusterThresholdX) {
+        if (!currentBlock || !nextItem) return false;
+
+        const gap = nextItem.absMinX - currentBlock.maxX;
+        if (gap >= clusterThresholdX) return true;
+
+        if (type !== "clef") return false;
+
+        const currentIdentity = getLastKnownClefIdentity(currentBlock.items);
+        const nextIdentity = getStickyClefIdentity(nextItem);
+        if (!currentIdentity || !nextIdentity) return false;
+
+        return currentIdentity !== nextIdentity;
+    }
+
     function buildTimeSignatureStaffBandsFromLineYs(lineYs) {
         if (!Array.isArray(lineYs) || lineYs.length === 0) return [];
 
@@ -573,7 +614,7 @@ export function createSvgAnalysisFeature({
                 const blocks = [];
                 for (let i = 1; i < items.length; i++) {
                     const item = items[i];
-                    if (item.absMinX - currentBlock.maxX < clusterThresholdX) {
+                    if (!shouldStartNewStickyBlock(type, currentBlock, item, clusterThresholdX)) {
                         currentBlock.items.push(item);
                         if (item.absMaxX > currentBlock.maxX) currentBlock.maxX = item.absMaxX;
                     } else {
