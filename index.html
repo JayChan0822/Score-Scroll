@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="./styles/main.css">
     <script>
         (() => {
-            const APP_MODULE_VERSION = '20260312-local-text-fonts-1';
+            const APP_MODULE_VERSION = '20260313-sticky-fade-unify-1';
 
             const loadAppModule = () => {
                 const appScript = document.createElement('script');
@@ -146,6 +146,11 @@
                             <span class="slider-label">扫描线位置</span>
                             <input type="range" id="playlineRatioSlider" min="0" max="100" value="50">
                             <span class="slider-val"><span id="playlineRatioVal">50</span>%</span>
+                        </div>
+                        <div class="slider-row">
+                            <span class="slider-label">吸顶位置</span>
+                            <input type="range" id="stickyLockRatioSlider" min="0" max="100" value="50">
+                            <span class="slider-val"><span id="stickyLockRatioVal">50</span>%</span>
                         </div>
                     </div>
                 </div>

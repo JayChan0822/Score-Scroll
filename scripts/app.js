@@ -1,13 +1,12 @@
 import {
-    PREVIEW_BOTTOM_BUFFER_PX,
     PRIVATE_USE_GLYPH_REGEX,
     TIME_SIGNATURE_GLYPH_REGEX,
 } from "./core/constants.js";
-import { getDomRefs } from "./core/dom.js";
-import { createInitialState } from "./core/state.js";
+import { getDomRefs } from "./core/dom.js?v=20260313-sticky-lock-light-export-1";
+import { createInitialState } from "./core/state.js?v=20260313-sticky-lock-light-export-1";
 import { MusicFontRegistry } from "./data/music-font-registry.js";
 import { createAudioFeature } from "./features/audio.js";
-import { createExportVideoFeature } from "./features/export-video.js";
+import { computeSharedExportDimensions, createExportVideoFeature } from "./features/export-video.js?v=20260313-equal-height-preview-1";
 import { parseMidiData } from "./features/midi.js";
 import {
     createPlaybackHelpers,
@@ -17,7 +16,7 @@ import {
     buildTrustedBarlineAnchors,
     classifyAccidentalGroups,
 } from "./features/symbol-graph.mjs";
-import { createSvgAnalysisFeature } from "./features/svg-analysis.js";
+import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260313-rehearsal-mark-frame-1";
 import {
     clearInjectedSvgLocalFontFaces,
     registerImportedSvgTextFonts,
@@ -29,13 +28,15 @@ import {
     simplifySvgPathSignature,
 } from "./features/time-signature-decoder.js";
 import { createTimelineFeature } from "./features/timeline.js";
-import { bindUiEvents } from "./features/ui-events.js";
+import { bindUiEvents } from "./features/ui-events.js?v=20260313-sticky-lock-light-export-1";
 import { debugLog } from "./utils/debug.js";
 import { formatSeconds } from "./utils/format.js";
 import { clamp } from "./utils/math.js";
 
 const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
 const PLAYBACK_TAIL_BUFFER_SEC = 2;
+const controlStackEl = document.querySelector(".control-stack");
+const stageWrapEl = document.querySelector(".stage-wrap");
 const workspaceScaleFrame = document.querySelector(".workspace-scale-frame");
 const workspaceLayout = document.querySelector(".workspace-layout");
 
@@ -80,6 +81,7 @@ let {
     showPlayline,
     showScanGlow,
     startTime,
+    stickyLockRatio,
     stickyMinX,
     svgTags,
 } = initialState;
@@ -115,6 +117,8 @@ const {
     playBtn,
     playlineRatioSlider,
     playlineRatioVal,
+    stickyLockRatioSlider,
+    stickyLockRatioVal,
     progressSlider,
     sandbox,
     scatterSlider,
@@ -167,6 +171,8 @@ const dom = {
     playBtn,
     playlineRatioSlider,
     playlineRatioVal,
+    stickyLockRatioSlider,
+    stickyLockRatioVal,
     progressSlider,
     sandbox,
     scatterSlider,
@@ -368,6 +374,83 @@ function syncViewportSizingMode(ratio = exportRatioSelect ? exportRatioSelect.va
     viewportEl.style.height = "auto";
 }
 
+function getSelectedExportBaseResolution() {
+    const parsed = parseInt(exportResSelect?.value || "1920", 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1920;
+}
+
+function syncDesktopPreviewFrame() {
+    if (window.innerWidth <= DESKTOP_LAYOUT_BREAKPOINT_PX) return false;
+    if (!viewportEl || !currentRawSvgContent || isExportingVideoMode || !controlStackEl) return false;
+    if (!Number.isFinite(globalScoreHeight) || globalScoreHeight <= 0) return false;
+
+    const controlHeight = controlStackEl.offsetHeight || controlStackEl.getBoundingClientRect().height;
+    if (!Number.isFinite(controlHeight) || controlHeight <= 0) return false;
+
+    viewportEl.style.height = `${Math.round(controlHeight)}px`;
+
+    const stageAvailableWidth =
+        stageWrapEl?.clientWidth ||
+        stageWrapEl?.getBoundingClientRect().width ||
+        viewportEl.parentElement?.clientWidth ||
+        viewportEl.getBoundingClientRect().width ||
+        cachedViewportWidth ||
+        0;
+    if (!Number.isFinite(stageAvailableWidth) || stageAvailableWidth <= 0) return false;
+
+    const selectedRatio = exportRatioSelect?.value || "auto";
+    let desiredPreviewWidth = stageAvailableWidth;
+
+    if (selectedRatio === "auto") {
+        const dimensions = computeSharedExportDimensions({
+            aspectRatio: selectedRatio,
+            baseRes: getSelectedExportBaseResolution(),
+            globalScoreHeight,
+            globalZoom,
+            viewportWidth: stageAvailableWidth,
+        });
+        if (Number.isFinite(dimensions.targetWidth) && Number.isFinite(dimensions.targetHeight) && dimensions.targetHeight > 0) {
+            desiredPreviewWidth = Math.round(controlHeight * (dimensions.targetWidth / dimensions.targetHeight));
+        }
+    } else {
+        const [wRatio, hRatio] = selectedRatio.split(":").map((value) => parseFloat(value));
+        if (Number.isFinite(wRatio) && Number.isFinite(hRatio) && wRatio > 0 && hRatio > 0) {
+            desiredPreviewWidth = Math.round(controlHeight * (wRatio / hRatio));
+        }
+    }
+
+    const clampedPreviewWidth = Math.max(320, Math.min(stageAvailableWidth, desiredPreviewWidth));
+    viewportEl.style.width = `${clampedPreviewWidth}px`;
+    viewportEl.style.maxWidth = "100%";
+    viewportEl.style.margin = "0 auto";
+    return true;
+}
+
+function syncMobileExportPreviewHeight() {
+    if (window.innerWidth > DESKTOP_LAYOUT_BREAKPOINT_PX) return false;
+    if (!viewportEl || !currentRawSvgContent || isExportingVideoMode) return false;
+    if (!Number.isFinite(globalScoreHeight) || globalScoreHeight <= 0) return false;
+
+    const viewportWidth = viewportEl.clientWidth || cachedViewportWidth || viewportEl.getBoundingClientRect().width || 1920;
+    if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return false;
+
+    const { targetHeight } = computeSharedExportDimensions({
+        aspectRatio: exportRatioSelect?.value || "auto",
+        baseRes: getSelectedExportBaseResolution(),
+        globalScoreHeight,
+        globalZoom,
+        viewportWidth,
+    });
+
+    if (!Number.isFinite(targetHeight) || targetHeight <= 0) return false;
+
+    viewportEl.style.height = `${targetHeight}px`;
+    viewportEl.style.width = "100%";
+    viewportEl.style.maxWidth = "100%";
+    viewportEl.style.margin = "0 auto";
+    return true;
+}
+
 function syncWorkspaceScaleFrameMetrics() {
     if (!workspaceScaleFrame || !workspaceLayout) return;
 
@@ -399,6 +482,26 @@ let allKnownAccidentalMap = {};
 let allKnownNoteheadMap = {};
 let currentRawSvgContent = null; // 用于切换字体时热重载 SVG
 let svgProcessingGeneration = 0;
+let currentMappedSvgRoot = null;
+let stickyTransitionFrameId = 0;
+let stickyTransitionRenderX = 0;
+
+function cancelStickyTransitionFrame() {
+    if (!stickyTransitionFrameId) return;
+    cancelAnimationFrame(stickyTransitionFrameId);
+    stickyTransitionFrameId = 0;
+}
+
+function scheduleStickyTransitionFrame(currentX) {
+    stickyTransitionRenderX = currentX;
+    if (stickyTransitionFrameId || isPlaying || isExportingVideoMode) return;
+
+    stickyTransitionFrameId = requestAnimationFrame(() => {
+        stickyTransitionFrameId = 0;
+        if (isPlaying || isExportingVideoMode || typeof renderCanvas !== 'function') return;
+        renderCanvas(stickyTransitionRenderX);
+    });
+}
 
 function compileKnownClefSignatures() {
     allKnownClefMap = {};
@@ -487,12 +590,14 @@ let globalStickyLanes = {};
 
 // 🌟 全局缓存：用于存储原生的五线谱绝对位置，以便在遮罩层重新绘制桥梁
 window.globalAbsoluteStaffLineYs = [];
+window.globalAbsoluteBridgeLineYs = [];
 window.globalAbsoluteBridgeStartX = Infinity;
 window.globalAbsoluteSystemInternalX = Infinity;
 window.hasPhysicalStartBarline = false;
 
 function renderCanvas(currentX, options = {}) {
     if (!ctx || !canvas) return;
+    if (isPlaying || isExportingVideoMode) cancelStickyTransitionFrame();
     const { transparentBackground = false } = options;
 
     const noteColor = noteColorPicker ? noteColorPicker.value : defaultNoteColor;
@@ -500,12 +605,18 @@ function renderCanvas(currentX, options = {}) {
     const bgColor = transparentBackground ? 'rgba(0, 0, 0, 0)' : solidBgColor;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!transparentBackground) {
+        ctx.fillStyle = solidBgColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
     // 🌟 1. 核心数学重构：动态计算播放线在屏幕上的 X 像素坐标
     const playlineScreenX = cachedViewportWidth * playlineRatio;
+    const stickyLockScreenX = cachedViewportWidth * stickyLockRatio;
     // 计算播放线左右两侧的物理世界距离
     const worldDistanceLeft = playlineScreenX / globalZoom;
     const worldDistanceRight = (cachedViewportWidth - playlineScreenX) / globalZoom;
+    const stickyLockOffset = stickyLockScreenX / globalZoom;
 
     const logicalHeight = isExportingVideoMode ? canvas.height : viewportEl.clientHeight;
     const centerY = logicalHeight / 2;
@@ -515,11 +626,8 @@ function renderCanvas(currentX, options = {}) {
     const leftEdge = currentX - worldDistanceLeft - (100 / globalZoom);
     const rightEdge = currentX + worldDistanceRight + (100 / globalZoom);
 
-    const SCREEN_STOP_MARGIN_PX = Math.max(40, Math.min(150, cachedViewportWidth * 0.06));
-    const STOP_MARGIN = SCREEN_STOP_MARGIN_PX / globalZoom;
-
-    // 🌟 吸附锚点重构：不再用 worldHalfWidth，而是用我们算出的左侧距离
-    const maxStickySmoothX_initial = worldDistanceLeft + stickyMinX - STOP_MARGIN;
+    // 🌟 吸附锚点：独立控制“距离左侧多远开始吸顶”
+    const maxStickySmoothX_initial = worldDistanceLeft + stickyMinX - stickyLockOffset;
 
     const activeIdx = {}; const activeWidth = {}; const laneOffsets = {};
 
@@ -535,15 +643,17 @@ function renderCanvas(currentX, options = {}) {
     let maxStickyRightScreenX = 0; let shouldShowMask = false;
 
     for (const laneId in globalStickyLanes) {
-        activeIdx[laneId] = { inst: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };
-        activeWidth[laneId] = { inst: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
+        activeIdx[laneId] = { inst: -1, reh: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };
+        activeWidth[laneId] = { inst: 0, reh: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
         laneOffsets[laneId] = { clef: 0, key: 0 };
         const { typeBlocks, baseWidths } = globalStickyLanes[laneId];
 
-        ['inst', 'clef', 'key', 'time', 'bar', 'brace'].forEach(type => {
+        ['inst', 'reh', 'clef', 'key', 'time', 'bar', 'brace'].forEach(type => {
             if (!typeBlocks[type]) return;
             typeBlocks[type].forEach((block, index) => {
-                const lockDistance = Math.max(0, block.minX - typeBlocks[type][0].minX);
+                const lockDistance = Number.isFinite(block.lockDistance)
+                    ? block.lockDistance
+                    : Math.max(0, block.minX - typeBlocks[type][0].minX);
                 const layerMaxX = maxStickySmoothX_initial + lockDistance;
                 if (currentX >= layerMaxX) {
                     if (index > activeIdx[laneId][type]) {
@@ -577,6 +687,7 @@ function renderCanvas(currentX, options = {}) {
     }
 
     const normalDrawList = []; const stickyDrawList = [];
+    let stickyNeedsFollowupFrame = false;
 
     for (let i = 0; i < renderQueue.length; i++) {
         const item = renderQueue[i];
@@ -593,22 +704,45 @@ function renderCanvas(currentX, options = {}) {
             if (item.blockIndex === currentActive) {
                 if (layerMaxX - currentX < 300) shouldShowMask = true;
                 const worldRightX = item.absMaxX + pinShiftX + targetExtraX + (item.absMaxX - item.blockMinX) * (targetScale - 1);
-                // 🌟 重构：遮罩计算也基于播放线位置
                 const screenRightX = (worldRightX - currentX) * globalZoom + playlineScreenX;
                 if (screenRightX > maxStickyRightScreenX) maxStickyRightScreenX = screenRightX;
             }
         }
 
-        if (item.currentOpacity === undefined) item.currentOpacity = 1;
-        if (item.currentExtraX === undefined) item.currentExtraX = 0;
-        if (item.currentScale === undefined) item.currentScale = 1;
+        if (item.currentOpacity === undefined) item.currentOpacity = targetOpacity;
+        if (item.currentExtraX === undefined) item.currentExtraX = targetExtraX;
+        if (item.currentScale === undefined) item.currentScale = targetScale;
 
-        if (typeof isPlaying !== 'undefined' && isPlaying) {
+        const stickyTransitionPending = item.isSticky && (
+            Math.abs(item.currentOpacity - targetOpacity) > 0.001
+            || Math.abs(item.currentExtraX - targetExtraX) > 0.01
+            || Math.abs(item.currentScale - targetScale) > 0.001
+        );
+        const shouldAnimateStickyTransition = item.isSticky && (
+            isPlaying
+            || isExportingVideoMode
+            || stickyTransitionPending
+        );
+
+        if (shouldAnimateStickyTransition) {
             item.currentOpacity += (targetOpacity - item.currentOpacity) * 0.15;
             item.currentExtraX += (targetExtraX - item.currentExtraX) * 0.20;
             item.currentScale += (targetScale - item.currentScale) * 0.15;
         } else {
             item.currentOpacity = targetOpacity; item.currentExtraX = targetExtraX; item.currentScale = targetScale;
+        }
+
+        if (
+            item.isSticky
+            && !isPlaying
+            && !isExportingVideoMode
+            && (
+                Math.abs(item.currentOpacity - targetOpacity) > 0.01
+                || Math.abs(item.currentExtraX - targetExtraX) > 0.05
+                || Math.abs(item.currentScale - targetScale) > 0.01
+            )
+        ) {
+            stickyNeedsFollowupFrame = true;
         }
 
         if (item.currentOpacity <= 0.01 && targetOpacity === 0) continue;
@@ -618,7 +752,7 @@ function renderCanvas(currentX, options = {}) {
         let drawColor = isPureBg ? bgColor : noteColor;
 
         if (showHighlights && item.symbolType) {
-            if (['Clef', 'Brace', 'TimeSig', 'KeySig', 'Barline', 'InstName', 'TrueBarline'].includes(item.symbolType)) {
+            if (['Clef', 'Brace', 'TimeSig', 'KeySig', 'Barline', 'InstName', 'RehearsalMark', 'TrueBarline'].includes(item.symbolType)) {
                 drawColor = '#ff2a5f';
             }
         }
@@ -692,6 +826,11 @@ function renderCanvas(currentX, options = {}) {
             } else if (item.type === 'rect') {
                 if (item.fillRole !== 'none') { ctx.fillStyle = getDrawColor(item.fillRole); ctx.fillRect(item.localX, item.localY, item.width, item.height); }
                 if (item.strokeRole !== 'none') { ctx.strokeStyle = getDrawColor(item.strokeRole); ctx.lineWidth = strokeWidth; ctx.strokeRect(item.localX, item.localY, item.width, item.height); }
+            } else if (item.type === 'ellipse') {
+                ctx.beginPath();
+                ctx.ellipse(item.localCX, item.localCY, item.radiusX, item.radiusY, 0, 0, Math.PI * 2);
+                if (item.fillRole !== 'none') { ctx.fillStyle = getDrawColor(item.fillRole); ctx.fill(); }
+                if (item.strokeRole !== 'none') { ctx.strokeStyle = getDrawColor(item.strokeRole); ctx.lineWidth = strokeWidth; ctx.stroke(); }
             } else if (item.type === 'text') {
                 ctx.fillStyle = getDrawColor(item.fillRole || 'fg'); ctx.font = item.font; ctx.textBaseline = 'alphabetic'; ctx.fillText(item.text, item.x, item.y);
             }
@@ -742,9 +881,13 @@ function renderCanvas(currentX, options = {}) {
             ctx.fillRect(0, 0, maskW, canvas.height);
         }
 
-        if (window.globalAbsoluteStaffLineYs && window.globalAbsoluteStaffLineYs.length > 0) {
+        const bridgeLines = (window.globalAbsoluteBridgeLineYs && window.globalAbsoluteBridgeLineYs.length > 0)
+            ? window.globalAbsoluteBridgeLineYs
+            : window.globalAbsoluteStaffLineYs;
+
+        if (bridgeLines && bridgeLines.length > 0) {
             ctx.save();
-            // 🌟 五线谱桥梁连接线起点：改为距离播放线左侧的运算
+            // 🌟 五线谱桥梁连接线起点：遮罩始终从左侧边界开始
             const worldMaskLeft = currentX - worldDistanceLeft;
             const worldMaskRight = worldMaskLeft + (maskW / globalZoom);
             const lineGradient = ctx.createLinearGradient(worldMaskLeft, 0, worldMaskRight, 0);
@@ -752,7 +895,7 @@ function renderCanvas(currentX, options = {}) {
             if (noteColor.startsWith('#') && noteColor.length === 7) { nr = parseInt(noteColor.slice(1,3), 16); ng = parseInt(noteColor.slice(3,5), 16); nb = parseInt(noteColor.slice(5,7), 16); }
             lineGradient.addColorStop(0, `rgba(${nr},${ng},${nb},1)`); if (fadeStart > 0) lineGradient.addColorStop(fadeStart / maskW, `rgba(${nr},${ng},${nb},1)`); lineGradient.addColorStop(1, `rgba(${nr},${ng},${nb},0)`);
 
-            ctx.translate(playlineScreenX, centerY); // 🌟 锚点跟随
+            ctx.translate(playlineScreenX, centerY);
             ctx.scale(globalZoom, globalZoom);
             ctx.translate(-currentX, -scoreCenterY);
             let maskPinShiftX = currentX > maxStickySmoothX_initial ? currentX - maxStickySmoothX_initial : 0;
@@ -762,9 +905,14 @@ function renderCanvas(currentX, options = {}) {
             const bridgeStartX = bridgeAnchorX + maskPinShiftX;
 
             if (worldMaskRight > bridgeStartX) {
-                ctx.beginPath();
-                window.globalAbsoluteStaffLineYs.forEach(line => { ctx.moveTo(bridgeStartX, line.y); ctx.lineTo(worldMaskRight, line.y); });
-                ctx.strokeStyle = lineGradient; ctx.lineWidth = window.globalAbsoluteStaffLineYs[0].width || 1; ctx.stroke();
+                bridgeLines.forEach(line => {
+                    ctx.beginPath();
+                    ctx.moveTo(bridgeStartX, line.y);
+                    ctx.lineTo(worldMaskRight, line.y);
+                    ctx.strokeStyle = lineGradient;
+                    ctx.lineWidth = line.width || bridgeLines[0].width || 1;
+                    ctx.stroke();
+                });
             }
             ctx.restore();
         }
@@ -772,11 +920,16 @@ function renderCanvas(currentX, options = {}) {
     }
 
     ctx.save();
-    ctx.translate(playlineScreenX, centerY); // 🌟 吸附音符锚点跟随
+    ctx.translate(playlineScreenX, centerY);
     ctx.scale(globalZoom, globalZoom);
     ctx.translate(-currentX, -scoreCenterY);
     executeDrawList(stickyDrawList);
     ctx.restore();
+
+    if (!isPlaying && !isExportingVideoMode) {
+        if (stickyNeedsFollowupFrame) scheduleStickyTransitionFrame(currentX);
+        else cancelStickyTransitionFrame();
+    }
 
     if (typeof showPlayline !== 'undefined' && showPlayline) {
         ctx.globalAlpha = 1; ctx.save(); ctx.beginPath();
@@ -787,15 +940,10 @@ function renderCanvas(currentX, options = {}) {
 }
 
 function syncViewportHeight() {
-//     if (!viewportEl) return;
-//     const rootStyles = document.defaultView.getComputedStyle(document.documentElement);
-//     const scoreTopPx = Number.parseFloat(rootStyles.getPropertyValue('--score-top')) || 48;
-//
-//     // 🌟 修复：把 * globalZoom 加回来！让容器跟随乐谱一起伸缩，防止上下被裁切
-//     const targetHeight = Math.max(400, Math.ceil(globalScoreHeight * globalZoom + scoreTopPx + PREVIEW_BOTTOM_BUFFER_PX));
-//
-//     viewportEl.style.height = `${targetHeight}px`;
-    return;
+    if (syncDesktopPreviewFrame()) {
+        return;
+    }
+    syncMobileExportPreviewHeight();
 }
 
 function resizeCanvas() {
@@ -878,10 +1026,7 @@ document.getElementById('midiInput').addEventListener('change', (event) => {
         tempoSourceHint.innerText = "MODE: MIDI AUTO-TEMPO";
         tempoSourceHint.style.color = "#00ffcc";
 
-        // 调用刚刚分离出的计算函数
-        if (svgTags && svgTags.length > 0) {
-            timelineFeature.recalculateMidiTempoMap();
-        } else {
+        if (!rebuildScoreTimingFromSvgRoot()) {
             debugLog("⏳ MIDI 已就绪，等待 SVG 乐谱导入后进行时空映射...");
         }
     };
@@ -981,6 +1126,99 @@ function hasSvgClass(el, token) {
     return getSvgClassTokens(el).includes(token);
 }
 
+function isRehearsalMarkText(content) {
+    return /^[A-Z]{1,2}$/.test((content || "").trim());
+}
+
+function getRectIntersectionMetrics(a, b) {
+    if (!a || !b) return { width: 0, height: 0, area: 0 };
+
+    const left = Math.max(a.left, b.left);
+    const top = Math.max(a.top, b.top);
+    const right = Math.min(a.right, b.right);
+    const bottom = Math.min(a.bottom, b.bottom);
+    const width = Math.max(0, right - left);
+    const height = Math.max(0, bottom - top);
+
+    return { width, height, area: width * height };
+}
+
+function getRectArea(rect) {
+    if (!rect) return 0;
+    return Math.max(0, rect.width) * Math.max(0, rect.height);
+}
+
+function getRectCenter(rect) {
+    return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+    };
+}
+
+function isPotentialRehearsalEnclosure(textRect, shapeRect) {
+    if (!textRect || !shapeRect) return false;
+    if (!(shapeRect.width > 0) || !(shapeRect.height > 0)) return false;
+    if (shapeRect.width > textRect.width * 6 || shapeRect.height > textRect.height * 6) return false;
+
+    const aspectRatio = shapeRect.width / shapeRect.height;
+    if (!(aspectRatio >= 0.65 && aspectRatio <= 2.75)) return false;
+
+    const overflowToleranceX = Math.max(1.2, Math.min(4, textRect.width * 0.18));
+    const overflowToleranceY = Math.max(1.2, Math.min(4, textRect.height * 0.18));
+    const leftOverflow = Math.max(0, shapeRect.left - textRect.left);
+    const rightOverflow = Math.max(0, textRect.right - shapeRect.right);
+    const topOverflow = Math.max(0, shapeRect.top - textRect.top);
+    const bottomOverflow = Math.max(0, textRect.bottom - shapeRect.bottom);
+
+    if (
+        leftOverflow > overflowToleranceX
+        || rightOverflow > overflowToleranceX
+        || topOverflow > overflowToleranceY
+        || bottomOverflow > overflowToleranceY
+    ) {
+        return false;
+    }
+
+    const textCenter = getRectCenter(textRect);
+    const shapeCenter = getRectCenter(shapeRect);
+    const centerToleranceX = Math.max(2.5, shapeRect.width * 0.22);
+    const centerToleranceY = Math.max(2.5, shapeRect.height * 0.22);
+
+    return (
+        Math.abs(textCenter.x - shapeCenter.x) <= centerToleranceX
+        && Math.abs(textCenter.y - shapeCenter.y) <= centerToleranceY
+    );
+}
+
+function belongsToSameRehearsalEnclosureGroup(anchorRect, shapeRect) {
+    if (!anchorRect || !shapeRect) return false;
+    if (!(shapeRect.width > 0) || !(shapeRect.height > 0)) return false;
+
+    const anchorArea = getRectArea(anchorRect);
+    const shapeArea = getRectArea(shapeRect);
+    if (!(anchorArea > 0) || !(shapeArea > 0)) return false;
+
+    const overlap = getRectIntersectionMetrics(anchorRect, shapeRect);
+    const overlapRatio = overlap.area / Math.min(anchorArea, shapeArea);
+    if (overlapRatio < 0.82) return false;
+
+    const anchorCenter = getRectCenter(anchorRect);
+    const shapeCenter = getRectCenter(shapeRect);
+    const centerToleranceX = Math.max(2.5, anchorRect.width * 0.18);
+    const centerToleranceY = Math.max(2.5, anchorRect.height * 0.18);
+    if (
+        Math.abs(anchorCenter.x - shapeCenter.x) > centerToleranceX
+        || Math.abs(anchorCenter.y - shapeCenter.y) > centerToleranceY
+    ) {
+        return false;
+    }
+
+    return (
+        Math.abs(shapeRect.width - anchorRect.width) <= Math.max(2.5, anchorRect.width * 0.2)
+        && Math.abs(shapeRect.height - anchorRect.height) <= Math.max(2.5, anchorRect.height * 0.2)
+    );
+}
+
 function isMuseScoreSvg(svgRoot) {
     if (!svgRoot) return false;
 
@@ -1041,6 +1279,7 @@ function autoDetectMusicFont(svgText) {
 // 提取出的公共方法：处理 SVG 文本
 async function processSvgContent(svgContent) {
     const processingGeneration = ++svgProcessingGeneration;
+    currentMappedSvgRoot = null;
     const sandbox = document.getElementById('svg-sandbox');
     sandbox.innerHTML = svgContent;
 
@@ -1076,6 +1315,7 @@ async function processSvgContent(svgContent) {
     if (typeof identifyAndHighlightClefs === 'function') identifyAndHighlightClefs();
     if (typeof identifyAndHighlightInitialBarlines === 'function') identifyAndHighlightInitialBarlines();
     if (typeof identifyAndHighlightGeometricBrackets === 'function') identifyAndHighlightGeometricBrackets();
+    if (typeof identifyAndHighlightRehearsalMarks === 'function') identifyAndHighlightRehearsalMarks();
     if (typeof identifyAndHighlightInstrumentNames === 'function') identifyAndHighlightInstrumentNames();
     if (typeof identifyAndHighlightKeySignatures === 'function') identifyAndHighlightKeySignatures();
     if (typeof identifyAndHighlightTimeSignatures === 'function') identifyAndHighlightTimeSignatures();
@@ -1088,18 +1328,11 @@ async function processSvgContent(svgContent) {
     stickyMinX = svgAnalysis.stickyMinX;
     globalStickyLanes = svgAnalysis.globalStickyLanes;
     window.globalAbsoluteStaffLineYs = svgAnalysis.globalAbsoluteStaffLineYs;
+    window.globalAbsoluteBridgeLineYs = svgAnalysis.globalAbsoluteBridgeLineYs;
     window.globalAbsoluteBridgeStartX = svgAnalysis.globalAbsoluteBridgeStartX;
     window.globalAbsoluteSystemInternalX = svgAnalysis.globalAbsoluteSystemInternalX;
-    initScoreMapping(newSvgRoot);
-
-    if (!isMidiLoaded && svgTags.length > 0) {
-        timelineFeature.generateManualTempoMap();
-    } else if (isMidiLoaded && svgTags.length > 0) {
-        timelineFeature.recalculateMidiTempoMap();
-    } else {
-        smoothX = 0;
-        updateProgressUI(0);
-    }
+    currentMappedSvgRoot = newSvgRoot;
+    rebuildScoreTimingFromSvgRoot(newSvgRoot);
 
     const svgRect = newSvgRoot.getBoundingClientRect();
 
@@ -1262,17 +1495,111 @@ function buildTimeSignatureStaffBandsFromLineYs(lineYs) {
             top: curr.top,
             bottom: curr.bottom,
             lineYs: curr.lines.slice(),
+            lineCount: curr.lines.length,
             staffSpace: curr.staffSpace,
             paddedTop: absoluteTop,
-            paddedBottom: absoluteBottom
+            paddedBottom: absoluteBottom,
+            staffKind: 'standard',
         });
     }
 
     return staffBands;
 }
 
+const PERCUSSION_INSTRUMENT_REGEX = /\b(?:timpani|triangle|cymbal|drum|mark tree|tambourine|tam(?:-| )?tam|glockenspiel|xylophone|marimba|vibraphone|wood ?block|claves|cabasa|guiro|shaker|cowbell|conga|bongo|tom(?:-tom)?|bell tree|chimes|sleigh bells|suspended)\b/i;
+const TAB_LETTER_REGEX = /^(?:TAB|T|A|B)$/i;
+const LEGAL_TIME_SIGNATURE_DENOMINATORS = new Set(['1', '2', '4', '8', '16', '32', '64']);
+
+function getHighlightedClefIdentity(el) {
+    if (!el) return null;
+
+    if (el.tagName?.toLowerCase() === 'path') {
+        const d = el.getAttribute('d');
+        if (!d) return null;
+        return identifyClefOrBrace(simplifySvgPathSignature(d), d);
+    }
+
+    const text = (el.textContent || '').trim();
+    if (!text) return null;
+    return identifyClefOrBrace(text, null) || identifyClefOrBrace(text.replace(/\s+/g, ''), null) || null;
+}
+
+function classifyTimeSignatureStaffBands(svgRoot, staffBands) {
+    if (!svgRoot || !Array.isArray(staffBands) || staffBands.length === 0) return staffBands;
+
+    const systemStartX = Number.isFinite(globalSystemBarlineScreenX) && globalSystemBarlineScreenX > 0
+        ? globalSystemBarlineScreenX
+        : (Number.isFinite(globalSystemInternalX) ? projectSvgInternalXToScreenX(svgRoot, globalSystemInternalX) : 0);
+
+    const clefMarkers = Array.from(svgRoot.querySelectorAll('.highlight-clef')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+            identity: getHighlightedClefIdentity(el),
+            centerY: (rect.top + rect.bottom) / 2,
+        };
+    }).filter((item) => item.identity && Number.isFinite(item.centerY));
+
+    const instNameMarkers = Array.from(svgRoot.querySelectorAll('.highlight-instname')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+            text: (el.textContent || '').trim(),
+            centerY: (rect.top + rect.bottom) / 2,
+        };
+    }).filter((item) => item.text && Number.isFinite(item.centerY));
+
+    const digitTexts = Array.from(svgRoot.querySelectorAll('text, tspan')).map((el) => {
+        const text = (el.textContent || '').trim();
+        if (!/^\d+$/.test(text)) return null;
+        const rect = el.getBoundingClientRect();
+        return {
+            left: rect.left,
+            centerY: (rect.top + rect.bottom) / 2,
+        };
+    }).filter(Boolean);
+
+    const tabLetters = Array.from(svgRoot.querySelectorAll('text, tspan')).map((el) => {
+        const text = (el.textContent || '').trim();
+        if (!TAB_LETTER_REGEX.test(text)) return null;
+        const rect = el.getBoundingClientRect();
+        return {
+            left: rect.left,
+            centerY: (rect.top + rect.bottom) / 2,
+        };
+    }).filter(Boolean);
+
+    return staffBands.map((band) => {
+        const lineCount = Array.isArray(band.lineYs) ? band.lineYs.length : 0;
+        const bandTop = band.paddedTop;
+        const bandBottom = band.paddedBottom;
+
+        const bandClefs = clefMarkers.filter((item) => item.centerY >= bandTop && item.centerY <= bandBottom);
+        const bandLabels = instNameMarkers.filter((item) => item.centerY >= bandTop && item.centerY <= bandBottom);
+        const bandDigits = digitTexts.filter((item) => item.centerY >= bandTop && item.centerY <= bandBottom && item.left >= systemStartX - 10);
+        const bandTabLetters = tabLetters.filter((item) => item.centerY >= bandTop && item.centerY <= bandBottom && item.left <= systemStartX + 60);
+
+        const hasTabClef = bandClefs.some((item) => item.identity === 'Tab Clef (TAB谱号)');
+        const hasPercussionClef = bandClefs.some((item) => item.identity === 'Percussion Clef (打击乐谱号)');
+        const hasPercussionLabel = bandLabels.some((item) => PERCUSSION_INSTRUMENT_REGEX.test(item.text));
+        const looksLikeTablature = lineCount === 6 && (hasTabClef || bandDigits.length >= 3 || bandTabLetters.length >= 2);
+
+        let staffKind = 'standard';
+        if (looksLikeTablature) {
+            staffKind = 'tablature';
+        } else if (hasPercussionClef || hasPercussionLabel) {
+            staffKind = 'percussion';
+        }
+
+        return {
+            ...band,
+            lineCount,
+            staffKind,
+        };
+    });
+}
+
 function isEligibleTimeSignatureStaffBand(band) {
-    return Boolean(band && Array.isArray(band.lineYs) && band.lineYs.length === 5);
+    if (!band || !Array.isArray(band.lineYs) || band.lineYs.length === 0) return false;
+    return ['standard', 'percussion', 'tablature'].includes(band.staffKind || 'standard');
 }
 
 function identifyAndHighlightClefs() {
@@ -1763,6 +2090,7 @@ function identifyAndHighlightInstrumentNames() {
     let foundCount = 0;
 
     textElements.forEach(el => {
+        if (el.classList.contains('highlight-rehearsalmark')) return;
         const content = (el.textContent || '').replace(/\s+/g, ' ').trim();
         if (!content) return;
         if (content.includes('@')) return;
@@ -1779,6 +2107,94 @@ function identifyAndHighlightInstrumentNames() {
     });
 
     debugLog(`✅ 乐器名扫描完毕，共标记 ${foundCount} 个左侧文本。`);
+}
+
+function identifyAndHighlightRehearsalMarks() {
+    const svgRoot = document.querySelector('#score-container svg');
+    if (!svgRoot) return;
+
+    const horizontalLineYs = Array.from(svgRoot.querySelectorAll('line, polyline'))
+        .map((el) => {
+            const rect = el.getBoundingClientRect();
+            if (!(rect.width > 40) || !(rect.height <= 3)) return null;
+            return rect.top + rect.height / 2;
+        })
+        .filter((value) => Number.isFinite(value));
+
+    const staffBands = buildTimeSignatureStaffBandsFromLineYs(horizontalLineYs);
+    if (!Array.isArray(staffBands) || staffBands.length === 0) return;
+
+    const barlineXs = Array.from(svgRoot.querySelectorAll('line, polyline'))
+        .map((el) => {
+            const rect = el.getBoundingClientRect();
+            if (!(rect.height > 12) || !(rect.width <= 6)) return null;
+            return rect.left + rect.width / 2;
+        })
+        .filter((value) => Number.isFinite(value));
+
+    const enclosureCandidates = Array.from(svgRoot.querySelectorAll('rect, path, circle, ellipse'))
+        .filter((el) => (
+            !el.classList.contains('highlight-clef')
+            && !el.classList.contains('highlight-brace')
+            && !el.classList.contains('highlight-timesig')
+            && !el.classList.contains('highlight-keysig')
+            && !el.classList.contains('highlight-barline')
+            && !el.classList.contains('highlight-instname')
+        ));
+
+    let foundCount = 0;
+
+    Array.from(svgRoot.querySelectorAll('text')).forEach((textEl) => {
+        if (textEl.classList.contains('highlight-instname') || textEl.classList.contains('highlight-timesig')) return;
+        const content = (textEl.textContent || '').replace(/\s+/g, '').trim();
+        if (!isRehearsalMarkText(content)) return;
+
+        const textRect = textEl.getBoundingClientRect();
+        if (!(textRect.width > 0) || !(textRect.height > 0)) return;
+
+        const targetBand = staffBands.find((band) => (
+            textRect.bottom <= band.top + band.staffSpace * 1.5 &&
+            textRect.top >= band.top - band.staffSpace * 8.5
+        ));
+        if (!targetBand) return;
+
+        const rehearsalCenterX = (textRect.left + textRect.right) / 2;
+        const nearBarline = barlineXs.some((barX) => Math.abs(barX - rehearsalCenterX) <= Math.max(36, targetBand.staffSpace * 6));
+        const nearSystemStart = globalSystemBarlineScreenX > 0
+            && rehearsalCenterX >= globalSystemBarlineScreenX - targetBand.staffSpace * 2
+            && rehearsalCenterX <= globalSystemBarlineScreenX + targetBand.staffSpace * 18;
+
+        const matchingEnclosure = enclosureCandidates
+            .map((shapeEl) => {
+                const shapeRect = shapeEl.getBoundingClientRect();
+                if (!isPotentialRehearsalEnclosure(textRect, shapeRect)) return null;
+
+                return {
+                    area: shapeRect.width * shapeRect.height,
+                    el: shapeEl,
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.area - b.area)[0] || null;
+
+        if (!matchingEnclosure && !nearBarline && !nearSystemStart) return;
+
+        textEl.classList.add('highlight-rehearsalmark');
+        if (matchingEnclosure?.el) {
+            const anchorRect = matchingEnclosure.el.getBoundingClientRect();
+            enclosureCandidates.forEach((shapeEl) => {
+                const shapeRect = shapeEl.getBoundingClientRect();
+                if (belongsToSameRehearsalEnclosureGroup(anchorRect, shapeRect)) {
+                    shapeEl.classList.add('highlight-rehearsalmark');
+                }
+            });
+        }
+        foundCount++;
+    });
+
+    if (foundCount > 0) {
+        debugLog(`✅ 排演号扫描完毕，共点亮 ${foundCount} 组。`);
+    }
 }
 
 function isTimeSignatureTextRectInsideStaffBands(textRect, staffBands, isGiant = false) {
@@ -1804,16 +2220,20 @@ function hasStackedTimeSignaturePartner(candidate, candidates) {
     if (!candidate?.rect || !Array.isArray(candidates)) return false;
 
     const { rect } = candidate;
+    const referencePoint = getTimeSignatureCandidateReferencePoint(candidate);
+    if (!referencePoint) return false;
 
     return candidates.some(other => {
         if (other === candidate || !other?.rect) return false;
         if (!other.requiresStackPartner) return false;
+        const otherReferencePoint = getTimeSignatureCandidateReferencePoint(other);
+        if (!otherReferencePoint) return false;
 
-        const dx = Math.abs(rect.left - other.rect.left);
-        const dy = Math.abs(rect.top - other.rect.top);
-        const maxAlignedXGap = Math.max(6, Math.min(rect.width, other.rect.width) * 0.5);
-        const minStackGap = Math.max(4, Math.min(rect.height, other.rect.height) * 0.2);
-        const maxStackGap = Math.max(24, Math.max(rect.height, other.rect.height) * 2.5);
+        const dx = Math.abs(referencePoint.x - otherReferencePoint.x);
+        const dy = Math.abs(referencePoint.y - otherReferencePoint.y);
+        const maxAlignedXGap = Math.max(8, Math.min(rect.width, other.rect.width) * 0.6);
+        const minStackGap = Math.max(2, Math.min(rect.height, other.rect.height) * 0.08);
+        const maxStackGap = Math.max(32, Math.max(rect.height, other.rect.height) * 3.5);
 
         return dx <= maxAlignedXGap && dy >= minStackGap && dy <= maxStackGap;
     });
@@ -1828,6 +2248,143 @@ function getTimeSignatureStaffBandIndex(rect, staffBands) {
         centerY >= band.paddedTop &&
         centerY <= band.paddedBottom
     ));
+}
+
+function getSvgTextScreenAnchor(el) {
+    if (!el || typeof el.getScreenCTM !== 'function') return null;
+
+    const svgRoot = el.ownerSVGElement;
+    if (!svgRoot || typeof svgRoot.createSVGPoint !== 'function') return null;
+
+    const rawX = Number(el.getAttribute('x'));
+    const rawY = Number(el.getAttribute('y'));
+    const x = Number.isFinite(rawX) ? rawX : 0;
+    const y = Number.isFinite(rawY) ? rawY : 0;
+    const ctm = el.getScreenCTM();
+    if (!ctm) return null;
+
+    try {
+        const point = svgRoot.createSVGPoint();
+        point.x = x;
+        point.y = y;
+        return point.matrixTransform(ctm);
+    } catch (error) {
+        return null;
+    }
+}
+
+function getTimeSignatureCandidateReferencePoint(candidate) {
+    if (candidate?.referencePoint && Number.isFinite(candidate.referencePoint.x) && Number.isFinite(candidate.referencePoint.y)) {
+        return candidate.referencePoint;
+    }
+    if (candidate?.rect) {
+        return {
+            x: candidate.rect.left,
+            y: candidate.rect.top,
+        };
+    }
+    return null;
+}
+
+function getTimeSignatureAnchorInfo(rect, verticalLineXs, svgRoot, staffKind = 'standard') {
+    if (!rect || !svgRoot) return null;
+
+    const minDx = staffKind === 'tablature' ? -10 : -30;
+    const maxDx = staffKind === 'tablature' ? 90 : 200;
+
+    let bestAnchor = null;
+    verticalLineXs.forEach((barX) => {
+        const dx = rect.left - barX;
+        if (dx < minDx || dx > maxDx) return;
+        if (!bestAnchor || Math.abs(dx) < Math.abs(bestAnchor.dx)) {
+            bestAnchor = { anchorX: barX, dx, source: 'barline' };
+        }
+    });
+
+    if (bestAnchor) return bestAnchor;
+
+    if (typeof globalSystemInternalX === 'undefined') return null;
+
+    const staffStartX = projectSvgInternalXToScreenX(svgRoot, globalSystemInternalX);
+    const dxToStart = rect.left - staffStartX;
+    const maxStartDx = staffKind === 'tablature' ? 90 : 250;
+
+    if (dxToStart >= -10 && dxToStart <= maxStartDx) {
+        return { anchorX: staffStartX, dx: dxToStart, source: 'system-start' };
+    }
+
+    return null;
+}
+
+function getStackedTimeSignaturePartner(candidate, candidates) {
+    if (!candidate?.rect || !Array.isArray(candidates)) return null;
+
+    const { rect } = candidate;
+    const referencePoint = getTimeSignatureCandidateReferencePoint(candidate);
+    if (!referencePoint) return null;
+    let bestPartner = null;
+    let bestScore = Infinity;
+
+    candidates.forEach((other) => {
+        if (other === candidate || !other?.rect) return;
+        if (!other.requiresStackPartner) return;
+        if (candidate.bandIndex !== undefined && other.bandIndex !== undefined && candidate.bandIndex !== other.bandIndex) return;
+        const otherReferencePoint = getTimeSignatureCandidateReferencePoint(other);
+        if (!otherReferencePoint) return;
+
+        const dx = Math.abs(referencePoint.x - otherReferencePoint.x);
+        const dy = Math.abs(referencePoint.y - otherReferencePoint.y);
+        const maxAlignedXGap = Math.max(8, Math.min(rect.width, other.rect.width) * 0.6);
+        const minStackGap = Math.max(2, Math.min(rect.height, other.rect.height) * 0.08);
+        const maxStackGap = Math.max(32, Math.max(rect.height, other.rect.height) * 3.5);
+
+        if (!(dx <= maxAlignedXGap && dy >= minStackGap && dy <= maxStackGap)) return;
+
+        const score = dx + dy;
+        if (score < bestScore) {
+            bestScore = score;
+            bestPartner = other;
+        }
+    });
+
+    return bestPartner;
+}
+
+function getValidStackedTimeSignaturePair(candidate, candidates) {
+    const partner = getStackedTimeSignaturePartner(candidate, candidates);
+    if (!partner) return null;
+
+    const topCandidate = candidate.rect.top <= partner.rect.top ? candidate : partner;
+    const bottomCandidate = topCandidate === candidate ? partner : candidate;
+    const numerator = topCandidate.decodedToken || '';
+    const denominator = bottomCandidate.decodedToken || '';
+
+    if (!/^[1-9]\d*$/.test(numerator)) return null;
+    if (!LEGAL_TIME_SIGNATURE_DENOMINATORS.has(denominator)) return null;
+
+    return {
+        topCandidate,
+        bottomCandidate,
+        numerator,
+        denominator,
+        left: Math.min(topCandidate.rect.left, bottomCandidate.rect.left),
+    };
+}
+
+function getEarliestTabMeterLeft(candidate, candidates) {
+    if (!candidate?.anchorInfo) return Infinity;
+
+    const pairLefts = candidates.map((other) => {
+        if (other.bandIndex !== candidate.bandIndex) return null;
+        if (other.staffKind !== 'tablature') return null;
+        if (!other.anchorInfo) return null;
+        if (Math.abs(other.anchorInfo.anchorX - candidate.anchorInfo.anchorX) > 2) return null;
+        const pair = getValidStackedTimeSignaturePair(other, candidates);
+        return pair ? pair.left : null;
+    }).filter((value) => Number.isFinite(value));
+
+    if (pairLefts.length === 0) return Infinity;
+    return Math.min(...pairLefts);
 }
 
 function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallbackFontFamily = '') {
@@ -2001,7 +2558,10 @@ function identifyAndHighlightTimeSignatures() {
         }
     });
 
-    const staffBands = buildTimeSignatureStaffBandsFromLineYs(staffLineYs);
+    const staffBands = classifyTimeSignatureStaffBands(
+        svgRoot,
+        buildTimeSignatureStaffBandsFromLineYs(staffLineYs),
+    );
     const textElements = Array.from(svgRoot.querySelectorAll('text, tspan'));
 
     // 🌟 第一步：收集所有可能成为拍号的候选人
@@ -2029,6 +2589,7 @@ function identifyAndHighlightTimeSignatures() {
             requiresStackPartner: decoded.kind === 'number' && !isGiantTimeSig,
             isGiantTimeSig,
             rect,
+            referencePoint: getSvgTextScreenAnchor(el),
         });
     });
 
@@ -2051,6 +2612,7 @@ function identifyAndHighlightTimeSignatures() {
                 isGiantTimeSig: false,
                 isMuseScoreSemantic: true,
                 rect,
+                referencePoint: null,
             });
         });
     } else {
@@ -2089,6 +2651,7 @@ function identifyAndHighlightTimeSignatures() {
                 requiresStackPartner: decoded.kind === 'number' && !isGiantTimeSig,
                 isGiantTimeSig,
                 rect,
+                referencePoint: null,
             });
         });
     }
@@ -2098,50 +2661,53 @@ function identifyAndHighlightTimeSignatures() {
     let rejectedFarFromBarlineCount = 0;
     let rejectedSolitaryCount = 0; // 🌟 新增：记录被杀掉的孤立伪装者
 
+    candidates.forEach((candidate) => {
+        const bandIndex = getTimeSignatureStaffBandIndex(candidate.rect, staffBands);
+        candidate.bandIndex = bandIndex;
+        candidate.staffKind = bandIndex === -1 ? null : (staffBands[bandIndex]?.staffKind || 'standard');
+        candidate.anchorInfo = bandIndex === -1
+            ? null
+            : getTimeSignatureAnchorInfo(candidate.rect, verticalLineXs, svgRoot, candidate.staffKind || 'standard');
+    });
+
     // 🌟 第二步：对候选人进行严格的交叉审查
     candidates.forEach(candidate => {
-        const { el, requiresStackPartner, isGiantTimeSig, isMuseScoreSemantic, rect, decodedToken } = candidate;
-
-        // 🛡️ 核心修复：常规数字拍号和 Sebastian 拍号字形都必须成对出现
-        if (requiresStackPartner && !hasStackedTimeSignaturePartner(candidate, candidates)) {
-            rejectedSolitaryCount++;
-            return;
-        }
+        const { el, requiresStackPartner, isGiantTimeSig, rect, decodedToken, bandIndex, staffKind, anchorInfo } = candidate;
 
         const isGiantText = isGiantTimeSig || rect.height > GIANT_TIME_SIGNATURE_HEIGHT_PX;
 
-        // 🛡️ 校验一：垂直 Y 轴必须在五线谱内
-        if (staffBands.length > 0 && !isTimeSignatureTextRectInsideStaffBands(rect, staffBands, isGiantText)) {
+        // 🛡️ 校验一：垂直 Y 轴必须在合法谱表内
+        if (bandIndex === -1 || (staffBands.length > 0 && !isTimeSignatureTextRectInsideStaffBands(rect, staffBands, isGiantText))) {
             rejectedOutsideStaffCount++;
             return;
         }
 
         // 🛡️ 校验二：水平 X 轴必须靠近小节线 OR 靠近五线谱起点
-        let isNearBarline = false; // 默认改为 false，我们需要明确匹配成功
-
-// 1. 检查物理小节线
-        if (verticalLineXs.length > 0) {
-            isNearBarline = verticalLineXs.some(barX => {
-                const dx = rect.left - barX;
-                return dx >= -30 && dx <= 200;
-            });
-        }
-
-// 2. 🌟 核心修复：如果没匹配到物理线，检查是否靠近五线谱物理起点
-        if (!isNearBarline && typeof globalSystemInternalX !== 'undefined') {
-            // 将 globalSystemInternalX 转换为屏幕坐标进行对比
-            const staffStartX = projectSvgInternalXToScreenX(svgRoot, globalSystemInternalX);
-            const dxToStart = rect.left - staffStartX;
-
-            // 如果拍号在五线谱开头往右 250px 范围内，判定为合法拍号
-            if (dxToStart >= -10 && dxToStart <= 250) {
-                isNearBarline = true;
-            }
-        }
-
-        if (!isNearBarline) {
+        if (!anchorInfo) {
             rejectedFarFromBarlineCount++;
             return;
+        }
+
+        // 🛡️ 核心修复：常规数字拍号必须组成合法的分子/分母组合
+        if (requiresStackPartner) {
+            const pair = getValidStackedTimeSignaturePair(candidate, candidates);
+            if (!pair) {
+                rejectedSolitaryCount++;
+                return;
+            }
+
+            if (staffKind === 'tablature') {
+                const systemStartX = projectSvgInternalXToScreenX(svgRoot, globalSystemInternalX);
+                if (Math.abs(anchorInfo.anchorX - systemStartX) > 12) {
+                    rejectedFarFromBarlineCount++;
+                    return;
+                }
+                const earliestPairLeft = getEarliestTabMeterLeft(candidate, candidates);
+                if (Number.isFinite(earliestPairLeft) && pair.left > earliestPairLeft + 8) {
+                    rejectedFarFromBarlineCount++;
+                    return;
+                }
+            }
         }
 
         el.classList.add('highlight-timesig');
@@ -3011,6 +3577,63 @@ function initScoreMapping(svgRoot) {
     }
 
     let trueBarlineXs = [];
+    const fragmentedCoverageTolerance = Math.max(2.5, Math.min(6, typicalStaffHeight * 0.275));
+
+    const matchSegmentToStaffRange = (segment) => {
+        if (!segment || staves.length === 0) return null;
+
+        let bestMatch = null;
+        for (let startIndex = 0; startIndex < staves.length; startIndex++) {
+            const topError = Math.abs(segment.top - staves[startIndex].top);
+            if (topError > fragmentedCoverageTolerance) continue;
+
+            for (let endIndex = startIndex; endIndex < staves.length; endIndex++) {
+                const bottomError = Math.abs(segment.bottom - staves[endIndex].bottom);
+                if (bottomError > fragmentedCoverageTolerance) continue;
+
+                const coveredStaffCount = endIndex - startIndex + 1;
+                const score = topError + bottomError;
+                if (
+                    !bestMatch
+                    || coveredStaffCount > bestMatch.coveredStaffCount
+                    || (coveredStaffCount === bestMatch.coveredStaffCount && score < bestMatch.score)
+                ) {
+                    bestMatch = {
+                        startIndex,
+                        endIndex,
+                        coveredStaffCount,
+                        score,
+                    };
+                }
+            }
+        }
+
+        return bestMatch;
+    };
+
+    const hasFragmentedStaffCoverage = (cluster) => {
+        if (!cluster || !Array.isArray(cluster.lines) || cluster.lines.length === 0 || staves.length === 0) return false;
+
+        const coveredStaffIndices = new Set();
+        let matchedSegmentCount = 0;
+
+        cluster.lines.forEach((line) => {
+            const rangeMatch = matchSegmentToStaffRange(line);
+            if (!rangeMatch) return;
+
+            matchedSegmentCount++;
+            for (let index = rangeMatch.startIndex; index <= rangeMatch.endIndex; index++) {
+                coveredStaffIndices.add(index);
+            }
+        });
+
+        if (staves.length <= 1) {
+            return coveredStaffIndices.size === 1 && matchedSegmentCount >= 1;
+        }
+
+        return coveredStaffIndices.size >= 2 && matchedSegmentCount >= 2;
+    };
+
     clusters.forEach(cluster => {
         // 基础过滤：排除乐谱最左侧之前的杂讯
         if (absoluteSystemStartX > 0 && cluster.x < absoluteSystemStartX - 5) return;
@@ -3031,10 +3654,15 @@ function initScoreMapping(svgRoot) {
             }
 
             // 场景 B：单行谱表内的小节线（包括虚线）
-            return staves.some(staff => {
+            if (staves.some(staff => {
                 return Math.abs(cluster.minTop - staff.top) <= tolerance &&
                     Math.abs(cluster.maxBottom - staff.bottom) <= tolerance;
-            });
+            })) {
+                return true;
+            }
+
+            // 场景 C：同一 x 上的多段碎片，共同覆盖多个相邻谱表范围
+            return hasFragmentedStaffCoverage(cluster);
         };
 
         // 判定：如果是起手线，或者通过了严苛的端点对齐校验
@@ -3176,6 +3804,49 @@ function initScoreMapping(svgRoot) {
     debugLog(`📊 统计：物理小节线 ${barCount} 条 | 小节数 ${mCount} | 起始模式：${hasStartBarline ? '物理线' : '虚拟补齐'}`);
 
     debugLog(`🎯 完美映射：生成 ${svgTags.length} 个锚点，总长度为 ${currentGlobalTick} Ticks。`);
+}
+
+function rebuildScoreTimingFromSvgRoot(svgRoot = null) {
+    let resolvedSvgRoot = svgRoot;
+    const sandboxEl = document.getElementById('svg-sandbox');
+    let temporarilyMountedInSandbox = false;
+
+    if (!resolvedSvgRoot) {
+        const liveSandboxSvg = document.querySelector('#svg-sandbox svg');
+        if (liveSandboxSvg) {
+            resolvedSvgRoot = liveSandboxSvg;
+        } else if (sandboxEl && currentRawSvgContent) {
+            sandboxEl.innerHTML = currentRawSvgContent;
+            resolvedSvgRoot = sandboxEl.querySelector('svg');
+            temporarilyMountedInSandbox = Boolean(resolvedSvgRoot);
+        } else {
+            resolvedSvgRoot = currentMappedSvgRoot;
+        }
+    }
+
+    if (!resolvedSvgRoot) return false;
+
+    try {
+        initScoreMapping(resolvedSvgRoot);
+    } finally {
+        if (temporarilyMountedInSandbox && sandboxEl) {
+            sandboxEl.innerHTML = '';
+        }
+    }
+
+    if (!svgTags || svgTags.length === 0) {
+        smoothX = 0;
+        updateProgressUI(0);
+        return false;
+    }
+
+    if (isMidiLoaded) {
+        timelineFeature.recalculateMidiTempoMap();
+    } else {
+        timelineFeature.generateManualTempoMap();
+    }
+
+    return true;
 }
 
 let smoothX = 0;
@@ -3346,6 +4017,7 @@ function seekToTime(targetTime) {
 // 🌟 终极纯净版：启动播放
 function startPlayback() {
     if (isPlaying || mapData.length < 2) return;
+    cancelStickyTransitionFrame();
     isPlaying = true;
     isFinished = false;
     startTime = performance.now() / 1000 - elapsedBeforePause;
@@ -3558,13 +4230,25 @@ function handleAudioOffsetInput(e) {
 function handleExportRatioChange(e) {
     const ratio = e.target.value;
     syncViewportSizingMode(ratio);
-    fitScoreToViewportHeight();
+    resizeCanvas();
+}
+
+function handleExportResolutionChange() {
+    syncViewportSizingMode();
+    resizeCanvas();
 }
 
 function handlePlaylineRatioInput(e) {
     const percent = parseInt(e.target.value, 10);
     dom.playlineRatioVal.innerText = percent;
     playlineRatio = percent / 100;
+    redrawCanvas();
+}
+
+function handleStickyLockRatioInput(e) {
+    const percent = parseInt(e.target.value, 10);
+    dom.stickyLockRatioVal.innerText = percent;
+    stickyLockRatio = percent / 100;
     redrawCanvas();
 }
 
@@ -3605,16 +4289,14 @@ bindUiEvents({
     handleAudioInputChange: audioFeature.handleAudioInputChange,
     handleAudioOffsetInput,
     handleExportRatioChange,
+    handleExportResolutionChange,
     handleGlowRangeInput,
+    handleStickyLockRatioInput,
     handleWindowKeydown,
     handlePlaylineRatioInput,
     handleProgressInput,
     handleResize: () => {
         syncViewportSizingMode();
-        if (currentRawSvgContent && !isExportingVideoMode) {
-            fitScoreToViewportHeight();
-            return;
-        }
         resizeCanvas();
     },
     onCancelExport: () => exportFeature.cancelExport(),

@@ -63,6 +63,60 @@ const PLAYBACK_TAIL_BUFFER_SEC = 2;
  */
 
 /**
+ * @param {{
+ *   aspectRatio?: string,
+ *   baseRes?: number,
+ *   globalScoreHeight?: number,
+ *   globalZoom?: number,
+ *   viewportWidth?: number,
+ * }} params
+ * @returns {{ finalExportZoom: number, targetHeight: number, targetWidth: number }}
+ */
+export function computeSharedExportDimensions({
+    aspectRatio = "auto",
+    baseRes = 1920,
+    globalScoreHeight = 0,
+    globalZoom = 1,
+    viewportWidth = 1920,
+}) {
+    let targetWidth = baseRes;
+    let targetHeight;
+    let finalExportZoom = globalZoom;
+    const originalPhysWidth = viewportWidth > 0 ? viewportWidth : 1920;
+
+    if (aspectRatio === "auto") {
+        const exportZoomMultiplier = targetWidth / originalPhysWidth;
+        finalExportZoom = globalZoom * exportZoomMultiplier;
+        targetHeight = Math.ceil(globalScoreHeight * finalExportZoom + 120);
+    } else {
+        const ratioParts = aspectRatio.split(":");
+        const wRatio = parseFloat(ratioParts[0]);
+        const hRatio = parseFloat(ratioParts[1]);
+
+        if (wRatio < hRatio) {
+            targetHeight = baseRes;
+            targetWidth = Math.ceil(targetHeight * (wRatio / hRatio));
+        } else {
+            targetWidth = baseRes;
+            targetHeight = Math.ceil(targetWidth * (hRatio / wRatio));
+        }
+
+        const exportZoomMultiplier = targetWidth / originalPhysWidth;
+        finalExportZoom = globalZoom * exportZoomMultiplier;
+    }
+
+    targetWidth = targetWidth % 2 === 0 ? targetWidth : targetWidth + 1;
+    targetHeight = targetHeight % 2 === 0 ? targetHeight : targetHeight + 1;
+    targetHeight = Math.min(4320, targetHeight);
+
+    return {
+        finalExportZoom,
+        targetHeight,
+        targetWidth,
+    };
+}
+
+/**
  * @param {ExportVideoFeatureOptions} options
  * @returns {ExportVideoFeature}
  */
@@ -129,42 +183,13 @@ export function createExportVideoFeature({
      * @returns {{ finalExportZoom: number, targetHeight: number, targetWidth: number }}
      */
     function computeExportDimensions(baseRes, aspectRatio) {
-        let targetWidth = baseRes;
-        let targetHeight;
-        let finalExportZoom = getGlobalZoom();
-
-        if (aspectRatio === "auto") {
-            const originalPhysWidth = dom.viewportEl?.clientWidth || 1920;
-            const exportZoomMultiplier = targetWidth / originalPhysWidth;
-            finalExportZoom = getGlobalZoom() * exportZoomMultiplier;
-            targetHeight = Math.ceil(getGlobalScoreHeight() * finalExportZoom + 120);
-        } else {
-            const ratioParts = aspectRatio.split(":");
-            const wRatio = parseFloat(ratioParts[0]);
-            const hRatio = parseFloat(ratioParts[1]);
-
-            if (wRatio < hRatio) {
-                targetHeight = baseRes;
-                targetWidth = Math.ceil(targetHeight * (wRatio / hRatio));
-            } else {
-                targetWidth = baseRes;
-                targetHeight = Math.ceil(targetWidth * (hRatio / wRatio));
-            }
-
-            const originalPhysWidth = dom.viewportEl?.clientWidth || 1920;
-            const exportZoomMultiplier = targetWidth / originalPhysWidth;
-            finalExportZoom = getGlobalZoom() * exportZoomMultiplier;
-        }
-
-        targetWidth = targetWidth % 2 === 0 ? targetWidth : targetWidth + 1;
-        targetHeight = targetHeight % 2 === 0 ? targetHeight : targetHeight + 1;
-        targetHeight = Math.min(4320, targetHeight);
-
-        return {
-            finalExportZoom,
-            targetHeight,
-            targetWidth,
-        };
+        return computeSharedExportDimensions({
+            aspectRatio,
+            baseRes,
+            globalScoreHeight: getGlobalScoreHeight(),
+            globalZoom: getGlobalZoom(),
+            viewportWidth: dom.viewportEl?.clientWidth || 1920,
+        });
     }
 
     /**
@@ -324,6 +349,14 @@ export function createExportVideoFeature({
     }
 
     /**
+     * @param {number} targetWidth
+     * @returns {string}
+     */
+    function createMp4ExportFileName(targetWidth) {
+        return `Score_Export_${targetWidth}w_${Date.now()}.mp4`;
+    }
+
+    /**
      * @returns {Promise<any | null>}
      */
     async function selectPngExportDirectory() {
@@ -345,6 +378,118 @@ export function createExportVideoFeature({
     }
 
     /**
+     * @param {string} suggestedName
+     * @returns {Promise<any | null>}
+     */
+    async function selectMp4ExportFileHandle(suggestedName) {
+        const showSaveFilePicker = /** @type {undefined | ((options?: any) => Promise<any>)} */ (window.showSaveFilePicker);
+        if (typeof showSaveFilePicker !== "function") {
+            return null;
+        }
+
+        try {
+            return await showSaveFilePicker.call(window, {
+                excludeAcceptAllOption: false,
+                suggestedName,
+                types: [{
+                    accept: {
+                        "video/mp4": [".mp4"],
+                    },
+                    description: "MP4 Video",
+                }],
+            });
+        } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") {
+                throw new Error("Export cancelled");
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * @param {any} buffer
+     * @param {number} targetWidth
+     * @returns {Promise<void>}
+     */
+    async function downloadMp4Buffer(buffer, targetWidth) {
+        const blob = new Blob([buffer], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = createMp4ExportFileName(targetWidth);
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+    }
+
+    /**
+     * @param {number} targetWidth
+     * @param {number} targetHeight
+     * @param {boolean} hasAudio
+     * @returns {Promise<{
+     *   abortOutput: () => Promise<void>,
+     *   finalizeOutput: (muxer: any) => Promise<void>,
+     *   muxerOptions: any,
+     * }>}
+     */
+    async function resolveMp4ExportTarget(targetWidth, targetHeight, hasAudio) {
+        /** @type {any} */
+        const muxerOptions = {
+            video: { codec: "avc", width: targetWidth, height: targetHeight },
+        };
+        if (hasAudio) {
+            muxerOptions.audio = { codec: "aac", numberOfChannels: 2, sampleRate: 44100 };
+        }
+
+        const FileSystemWritableFileStreamTargetCtor = Mp4Muxer?.FileSystemWritableFileStreamTarget;
+        const hasLocalFileStreamingSupport =
+            typeof window.FileSystemWritableFileStream === "function" &&
+            typeof FileSystemWritableFileStreamTargetCtor === "function";
+
+        if (hasLocalFileStreamingSupport) {
+            const fileHandle = await selectMp4ExportFileHandle(createMp4ExportFileName(targetWidth));
+            if (fileHandle) {
+                const writable = await fileHandle.createWritable();
+                return {
+                    abortOutput: async () => {
+                        if (typeof writable.abort === "function") {
+                            await writable.abort();
+                            return;
+                        }
+                        if (typeof writable.close === "function") {
+                            await writable.close();
+                        }
+                    },
+                    finalizeOutput: async () => {
+                        if (typeof writable.close === "function") {
+                            await writable.close();
+                        }
+                    },
+                    muxerOptions: {
+                        ...muxerOptions,
+                        fastStart: false,
+                        target: new FileSystemWritableFileStreamTargetCtor(writable),
+                    },
+                };
+            }
+        }
+
+        return {
+            abortOutput: async () => {},
+            finalizeOutput: async (muxer) => {
+                await downloadMp4Buffer(muxer.target.buffer, targetWidth);
+            },
+            muxerOptions: {
+                ...muxerOptions,
+                fastStart: "in-memory",
+                target: new Mp4Muxer.ArrayBufferTarget(),
+            },
+        };
+    }
+
+    /**
      * @param {number} [baseRes=1920]
      * @param {number} [fps=60]
      * @param {string} [aspectRatio="auto"]
@@ -363,196 +508,194 @@ export function createExportVideoFeature({
             return;
         }
 
+        const { finalExportZoom, targetHeight, targetWidth } = computeExportDimensions(baseRes, aspectRatio);
+        const audioFile = getGlobalAudioFile();
+        const exportTarget = await resolveMp4ExportTarget(targetWidth, targetHeight, Boolean(audioFile));
+
         pausePlaybackForExport();
 
-        const { finalExportZoom, targetHeight, targetWidth } = computeExportDimensions(baseRes, aspectRatio);
         const { restoreViewportState } = activateExportViewport(targetWidth, targetHeight, finalExportZoom);
-
-        /** @type {any} */
-        const muxerOptions = {
-            target: new Mp4Muxer.ArrayBufferTarget(),
-            video: { codec: "avc", width: targetWidth, height: targetHeight },
-            fastStart: "in-memory",
+        let didRestoreViewportState = false;
+        const restoreViewportIfNeeded = () => {
+            if (didRestoreViewportState) {
+                return;
+            }
+            restoreViewportState();
+            didRestoreViewportState = true;
         };
-        const audioFile = getGlobalAudioFile();
-        if (audioFile) {
-            muxerOptions.audio = { codec: "aac", numberOfChannels: 2, sampleRate: 44100 };
-        }
-        const muxer = new Mp4Muxer.Muxer(muxerOptions);
 
-        let isEncoderError = false;
-        const videoEncoder = new VideoEncoder({
-            output: (chunk, metadata) => {
-                if (!isEncoderError && !getCancelVideoExport()) muxer.addVideoChunk(chunk, metadata);
-            },
-            error: (error) => {
-                console.error("视频编码崩溃:", error);
-                isEncoderError = true;
-            },
-        });
+        const muxer = new Mp4Muxer.Muxer(exportTarget.muxerOptions);
+        let didFinalizeOutput = false;
 
-        const totalPixels = targetWidth * targetHeight;
-        let codecString = "avc1.640028";
-        let targetBitrate = 10_000_000;
-
-        if (totalPixels >= 8_900_000 || (totalPixels >= 2_000_000 && fps > 60)) {
-            targetBitrate = 40_000_000;
-            codecString = "avc1.64003E";
-        } else if (totalPixels >= 2_000_000) {
-            targetBitrate = 20_000_000;
-            codecString = "avc1.640034";
-        }
-
-        videoEncoder.configure({
-            bitrate: targetBitrate,
-            codec: codecString,
-            framerate: fps,
-            hardwareAcceleration: "prefer-hardware",
-            height: targetHeight,
-            width: targetWidth,
-        });
-
-        let audioEncoder = null;
-        if (audioFile) {
-            audioEncoder = new AudioEncoder({
-                output: (chunk, meta) => {
-                    if (!isEncoderError && !getCancelVideoExport()) muxer.addAudioChunk(chunk, meta);
+        try {
+            let isEncoderError = false;
+            const videoEncoder = new VideoEncoder({
+                output: (chunk, metadata) => {
+                    if (!isEncoderError && !getCancelVideoExport()) muxer.addVideoChunk(chunk, metadata);
                 },
                 error: (error) => {
-                    console.error("音频编码崩溃:", error);
+                    console.error("视频编码崩溃:", error);
                     isEncoderError = true;
                 },
             });
-            audioEncoder.configure({ codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 2, bitrate: 192000 });
 
-            const OfflineAudioContextCtor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-            if (!OfflineAudioContextCtor) {
-                throw new Error("OfflineAudioContext is not supported in this browser.");
+            const totalPixels = targetWidth * targetHeight;
+            let codecString = "avc1.640028";
+            let targetBitrate = 10_000_000;
+
+            if (totalPixels >= 8_900_000 || (totalPixels >= 2_000_000 && fps > 60)) {
+                targetBitrate = 40_000_000;
+                codecString = "avc1.64003E";
+            } else if (totalPixels >= 2_000_000) {
+                targetBitrate = 20_000_000;
+                codecString = "avc1.640034";
             }
 
-            const audioCtx = new OfflineAudioContextCtor(2, Math.ceil(exportWindow.exportDuration * 44100), 44100);
-            const arrayBuffer = await audioFile.arrayBuffer();
-            const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
+            videoEncoder.configure({
+                bitrate: targetBitrate,
+                codec: codecString,
+                framerate: fps,
+                hardwareAcceleration: "prefer-hardware",
+                height: targetHeight,
+                width: targetWidth,
+            });
 
-            const source = audioCtx.createBufferSource();
-            const gainNode = audioCtx.createGain();
-            source.buffer = decodedAudio;
-            source.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-
-            let startTimeInVideo = 0;
-            let startOffsetInAudio = 0;
-            const initialAudioTime = exportWindow.finalStartSec + getAudioOffsetSec();
-            if (initialAudioTime >= 0) {
-                startOffsetInAudio = initialAudioTime;
-            } else {
-                startTimeInVideo = Math.abs(initialAudioTime);
-            }
-
-            const fadeStartSec = Math.max(
-                exportWindow.finalStartSec,
-                exportWindow.fullDuration - PLAYBACK_TAIL_BUFFER_SEC
-            );
-            const fadeStartOffsetSec = Math.max(0, fadeStartSec - exportWindow.finalStartSec);
-            const exportStartGain = getPlaybackGainByTime(exportWindow.finalStartSec);
-            const exportEndGain = getPlaybackGainByTime(exportWindow.finalEndSec);
-            gainNode.gain.setValueAtTime(exportStartGain, 0);
-            if (fadeStartOffsetSec > 0 && fadeStartOffsetSec < exportWindow.exportDuration) {
-                gainNode.gain.setValueAtTime(getPlaybackGainByTime(fadeStartSec), fadeStartOffsetSec);
-            }
-            if (exportEndGain !== exportStartGain || fadeStartOffsetSec > 0) {
-                gainNode.gain.linearRampToValueAtTime(exportEndGain, exportWindow.exportDuration);
-            }
-
-            source.start(startTimeInVideo, startOffsetInAudio);
-            const renderedBuffer = await audioCtx.startRendering();
-
-            const numFrames = renderedBuffer.length;
-            const chunkSize = 44100;
-            for (let i = 0; i < numFrames; i += chunkSize) {
-                if (getCancelVideoExport() || isEncoderError) break;
-                const size = Math.min(chunkSize, numFrames - i);
-                const planarData = new Float32Array(size * 2);
-                const left = renderedBuffer.getChannelData(0);
-                const right = renderedBuffer.numberOfChannels > 1 ? renderedBuffer.getChannelData(1) : left;
-                planarData.set(left.subarray(i, i + size), 0);
-                planarData.set(right.subarray(i, i + size), size);
-
-                const audioData = new AudioData({
-                    data: planarData,
-                    format: "f32-planar",
-                    numberOfChannels: 2,
-                    numberOfFrames: size,
-                    sampleRate: 44100,
-                    timestamp: (i / 44100) * 1_000_000,
+            let audioEncoder = null;
+            if (audioFile) {
+                audioEncoder = new AudioEncoder({
+                    output: (chunk, meta) => {
+                        if (!isEncoderError && !getCancelVideoExport()) muxer.addAudioChunk(chunk, meta);
+                    },
+                    error: (error) => {
+                        console.error("音频编码崩溃:", error);
+                        isEncoderError = true;
+                    },
                 });
-                audioEncoder.encode(audioData);
-                audioData.close();
+                audioEncoder.configure({ codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 2, bitrate: 192000 });
+
+                const OfflineAudioContextCtor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+                if (!OfflineAudioContextCtor) {
+                    throw new Error("OfflineAudioContext is not supported in this browser.");
+                }
+
+                const audioCtx = new OfflineAudioContextCtor(2, Math.ceil(exportWindow.exportDuration * 44100), 44100);
+                const arrayBuffer = await audioFile.arrayBuffer();
+                const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
+
+                const source = audioCtx.createBufferSource();
+                const gainNode = audioCtx.createGain();
+                source.buffer = decodedAudio;
+                source.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                let startTimeInVideo = 0;
+                let startOffsetInAudio = 0;
+                const initialAudioTime = exportWindow.finalStartSec + getAudioOffsetSec();
+                if (initialAudioTime >= 0) {
+                    startOffsetInAudio = initialAudioTime;
+                } else {
+                    startTimeInVideo = Math.abs(initialAudioTime);
+                }
+
+                const fadeStartSec = Math.max(
+                    exportWindow.finalStartSec,
+                    exportWindow.fullDuration - PLAYBACK_TAIL_BUFFER_SEC
+                );
+                const fadeStartOffsetSec = Math.max(0, fadeStartSec - exportWindow.finalStartSec);
+                const exportStartGain = getPlaybackGainByTime(exportWindow.finalStartSec);
+                const exportEndGain = getPlaybackGainByTime(exportWindow.finalEndSec);
+                gainNode.gain.setValueAtTime(exportStartGain, 0);
+                if (fadeStartOffsetSec > 0 && fadeStartOffsetSec < exportWindow.exportDuration) {
+                    gainNode.gain.setValueAtTime(getPlaybackGainByTime(fadeStartSec), fadeStartOffsetSec);
+                }
+                if (exportEndGain !== exportStartGain || fadeStartOffsetSec > 0) {
+                    gainNode.gain.linearRampToValueAtTime(exportEndGain, exportWindow.exportDuration);
+                }
+
+                source.start(startTimeInVideo, startOffsetInAudio);
+                const renderedBuffer = await audioCtx.startRendering();
+
+                const numFrames = renderedBuffer.length;
+                const chunkSize = 44100;
+                for (let i = 0; i < numFrames; i += chunkSize) {
+                    if (getCancelVideoExport() || isEncoderError) break;
+                    const size = Math.min(chunkSize, numFrames - i);
+                    const planarData = new Float32Array(size * 2);
+                    const left = renderedBuffer.getChannelData(0);
+                    const right = renderedBuffer.numberOfChannels > 1 ? renderedBuffer.getChannelData(1) : left;
+                    planarData.set(left.subarray(i, i + size), 0);
+                    planarData.set(right.subarray(i, i + size), size);
+
+                    const audioData = new AudioData({
+                        data: planarData,
+                        format: "f32-planar",
+                        numberOfChannels: 2,
+                        numberOfFrames: size,
+                        sampleRate: 44100,
+                        timestamp: (i / 44100) * 1_000_000,
+                    });
+                    audioEncoder.encode(audioData);
+                    audioData.close();
+                }
+                if (!getCancelVideoExport()) await audioEncoder.flush();
             }
-            if (!getCancelVideoExport()) await audioEncoder.flush();
-        }
 
-        const totalFrames = Math.ceil(exportWindow.exportDuration * fps);
-        const stepSec = 1 / fps;
+            const totalFrames = Math.ceil(exportWindow.exportDuration * fps);
+            const stepSec = 1 / fps;
 
-        for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
-            if (getCancelVideoExport()) break;
-            if (isEncoderError) break;
+            for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+                if (getCancelVideoExport()) break;
+                if (isEncoderError) break;
 
-            while (videoEncoder.encodeQueueSize >= 10) {
-                if (isEncoderError || getCancelVideoExport()) break;
-                await new Promise((resolve) => setTimeout(resolve, 1));
+                while (videoEncoder.encodeQueueSize >= 10) {
+                    if (isEncoderError || getCancelVideoExport()) break;
+                    await new Promise((resolve) => setTimeout(resolve, 1));
+                }
+
+                const simulatedTime = exportWindow.finalStartSec + frameIndex * stepSec;
+                renderExportFrame(simulatedTime);
+
+                const videoFrame = new VideoFrame(getCanvas(), { timestamp: frameIndex * stepSec * 1_000_000 });
+                const insertKeyFrame = frameIndex % fps === 0;
+
+                try {
+                    videoEncoder.encode(videoFrame, { keyFrame: insertKeyFrame });
+                } catch (error) {
+                    isEncoderError = true;
+                } finally {
+                    videoFrame.close();
+                }
+
+                if (frameIndex % 30 === 0) {
+                    updateExportProgress((frameIndex / totalFrames) * 100);
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                }
             }
 
-            const simulatedTime = exportWindow.finalStartSec + frameIndex * stepSec;
-            renderExportFrame(simulatedTime);
-
-            const videoFrame = new VideoFrame(getCanvas(), { timestamp: frameIndex * stepSec * 1_000_000 });
-            const insertKeyFrame = frameIndex % fps === 0;
-
-            try {
-                videoEncoder.encode(videoFrame, { keyFrame: insertKeyFrame });
-            } catch (error) {
-                isEncoderError = true;
-            } finally {
-                videoFrame.close();
+            if (getCancelVideoExport()) {
+                try { videoEncoder.close(); } catch {}
+                throw new Error("Export cancelled");
             }
 
-            if (frameIndex % 30 === 0) {
-                updateExportProgress((frameIndex / totalFrames) * 100);
-                await new Promise((resolve) => setTimeout(resolve, 0));
+            if (isEncoderError) {
+                try { videoEncoder.close(); } catch {}
+                throw new Error("Encoder crashed");
             }
+
+            if (dom.exportModalTitle) dom.exportModalTitle.innerText = "MUXING & SAVING...";
+
+            await videoEncoder.flush();
+            muxer.finalize();
+            restoreViewportIfNeeded();
+            await exportTarget.finalizeOutput(muxer);
+            didFinalizeOutput = true;
+        } catch (error) {
+            restoreViewportIfNeeded();
+            if (!didFinalizeOutput) {
+                await exportTarget.abortOutput();
+            }
+            throw error;
         }
-
-        if (getCancelVideoExport()) {
-            try { videoEncoder.close(); } catch {}
-            restoreViewportState();
-            throw new Error("Export cancelled");
-        }
-
-        if (isEncoderError) {
-            try { videoEncoder.close(); } catch {}
-            restoreViewportState();
-            throw new Error("Encoder crashed");
-        }
-
-        if (dom.exportModalTitle) dom.exportModalTitle.innerText = "MUXING & SAVING...";
-
-        await videoEncoder.flush();
-        muxer.finalize();
-        restoreViewportState();
-
-        const buffer = muxer.target.buffer;
-        const blob = new Blob([buffer], { type: "video/mp4" });
-        const url = URL.createObjectURL(blob);
-
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `Score_Export_${targetWidth}w_${Date.now()}.mp4`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        document.body.removeChild(anchor);
-        URL.revokeObjectURL(url);
     }
 
     /** @returns {Promise<void>} */

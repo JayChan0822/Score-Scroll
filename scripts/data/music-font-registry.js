@@ -19,9 +19,14 @@ export const MusicFontRegistry = {
             'Natural': ['MCCCCCCCCCCMCCCCCCCCCCCCCC']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCC'],
-            'Notehead_Hollow': ['MCCCCMCCCCCCC', 'MCCCCMCCCC'],
-            'Notehead_DoubleWhole': ['MLCLCLCLCMLCLCLCLCMCCCCMCCCCCCCCCCMLCLCLCLCMLCLCLCLC']
+            'Notehead_Quarter': ['MCCCC'],
+            'Notehead_Half': ['MCCCCMCCCCCCC'],
+            'Notehead_Whole': ['MCCCCMCCCC'],
+            'Notehead_DoubleWhole': ['MLCLCLCLCMLCLCLCLCMCCCCMCCCCCCCCCCMLCLCLCLCMLCLCLCLC'],
+            'Notehead_X_Quarter': ['MLLCCCLLCCCLLCCCLLCCC'],
+            'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         },
         timeSignatures: {
             '0': ['MCCCCZMCCCCZM'],
@@ -59,9 +64,14 @@ export const MusicFontRegistry = {
             'Natural': ['MLCCLLLLCLLLMCLLCLL']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCC', 'MCCCCLCCCCLMCCLCCCL'],
-            'Notehead_Hollow': ['MCCCCMCCCCCC', 'MCCCCMCCCCCCCC'],
-            'Notehead_DoubleWhole': ['MCCLCCLCCLCCLCCLCCLMCCLCCLMCCLCCLMCCCCLCCCCL']
+            'Notehead_Quarter': ['MCCCC', 'MCCCCLCCCCLMCCLCCCL'],
+            'Notehead_Half': ['MCCCCMCCCCCC'],
+            'Notehead_Whole': ['MCCCCMCCCCCCCC'],
+            'Notehead_DoubleWhole': ['MCCLCCLCCLCCLCCLCCLMCCLCCLMCCLCCLMCCCCLCCCCL'],
+            'Notehead_X_Quarter': ['MCCLCCLCCCLCCLCCCLCCLCCCLCCLC'],
+            'Notehead_X_Half': ['MLLLLLLLLLLLLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLLLCLLLLLLLLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCLMLLLLLLLLLLLLMLLLMLLL']
         },
         timeSignatures: {
             '0': ['MCCCCZMCLCCLCZM'],
@@ -99,9 +109,14 @@ export const MusicFontRegistry = {
             'Natural': ['MCLCLLLLCLLLCCMLLLL']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCC'],
-            'Notehead_Hollow': ['MCCCCMCCCC', 'MCCCCMCCCCCCC'],
-            'Notehead_DoubleWhole': ['MCCCCCCCMCCCCCCCCCCCCCCCCCCCCMCCCCCCCMCCCCCCCC']
+            'Notehead_Quarter': ['MCCCC'],
+            'Notehead_Half': ['MCCCCMCCCC'],
+            'Notehead_Whole': ['MCCCCMCCCCCCC'],
+            'Notehead_DoubleWhole': ['MCCCCCCCMCCCCCCCCCCCCCCCCCCCCMCCCCCCCMCCCCCCCC'],
+            'Notehead_X_Quarter': ['MCLCLCCLLCCLCCLLCCLCCLLCCLCCLL'],
+            'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         },
         timeSignatures: {
             '0': ['MCCCCZMCCLCCZM'],
@@ -139,9 +154,14 @@ export const MusicFontRegistry = {
             'Natural': ['MLLLLMLLLLLLLL']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCC'],
-            'Notehead_Hollow': ['MCCCCMCCCCCC', 'MCCCCMCCCCCC'],
-            'Notehead_DoubleWhole': ['MLLLLMLLLLMLLLLCCLLLLLCCLMCCCCCC']
+            'Notehead_Quarter': ['MCCCC'],
+            'Notehead_Half': ['MCCCCMCCCCCC'],
+            'Notehead_Whole': ['MCCCCMCCCCCC'],
+            'Notehead_DoubleWhole': ['MLLLLMLLLLMLLLLCCLLLLLCCLMCCCCCC'],
+            'Notehead_X_Quarter': ['MLLLLLLLLLLLL'],
+            'Notehead_X_Half': ['MLLLLLLLLLLLLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLLLLLLLLLLLLMCLLCLLCLLCLL'],
+            'Notehead_X_DoubleWhole': ['MLLLLLLLLLLLLLLLLLLMLLLLMLLLLMLLLMLLLMLLLLLLLLLLLL']
         }
     },
 
@@ -165,9 +185,14 @@ export const MusicFontRegistry = {
             'Natural': ['MCCCCCCLLLLCCCCCCCCCCCCCLLLCCCMLCLCCLLCC']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCCCCC'],
-            'Notehead_Hollow': ['MCCCCCCCCMCCCCCCCCC', 'MCCCCCCLCCMCCCCCCCCCC'],
-            'Notehead_DoubleWhole': ['MCLCCCCCCCCMCLCCCCLCCCCCCLCCCMCCCCCLCCLCCCCCCCMCCCCCCCCCMCCCCCCCCCLCCMCCCCCCCCCCLCC']
+            'Notehead_Quarter': ['MCCCCCCC'],
+            'Notehead_Half': ['MCCCCCCCCMCCCCCCCCC'],
+            'Notehead_Whole': ['MCCCCCCLCCMCCCCCCCCCC'],
+            'Notehead_DoubleWhole': ['MCLCCCCCCCCMCLCCCCLCCCCCCLCCCMCCCCCLCCLCCCCCCCMCCCCCCCCCMCCCCCCCCCLCCMCCCCCCCCCCLCC'],
+            'Notehead_X_Quarter': ['MCCLCCCCCCCCCCCCCCCCCCCCCCCCCC'],
+            'Notehead_X_Half': ['MCCCCLCCCCCLCCCCCCCCCLCCCCCMCLCCCCCCCCCLCCCCCLCC'],
+            'Notehead_X_Whole': ['MCCCCCCCCCCCCCLCCCCCCCCCCCCCCMCCCCCLCCCCCCCLCCCLCCC'],
+            'Notehead_X_DoubleWhole': ['MCCCCCCCCCCCCCCCCCCCCCCCCCCCCMCCCCCCCCCCMCCCCCCCCCCCMCCCCCCLCCCCCCLCCCCCCCMCCCCCCCCCCCCCMCCCCCCCCCCCCCC']
         },
         timeSignatures: {
             '0': ['MCCCCCCCCCCCCZMCCCCCCCCCCCZM'],
@@ -205,9 +230,14 @@ export const MusicFontRegistry = {
             'Natural': ['MLLLLCLLLMLLLL']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCCCCC'],
-            'Notehead_Hollow': ['MCCCCCCCCMCCCCCCC', 'MCCCCCCCCMCCCLCCCCCCCCC'],
-            'Notehead_DoubleWhole': ['MLCCLCCCCLCCLCCLCCCCLCCMCCCCLCCCCCMLCCLCCMLCCLCC']
+            'Notehead_Quarter': ['MCCCCCCC'],
+            'Notehead_Half': ['MCCCCCCCCMCCCCCCC'],
+            'Notehead_Whole': ['MCCCCCCCCMCCCLCCCCCCCCC'],
+            'Notehead_DoubleWhole': ['MLCCLCCCCLCCLCCLCCCCLCCMCCCCLCCCCCMLCCLCCMLCCLCC'],
+            'Notehead_X_Quarter': ['MCLLCCCLLCCCCLLCCCLLCC'],
+            'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         }
     },
 
@@ -231,9 +261,14 @@ export const MusicFontRegistry = {
             'Natural': ['MLCLLCCLLCMCLCL']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCCCLC'],
-            'Notehead_Hollow': ['MCCCCCCMCCCC', 'MCCMCC'],
-            'Notehead_DoubleWhole': ['MLLLCLLLMLLLCLCLLCLLLLCCLLMLLLCLLLMCC']
+            'Notehead_Quarter': ['MCCCCCLC'],
+            'Notehead_Half': ['MCCCCCCMCCCC'],
+            'Notehead_Whole': ['MCCMCC'],
+            'Notehead_DoubleWhole': ['MLLLCLLLMLLLCLCLLCLLLLCCLLMLLLCLLLMCC'],
+            'Notehead_X_Quarter': ['MCCCCCCCCCCCCCCCCCCCCCLCC'],
+            'Notehead_X_Half': ['MCCCLLCCCCCLCCCCCCCCCLCLCLCMCLCCCCCLCCCLCCCCCLCC'],
+            'Notehead_X_Whole': ['MCCCCCCCCCCLCCLCCCCCCCCCCCCCCMCLCCCLCLCCCCLLCCCLCCC'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         }
     },
 
@@ -257,9 +292,14 @@ export const MusicFontRegistry = {
             'Natural': ['MLLLLLLLLMLLLL']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCC'],
-            'Notehead_Hollow': ['MCCCCMCCCCCC', 'MCCCCCMCCCCCCC'],
-            'Notehead_DoubleWhole': ['MLLLLMLLLLMLLLLCCCLLLLLCCLMCCCCCC']
+            'Notehead_Quarter': ['MCCCC'],
+            'Notehead_Half': ['MCCCCMCCCCCC'],
+            'Notehead_Whole': ['MCCCCCMCCCCCCC'],
+            'Notehead_DoubleWhole': ['MLLLLMLLLLMLLLLCCCLLLLLCCLMCCCCCC'],
+            'Notehead_X_Quarter': ['MLLLLLLLLLLLL'],
+            'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         }
     },
 
@@ -283,9 +323,14 @@ export const MusicFontRegistry = {
             'Natural': ['MCLLCLCCLCCLMCCLC']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCC'],
-            'Notehead_Hollow': ['MCCCCCMCCCC', 'MCCCCCMCCCC'],
-            'Notehead_DoubleWhole': ['MLLLLLLMCLCCLLLLCCLLLLCCLLLLCCLLLLMLLLLLLMCCCC']
+            'Notehead_Quarter': ['MCCCC'],
+            'Notehead_Half': ['MCCCCCMCCCC'],
+            'Notehead_Whole': ['MCCCCCMCCCC'],
+            'Notehead_DoubleWhole': ['MLLLLLLMCLCCLLLLCCLLLLCCLLLLCCLLLLMLLLLLLMCCCC'],
+            'Notehead_X_Quarter': ['MCCCCCCCLCCCCCLCCCCLC'],
+            'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         }
     },
 
@@ -309,9 +354,14 @@ export const MusicFontRegistry = {
             'Natural': ['MLLLLLLLLMLLLL']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCC'],
-            'Notehead_Hollow': ['MCCCCCCMCCCCCC', 'MCCCCCCCMCCCCCC'],
-            'Notehead_DoubleWhole': ['MLCCLLLLLCCCLLLLMLLLLMLLLLMCCCCCC']
+            'Notehead_Quarter': ['MCCCC'],
+            'Notehead_Half': ['MCCCCCCMCCCCCC'],
+            'Notehead_Whole': ['MCCCCCCCMCCCCCC'],
+            'Notehead_DoubleWhole': ['MLCCLLLLLCCCLLLLMLLLLMLLLLMCCCCCC'],
+            'Notehead_X_Quarter': ['MLLLLLLLLLLLL'],
+            'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         }
     },
 
@@ -335,9 +385,14 @@ export const MusicFontRegistry = {
             'Natural': ['MCCCCLLCCCCCCCLCCCMCCCLC']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCCC'],
-            'Notehead_Hollow': ['MCCCCCCCMCCCCCC', 'MCCCCCCMCCCCCC'],
-            'Notehead_DoubleWhole': ['MCCCCCCCCCLCCCCCCCCCCCCCCCCCCCCCCCMCCCCLCCCCLCCLCMCCCCCCCCLCCLCMCCCCC']
+            'Notehead_Quarter': ['MCCCCC'],
+            'Notehead_Half': ['MCCCCCCCMCCCCCC'],
+            'Notehead_Whole': ['MCCCCCCMCCCCCC'],
+            'Notehead_DoubleWhole': ['MCCCCCCCCCLCCCCCCCCCCCCCCCCCCCCCCCMCCCCLCCCCLCCLCMCCCCCCCCLCCLCMCCCCC'],
+            'Notehead_X_Quarter': ['MCCCCCCCCCCCCCCCCCCCCCLCC'],
+            'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         }
     },
 
@@ -361,9 +416,14 @@ export const MusicFontRegistry = {
             'Natural': ['MCCCCCLCCCLLCCLMCLCCLC']
         },
         noteheads: {
-            'Notehead_Solid': ['MCCCCCC'],
-            'Notehead_Hollow': ['MCCCCCMCCCC', 'MCCLCCCCCMCCCCCCC'],
-            'Notehead_DoubleWhole': ['MCCCCCCCCLCCCCLCCCCCCCCCMCCCCCC']
+            'Notehead_Quarter': ['MCCCCCC'],
+            'Notehead_Half': ['MCCCCCMCCCC'],
+            'Notehead_Whole': ['MCCLCCCCCMCCCCCCC'],
+            'Notehead_DoubleWhole': ['MCCCCCCCCLCCCCLCCCCCCCCCMCCCCCC'],
+            'Notehead_X_Quarter': ['MCCCLCCCCCCCCLCCCLCC'],
+            'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+            'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+            'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
         },
         timeSignatures: {
             '0': ['MCCCCCCCCZMCCLCLCCZM'],
@@ -399,8 +459,10 @@ export const MusicFontRegistry = {
             'Natural': ['']
         },
         noteheads: {
-            'Notehead_Solid': [''],
-            'Notehead_Hollow': ['', '']
+            'Notehead_Quarter': [''],
+            'Notehead_Half': [''],
+            'Notehead_Whole': [''],
+            'Notehead_DoubleWhole': []
         }
     },
 
@@ -422,8 +484,10 @@ export const MusicFontRegistry = {
             'Natural': ['']
         },
         noteheads: {
-            'Notehead_Solid': [''],
-            'Notehead_Hollow': ['', '']
+            'Notehead_Quarter': [''],
+            'Notehead_Half': [''],
+            'Notehead_Whole': [''],
+            'Notehead_DoubleWhole': []
         }
     },
 
@@ -445,8 +509,10 @@ export const MusicFontRegistry = {
             'Natural': ['']
         },
         noteheads: {
-            'Notehead_Solid': [''],
-            'Notehead_Hollow': ['', '']
+            'Notehead_Quarter': [''],
+            'Notehead_Half': [''],
+            'Notehead_Whole': [''],
+            'Notehead_DoubleWhole': []
         }
     },
     'Reprise': {
@@ -467,8 +533,10 @@ export const MusicFontRegistry = {
             'Natural': ['']
         },
         noteheads: {
-            'Notehead_Solid': [''],
-            'Notehead_Hollow': ['', '']
+            'Notehead_Quarter': [''],
+            'Notehead_Half': [''],
+            'Notehead_Whole': [''],
+            'Notehead_DoubleWhole': []
         }
     },
 };

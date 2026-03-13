@@ -48,6 +48,8 @@ function collectNoteAdjacentSeedIds(accidentalGroups, noteheads, staffSpace) {
     const seedDxMin = -normalizedStaffSpace * 0.6;
     const seedDxMax = Math.max(4, normalizedStaffSpace * 1.2);
     const seedDyMax = Math.max(2, normalizedStaffSpace * 1.2);
+    const tightlyAlignedSeedDxMax = Math.max(seedDxMax, normalizedStaffSpace * 1.35);
+    const tightlyAlignedSeedDyMax = Math.max(1.5, normalizedStaffSpace * 0.55);
 
     const seedIds = new Set();
     (Array.isArray(accidentalGroups) ? accidentalGroups : []).forEach((accidental) => {
@@ -55,7 +57,9 @@ function collectNoteAdjacentSeedIds(accidentalGroups, noteheads, staffSpace) {
             if (!canShareBand(accidental, note, seedDyMax)) return false;
             const dx = note.left - accidental.right;
             const dy = Math.abs(note.centerY - accidental.centerY);
-            return dx >= seedDxMin && dx <= seedDxMax && dy <= seedDyMax;
+            if (dx < seedDxMin || dy > seedDyMax) return false;
+            if (dx <= seedDxMax) return true;
+            return dx <= tightlyAlignedSeedDxMax && dy <= tightlyAlignedSeedDyMax;
         });
 
         if (hasNearbyNote) {

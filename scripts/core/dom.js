@@ -32,6 +32,8 @@
  * @property {HTMLButtonElement | null} playBtn
  * @property {HTMLInputElement | null} playlineRatioSlider
  * @property {HTMLElement | null} playlineRatioVal
+ * @property {HTMLInputElement | null} stickyLockRatioSlider
+ * @property {HTMLElement | null} stickyLockRatioVal
  * @property {HTMLInputElement | null} progressSlider
  * @property {HTMLElement | null} sandbox
  * @property {HTMLInputElement | null} scatterSlider
@@ -97,6 +99,8 @@ export function getDomRefs(doc = document) {
         playBtn: byId(doc, "playBtn"),
         playlineRatioSlider: byId(doc, "playlineRatioSlider"),
         playlineRatioVal: byId(doc, "playlineRatioVal"),
+        stickyLockRatioSlider: byId(doc, "stickyLockRatioSlider"),
+        stickyLockRatioVal: byId(doc, "stickyLockRatioVal"),
         progressSlider: byId(doc, "progressSlider"),
         sandbox: byId(doc, "svg-sandbox"),
         scatterSlider: byId(doc, "scatterSlider"),

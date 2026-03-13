@@ -37,6 +37,46 @@ async function loadFixtureIntoScore(page, fixturePath) {
   })).toBeGreaterThan(0);
 }
 
+function buildMinimalTwoBarSvgBuffer() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="240" height="100" viewBox="0 0 240 100">
+      <line x1="10" y1="20" x2="210" y2="20" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="30" x2="210" y2="30" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="40" x2="210" y2="40" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="50" x2="210" y2="50" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="60" x2="210" y2="60" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="20" x2="10" y2="60" stroke="#000" stroke-width="1" />
+      <line x1="110" y1="20" x2="110" y2="60" stroke="#000" stroke-width="1" />
+      <line x1="210" y1="20" x2="210" y2="60" stroke="#000" stroke-width="1" />
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
+function buildPpq960TempoChangeMidiBuffer() {
+  const header = [
+    0x4d, 0x54, 0x68, 0x64,
+    0x00, 0x00, 0x00, 0x06,
+    0x00, 0x00,
+    0x00, 0x01,
+    0x03, 0xc0,
+  ];
+
+  const trackData = [
+    0x00, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20,
+    0x9e, 0x00, 0xff, 0x51, 0x03, 0x0f, 0x42, 0x40,
+    0x9e, 0x00, 0xff, 0x2f, 0x00,
+  ];
+
+  const trackHeader = [
+    0x4d, 0x54, 0x72, 0x6b,
+    0x00, 0x00, 0x00, trackData.length,
+  ];
+
+  return Buffer.from([...header, ...trackHeader, ...trackData]);
+}
+
 async function getTextClassification(page, selectors) {
   return page.evaluate((requestedSelectors) => {
     const svg = document.querySelector('#svg-sandbox svg');
@@ -190,7 +230,7 @@ test('keeps legacy @ manual-tag mapping disabled in score initialization', async
   expect(appSource).toContain('Legacy @ manual-tag mapping is disabled');
 });
 
-test('registers dedicated double-whole notehead signatures for the provided round fonts', async () => {
+test('registers duration-specific standard notehead categories for the provided desktop fonts', async () => {
   const registrySource = fs.readFileSync(
     path.resolve(__dirname, '..', 'scripts', 'data', 'music-font-registry.js'),
     'utf8'
@@ -204,25 +244,193 @@ test('registers dedicated double-whole notehead signatures for the provided roun
   const musicFontRegistry = context.globalThis.MusicFontRegistry;
 
   const expectedSignatures = {
-    Ash: ['MCCCCCCCCLCCCCLCCCCCCCCCMCCCCCC'],
-    Bravura: ['MLCLCLCLCMLCLCLCLCMCCCCMCCCCCCCCCCMLCLCLCLCMLCLCLCLC'],
-    Broadway: ['MCCCCCCCCCLCCCCCCCCCCCCCCCCCCCCCCCMCCCCLCCCCLCCLCMCCCCCCCCLCCLCMCCCCC'],
-    Engraver: ['MLCCLLLLLCCCLLLLMLLLLMLLLLMCCCCCC'],
-    'Golden Age': ['MLLLCLLLMLLLCLCLLCLLLLCCLLMLLLCLLLMCC'],
-    Jazz: ['MLLLLLLMCLCCLLLLCCLLLLCCLLLLCCLLLLMLLLLLLMCCCC'],
-    Legacy: ['MLLLLMLLLLMLLLLCCCLLLLLCCLMCCCCCC'],
-    Leipzig: ['MLCCLCCCCLCCLCCLCCCCLCCMCCCCLCCCCCMLCCLCCMLCCLCC'],
-    Leland: ['MCCCCCCCMCCCCCCCCCCCCCCCCCCCCMCCCCCCCMCCCCCCCC'],
-    Maestro: ['MLLLLMLLLLMLLLLCCLLLLLCCLMCCCCCC'],
-    Petaluma: ['MCLCCCCCCCCMCLCCCCLCCCCCCLCCCMCCCCCLCCLCCCCCCCMCCCCCCCCCMCCCCCCCCCLCCMCCCCCCCCCCLCC'],
-    Sebastian: ['MCCLCCLCCLCCLCCLCCLMCCLCCLMCCLCCLMCCCCLCCCCL'],
+    Ash: {
+      Notehead_Quarter: ['MCCCCCC'],
+      Notehead_Half: ['MCCCCCMCCCC'],
+      Notehead_Whole: ['MCCLCCCCCMCCCCCCC'],
+      Notehead_DoubleWhole: ['MCCCCCCCCLCCCCLCCCCCCCCCMCCCCCC'],
+    },
+    Bravura: {
+      Notehead_Quarter: ['MCCCC'],
+      Notehead_Half: ['MCCCCMCCCCCCC'],
+      Notehead_Whole: ['MCCCCMCCCC'],
+      Notehead_DoubleWhole: ['MLCLCLCLCMLCLCLCLCMCCCCMCCCCCCCCCCMLCLCLCLCMLCLCLCLC'],
+    },
+    Broadway: {
+      Notehead_Quarter: ['MCCCCC'],
+      Notehead_Half: ['MCCCCCCCMCCCCCC'],
+      Notehead_Whole: ['MCCCCCCMCCCCCC'],
+      Notehead_DoubleWhole: ['MCCCCCCCCCLCCCCCCCCCCCCCCCCCCCCCCCMCCCCLCCCCLCCLCMCCCCCCCCLCCLCMCCCCC'],
+    },
+    Engraver: {
+      Notehead_Quarter: ['MCCCC'],
+      Notehead_Half: ['MCCCCCCMCCCCCC'],
+      Notehead_Whole: ['MCCCCCCCMCCCCCC'],
+      Notehead_DoubleWhole: ['MLCCLLLLLCCCLLLLMLLLLMLLLLMCCCCCC'],
+    },
+    'Golden Age': {
+      Notehead_Quarter: ['MCCCCCLC'],
+      Notehead_Half: ['MCCCCCCMCCCC'],
+      Notehead_Whole: ['MCCMCC'],
+      Notehead_DoubleWhole: ['MLLLCLLLMLLLCLCLLCLLLLCCLLMLLLCLLLMCC'],
+    },
+    Jazz: {
+      Notehead_Quarter: ['MCCCC'],
+      Notehead_Half: ['MCCCCCMCCCC'],
+      Notehead_Whole: ['MCCCCCMCCCC'],
+      Notehead_DoubleWhole: ['MLLLLLLMCLCCLLLLCCLLLLCCLLLLCCLLLLMLLLLLLMCCCC'],
+    },
+    Legacy: {
+      Notehead_Quarter: ['MCCCC'],
+      Notehead_Half: ['MCCCCMCCCCCC'],
+      Notehead_Whole: ['MCCCCCMCCCCCCC'],
+      Notehead_DoubleWhole: ['MLLLLMLLLLMLLLLCCCLLLLLCCLMCCCCCC'],
+    },
+    Leipzig: {
+      Notehead_Quarter: ['MCCCCCCC'],
+      Notehead_Half: ['MCCCCCCCCMCCCCCCC'],
+      Notehead_Whole: ['MCCCCCCCCMCCCLCCCCCCCCC'],
+      Notehead_DoubleWhole: ['MLCCLCCCCLCCLCCLCCCCLCCMCCCCLCCCCCMLCCLCCMLCCLCC'],
+    },
+    Leland: {
+      Notehead_Quarter: ['MCCCC'],
+      Notehead_Half: ['MCCCCMCCCC'],
+      Notehead_Whole: ['MCCCCMCCCCCCC'],
+      Notehead_DoubleWhole: ['MCCCCCCCMCCCCCCCCCCCCCCCCCCCCMCCCCCCCMCCCCCCCC'],
+    },
+    Maestro: {
+      Notehead_Quarter: ['MCCCC'],
+      Notehead_Half: ['MCCCCMCCCCCC'],
+      Notehead_Whole: ['MCCCCMCCCCCC'],
+      Notehead_DoubleWhole: ['MLLLLMLLLLMLLLLCCLLLLLCCLMCCCCCC'],
+    },
+    Petaluma: {
+      Notehead_Quarter: ['MCCCCCCC'],
+      Notehead_Half: ['MCCCCCCCCMCCCCCCCCC'],
+      Notehead_Whole: ['MCCCCCCLCCMCCCCCCCCCC'],
+      Notehead_DoubleWhole: ['MCLCCCCCCCCMCLCCCCLCCCCCCLCCCMCCCCCLCCLCCCCCCCMCCCCCCCCCMCCCCCCCCCLCCMCCCCCCCCCCLCC'],
+    },
+    Sebastian: {
+      Notehead_Quarter: ['MCCCC', 'MCCCCLCCCCLMCCLCCCL'],
+      Notehead_Half: ['MCCCCMCCCCCC'],
+      Notehead_Whole: ['MCCCCMCCCCCCCC'],
+      Notehead_DoubleWhole: ['MCCLCCLCCLCCLCCLCCLMCCLCCLMCCLCCLMCCCCLCCCCL'],
+    },
   };
 
   expect(
     Object.fromEntries(
-      Object.entries(expectedSignatures).map(([fontName, signatures]) => [
+      Object.entries(expectedSignatures).map(([fontName]) => [
         fontName,
-        musicFontRegistry[fontName]?.noteheads?.Notehead_DoubleWhole || null,
+        {
+          Notehead_Quarter: musicFontRegistry[fontName]?.noteheads?.Notehead_Quarter || null,
+          Notehead_Half: musicFontRegistry[fontName]?.noteheads?.Notehead_Half || null,
+          Notehead_Whole: musicFontRegistry[fontName]?.noteheads?.Notehead_Whole || null,
+          Notehead_DoubleWhole: musicFontRegistry[fontName]?.noteheads?.Notehead_DoubleWhole || null,
+        },
+      ])
+    )
+  ).toEqual(expectedSignatures);
+});
+
+test('registers duration-specific X notehead signatures for the provided desktop fonts', async () => {
+  const registrySource = fs.readFileSync(
+    path.resolve(__dirname, '..', 'scripts', 'data', 'music-font-registry.js'),
+    'utf8'
+  );
+  const executableSource = registrySource.replace(
+    'export const MusicFontRegistry =',
+    'globalThis.MusicFontRegistry ='
+  );
+  const context = { globalThis: {} };
+  vm.runInNewContext(executableSource, context);
+  const musicFontRegistry = context.globalThis.MusicFontRegistry;
+
+  const expectedSignatures = {
+    Ash: {
+      Notehead_X_Quarter: ['MCCCLCCCCCCCCLCCCLCC'],
+      Notehead_X_Half: ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    Bravura: {
+      Notehead_X_Quarter: ['MLLCCCLLCCCLLCCCLLCCC'],
+      Notehead_X_Half: ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    Broadway: {
+      Notehead_X_Quarter: ['MCCCCCCCCCCCCCCCCCCCCCLCC'],
+      Notehead_X_Half: ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    Engraver: {
+      Notehead_X_Quarter: ['MLLLLLLLLLLLL'],
+      Notehead_X_Half: ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    'Golden Age': {
+      Notehead_X_Quarter: ['MCCCCCCCCCCCCCCCCCCCCCLCC'],
+      Notehead_X_Half: ['MCCCLLCCCCCLCCCCCCCCCLCLCLCMCLCCCCCLCCCLCCCCCLCC'],
+      Notehead_X_Whole: ['MCCCCCCCCCCLCCLCCCCCCCCCCCCCCMCLCCCLCLCCCCLLCCCLCCC'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    Jazz: {
+      Notehead_X_Quarter: ['MCCCCCCCLCCCCCLCCCCLC'],
+      Notehead_X_Half: ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    Legacy: {
+      Notehead_X_Quarter: ['MLLLLLLLLLLLL'],
+      Notehead_X_Half: ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    Leipzig: {
+      Notehead_X_Quarter: ['MCLLCCCLLCCCCLLCCCLLCC'],
+      Notehead_X_Half: ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    Leland: {
+      Notehead_X_Quarter: ['MCLCLCCLLCCLCCLLCCLCCLLCCLCCLL'],
+      Notehead_X_Half: ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL'],
+    },
+    Maestro: {
+      Notehead_X_Quarter: ['MLLLLLLLLLLLL'],
+      Notehead_X_Half: ['MLLLLLLLLLLLLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLLLLLLLLLLLLMCLLCLLCLLCLL'],
+      Notehead_X_DoubleWhole: ['MLLLLLLLLLLLLLLLLLLMLLLLMLLLLMLLLMLLLMLLLLLLLLLLLL'],
+    },
+    Petaluma: {
+      Notehead_X_Quarter: ['MCCLCCCCCCCCCCCCCCCCCCCCCCCCCC'],
+      Notehead_X_Half: ['MCCCCLCCCCCLCCCCCCCCCLCCCCCMCLCCCCCCCCCLCCCCCLCC'],
+      Notehead_X_Whole: ['MCCCCCCCCCCCCCLCCCCCCCCCCCCCCMCCCCCLCCCCCCCLCCCLCCC'],
+      Notehead_X_DoubleWhole: ['MCCCCCCCCCCCCCCCCCCCCCCCCCCCCMCCCCCCCCCCMCCCCCCCCCCCMCCCCCCLCCCCCCLCCCCCCCMCCCCCCCCCCCCCMCCCCCCCCCCCCCC'],
+    },
+    Sebastian: {
+      Notehead_X_Quarter: ['MCCLCCLCCCLCCLCCCLCCLCCCLCCLC'],
+      Notehead_X_Half: ['MLLLLLLLLLLLLMLLLLLLLLLLLL'],
+      Notehead_X_Whole: ['MLLLCLLLLLLLLMLLLLLLLLLLLL'],
+      Notehead_X_DoubleWhole: ['MCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCLMLLLLLLLLLLLLMLLLMLLL'],
+    },
+  };
+
+  expect(
+    Object.fromEntries(
+      Object.keys(expectedSignatures).map((fontName) => [
+        fontName,
+        {
+          Notehead_X_Quarter: musicFontRegistry[fontName]?.noteheads?.Notehead_X_Quarter || null,
+          Notehead_X_Half: musicFontRegistry[fontName]?.noteheads?.Notehead_X_Half || null,
+          Notehead_X_Whole: musicFontRegistry[fontName]?.noteheads?.Notehead_X_Whole || null,
+          Notehead_X_DoubleWhole: musicFontRegistry[fontName]?.noteheads?.Notehead_X_DoubleWhole || null,
+        },
       ])
     )
   ).toEqual(expectedSignatures);
@@ -574,6 +782,109 @@ test('extracts the timeline pipeline into a dedicated feature module', async () 
   expect(appSource).toContain('createTimelineFeature');
 });
 
+test('rebuilds score ticks with the imported midi ppq even when svg is loaded first', async ({ page }) => {
+  const svgUpload = {
+    name: 'ppq-order-regression.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildMinimalTwoBarSvgBuffer(),
+  };
+  const midiUpload = {
+    name: 'ppq-960-tempo-change.mid',
+    mimeType: 'audio/midi',
+    buffer: buildPpq960TempoChangeMidiBuffer(),
+  };
+
+  const captureDurationForOrder = async (order) => {
+    await page.goto('/index.html');
+    await preserveImportedSvgDuringSmoke(page);
+
+    if (order === 'svg-first') {
+      await page.setInputFiles('#svgInput', svgUpload);
+      await expect.poll(async () => page.evaluate(() => {
+        const svg = document.querySelector('#svg-sandbox svg');
+        return svg ? svg.querySelectorAll('*').length : 0;
+      })).toBeGreaterThan(0);
+      await page.setInputFiles('#midiInput', midiUpload);
+    } else {
+      await page.setInputFiles('#midiInput', midiUpload);
+      await page.setInputFiles('#svgInput', svgUpload);
+      await expect.poll(async () => page.evaluate(() => {
+        const svg = document.querySelector('#svg-sandbox svg');
+        return svg ? svg.querySelectorAll('*').length : 0;
+      })).toBeGreaterThan(0);
+    }
+
+    let state = null;
+    await expect.poll(async () => {
+      state = await page.evaluate(() => ({
+        exportEnd: document.getElementById('exportEndInput')?.value || '',
+        durationText: document.getElementById('durationDisplay')?.textContent?.trim() || '',
+      }));
+
+      return state.exportEnd;
+    }, {
+      message: `waiting for ${order} tempo remap to settle`,
+    }).toBe('8.00');
+
+    return state;
+  };
+
+  const svgFirst = await captureDurationForOrder('svg-first');
+  const midiFirst = await captureDurationForOrder('midi-first');
+
+  expect(svgFirst.exportEnd).toBe('8.00');
+  expect(midiFirst.exportEnd).toBe('8.00');
+  expect(svgFirst.durationText).toBe('/ 8.00 s');
+  expect(midiFirst.durationText).toBe('/ 8.00 s');
+});
+
+test('rebuilds score ticks after svg analysis has already cleared the sandbox', async ({ page }) => {
+  const svgUpload = {
+    name: 'ppq-order-regression.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildMinimalTwoBarSvgBuffer(),
+  };
+  const midiUpload = {
+    name: 'ppq-960-tempo-change.mid',
+    mimeType: 'audio/midi',
+    buffer: buildPpq960TempoChangeMidiBuffer(),
+  };
+
+  await page.goto('/index.html');
+  await page.setInputFiles('#svgInput', svgUpload);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const countText = document.getElementById('barlineCount')?.textContent?.trim() || '0';
+    return Number.parseInt(countText, 10) || 0;
+  }), {
+    message: 'waiting for svg analysis to finish',
+  }).toBeGreaterThan(0);
+
+  await expect.poll(async () => page.evaluate(() => {
+    return document.querySelector('#svg-sandbox svg') ? 'present' : 'cleared';
+  }), {
+    message: 'waiting for svg sandbox to clear after analysis',
+  }).toBe('cleared');
+
+  await page.setInputFiles('#midiInput', midiUpload);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => ({
+      exportEnd: document.getElementById('exportEndInput')?.value || '',
+      durationText: document.getElementById('durationDisplay')?.textContent?.trim() || '',
+    }));
+
+    return state.exportEnd;
+  }, {
+    message: 'waiting for midi ppq remap after sandbox cleanup',
+  }).toBe('8.00');
+
+  expect(state).not.toBeNull();
+  expect(state.exportEnd).toBe('8.00');
+  expect(state.durationText).toBe('/ 8.00 s');
+});
+
 test('extracts svg preprocessing and render-queue analysis into a dedicated feature module', async () => {
   const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
   const svgAnalysisModulePath = path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js');
@@ -760,6 +1071,693 @@ test('exports numbered png frames through the directory access api', async ({ pa
   expect(frameWrites[1]).toMatchObject({ fileName: 'frame_000002.png', mime: 'image/png' });
 });
 
+test('prefers local file streaming targets for mp4 export when file system access is available', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const exportResult = await page.evaluate(async () => {
+    const { createExportVideoFeature } = await import('/scripts/features/export-video.js');
+
+    /** @type {Array<string>} */
+    const targetKinds = [];
+    let downloadClicks = 0;
+    let pickerCalls = 0;
+
+    /** @type {HTMLCanvasElement} */
+    let canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+
+    /** @type {CanvasRenderingContext2D | null} */
+    let ctx = canvas.getContext('2d');
+    let cancelVideoExport = false;
+    let cachedViewportWidth = 800;
+    let globalZoom = 1;
+    let smoothState = { playbackSimTime: 0, smoothVx: 0, smoothX: 0 };
+
+    const OriginalVideoEncoder = window.VideoEncoder;
+    const OriginalVideoFrame = window.VideoFrame;
+    const OriginalMp4Muxer = window.Mp4Muxer;
+    const OriginalShowSaveFilePicker = window.showSaveFilePicker;
+    const OriginalFileSystemWritableFileStream = window.FileSystemWritableFileStream;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+
+    class FakeWritableStream {}
+
+    class FakeVideoEncoder {
+      constructor({ output }) {
+        this.output = output;
+        this.encodeQueueSize = 0;
+      }
+      configure() {}
+      encode() {
+        this.encodeQueueSize += 1;
+        this.output({ byteLength: 4 }, {});
+        this.encodeQueueSize -= 1;
+      }
+      async flush() {}
+      close() {}
+    }
+
+    class FakeVideoFrame {
+      constructor() {}
+      close() {}
+    }
+
+    class FakeArrayBufferTarget {
+      constructor() {
+        this.kind = 'array-buffer';
+        this.buffer = new Uint8Array([1, 2, 3]).buffer;
+      }
+    }
+
+    class FakeFileSystemWritableFileStreamTarget {
+      constructor(stream) {
+        this.kind = 'file-system';
+        this.stream = stream;
+      }
+    }
+
+    class FakeMuxer {
+      constructor(options) {
+        this.target = options.target;
+        targetKinds.push(options.target.kind);
+      }
+      addVideoChunk() {}
+      addAudioChunk() {}
+      finalize() {}
+    }
+
+    window.FileSystemWritableFileStream = FakeWritableStream;
+    window.VideoEncoder = FakeVideoEncoder;
+    window.VideoFrame = FakeVideoFrame;
+    window.Mp4Muxer = {
+      ArrayBufferTarget: FakeArrayBufferTarget,
+      FileSystemWritableFileStreamTarget: FakeFileSystemWritableFileStreamTarget,
+      Muxer: FakeMuxer,
+    };
+    window.showSaveFilePicker = async () => {
+      pickerCalls += 1;
+      return {
+        async createWritable() {
+          return new FakeWritableStream();
+        },
+      };
+    };
+    URL.createObjectURL = () => 'blob:fake';
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function click() {
+      downloadClicks += 1;
+    };
+
+    const exportModal = document.createElement('div');
+    const exportModalTitle = document.createElement('div');
+    const exportProgressBar = document.createElement('div');
+    const exportProgressText = document.createElement('div');
+    const cancelExportBtn = document.createElement('button');
+    const playBtn = document.createElement('button');
+    const viewportEl = document.createElement('div');
+    Object.defineProperty(viewportEl, 'clientWidth', { configurable: true, value: 800 });
+
+    const dom = {
+      cancelExportBtn,
+      exportEndInput: null,
+      exportFpsSelect: null,
+      exportModal,
+      exportModalTitle,
+      exportProgressBar,
+      exportProgressText,
+      exportRatioSelect: null,
+      exportResSelect: null,
+      exportStartInput: null,
+      playBtn,
+      viewportEl,
+    };
+
+    const feature = createExportVideoFeature({
+      dom,
+      getAudioOffsetSec: () => 0,
+      getCachedViewportWidth: () => cachedViewportWidth,
+      getCanvas: () => canvas,
+      getCancelVideoExport: () => cancelVideoExport,
+      getCtx: () => ctx,
+      getGlobalAudioFile: () => null,
+      getGlobalScoreHeight: () => 320,
+      getGlobalZoom: () => globalZoom,
+      getInterpolatedXByTime: (timeSec) => ({ x: timeSec * 100, index: 0, atEnd: false }),
+      getIsPlaying: () => false,
+      getPlaybackGainByTime: () => 1,
+      getSmoothedTargetVelocityByTime: () => 0,
+      getSmoothState: () => smoothState,
+      getTotalDuration: () => 1,
+      renderCanvas: () => {},
+      resizeCanvas: () => {},
+      setCachedViewportWidth: (width) => {
+        cachedViewportWidth = width;
+      },
+      setCanvas: (nextCanvas) => {
+        canvas = nextCanvas;
+      },
+      setCancelVideoExport: (cancelled) => {
+        cancelVideoExport = cancelled;
+      },
+      setCtx: (nextCtx) => {
+        ctx = nextCtx;
+      },
+      setGlobalZoom: (zoom) => {
+        globalZoom = zoom;
+      },
+      setIsExportingVideoMode: () => {},
+      setSmoothState: (nextState) => {
+        smoothState = nextState;
+      },
+    });
+
+    try {
+      await feature.exportHighQualityVideo(640, 2, '16:9', 0, 1);
+      return {
+        targetKinds,
+        pickerCalls,
+        downloadClicks,
+      };
+    } finally {
+      window.VideoEncoder = OriginalVideoEncoder;
+      window.VideoFrame = OriginalVideoFrame;
+      window.Mp4Muxer = OriginalMp4Muxer;
+      window.showSaveFilePicker = OriginalShowSaveFilePicker;
+      window.FileSystemWritableFileStream = OriginalFileSystemWritableFileStream;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalAnchorClick;
+    }
+  });
+
+  expect(exportResult.pickerCalls).toBe(1);
+  expect(exportResult.targetKinds).toEqual(['file-system']);
+  expect(exportResult.downloadClicks).toBe(0);
+});
+
+test('falls back to in-memory mp4 export when local file streaming is unavailable', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const exportResult = await page.evaluate(async () => {
+    const { createExportVideoFeature } = await import('/scripts/features/export-video.js');
+
+    /** @type {Array<string>} */
+    const targetKinds = [];
+    let downloadClicks = 0;
+
+    /** @type {HTMLCanvasElement} */
+    let canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+
+    /** @type {CanvasRenderingContext2D | null} */
+    let ctx = canvas.getContext('2d');
+    let cancelVideoExport = false;
+    let cachedViewportWidth = 800;
+    let globalZoom = 1;
+    let smoothState = { playbackSimTime: 0, smoothVx: 0, smoothX: 0 };
+
+    const OriginalVideoEncoder = window.VideoEncoder;
+    const OriginalVideoFrame = window.VideoFrame;
+    const OriginalMp4Muxer = window.Mp4Muxer;
+    const OriginalShowSaveFilePicker = window.showSaveFilePicker;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+
+    class FakeVideoEncoder {
+      constructor({ output }) {
+        this.output = output;
+        this.encodeQueueSize = 0;
+      }
+      configure() {}
+      encode() {
+        this.encodeQueueSize += 1;
+        this.output({ byteLength: 4 }, {});
+        this.encodeQueueSize -= 1;
+      }
+      async flush() {}
+      close() {}
+    }
+
+    class FakeVideoFrame {
+      constructor() {}
+      close() {}
+    }
+
+    class FakeArrayBufferTarget {
+      constructor() {
+        this.kind = 'array-buffer';
+        this.buffer = new Uint8Array([1, 2, 3]).buffer;
+      }
+    }
+
+    class FakeFileSystemWritableFileStreamTarget {
+      constructor(stream) {
+        this.kind = 'file-system';
+        this.stream = stream;
+      }
+    }
+
+    class FakeMuxer {
+      constructor(options) {
+        this.target = options.target;
+        targetKinds.push(options.target.kind);
+      }
+      addVideoChunk() {}
+      addAudioChunk() {}
+      finalize() {
+        if (!this.target.buffer) {
+          this.target.buffer = new Uint8Array([1, 2, 3]).buffer;
+        }
+      }
+    }
+
+    delete window.showSaveFilePicker;
+    window.VideoEncoder = FakeVideoEncoder;
+    window.VideoFrame = FakeVideoFrame;
+    window.Mp4Muxer = {
+      ArrayBufferTarget: FakeArrayBufferTarget,
+      FileSystemWritableFileStreamTarget: FakeFileSystemWritableFileStreamTarget,
+      Muxer: FakeMuxer,
+    };
+    URL.createObjectURL = () => 'blob:fake';
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function click() {
+      downloadClicks += 1;
+    };
+
+    const exportModal = document.createElement('div');
+    const exportModalTitle = document.createElement('div');
+    const exportProgressBar = document.createElement('div');
+    const exportProgressText = document.createElement('div');
+    const cancelExportBtn = document.createElement('button');
+    const playBtn = document.createElement('button');
+    const viewportEl = document.createElement('div');
+    Object.defineProperty(viewportEl, 'clientWidth', { configurable: true, value: 800 });
+
+    const dom = {
+      cancelExportBtn,
+      exportEndInput: null,
+      exportFpsSelect: null,
+      exportModal,
+      exportModalTitle,
+      exportProgressBar,
+      exportProgressText,
+      exportRatioSelect: null,
+      exportResSelect: null,
+      exportStartInput: null,
+      playBtn,
+      viewportEl,
+    };
+
+    const feature = createExportVideoFeature({
+      dom,
+      getAudioOffsetSec: () => 0,
+      getCachedViewportWidth: () => cachedViewportWidth,
+      getCanvas: () => canvas,
+      getCancelVideoExport: () => cancelVideoExport,
+      getCtx: () => ctx,
+      getGlobalAudioFile: () => null,
+      getGlobalScoreHeight: () => 320,
+      getGlobalZoom: () => globalZoom,
+      getInterpolatedXByTime: (timeSec) => ({ x: timeSec * 100, index: 0, atEnd: false }),
+      getIsPlaying: () => false,
+      getPlaybackGainByTime: () => 1,
+      getSmoothedTargetVelocityByTime: () => 0,
+      getSmoothState: () => smoothState,
+      getTotalDuration: () => 1,
+      renderCanvas: () => {},
+      resizeCanvas: () => {},
+      setCachedViewportWidth: (width) => {
+        cachedViewportWidth = width;
+      },
+      setCanvas: (nextCanvas) => {
+        canvas = nextCanvas;
+      },
+      setCancelVideoExport: (cancelled) => {
+        cancelVideoExport = cancelled;
+      },
+      setCtx: (nextCtx) => {
+        ctx = nextCtx;
+      },
+      setGlobalZoom: (zoom) => {
+        globalZoom = zoom;
+      },
+      setIsExportingVideoMode: () => {},
+      setSmoothState: (nextState) => {
+        smoothState = nextState;
+      },
+    });
+
+    try {
+      await feature.exportHighQualityVideo(640, 2, '16:9', 0, 1);
+      return {
+        targetKinds,
+        downloadClicks,
+      };
+    } finally {
+      window.VideoEncoder = OriginalVideoEncoder;
+      window.VideoFrame = OriginalVideoFrame;
+      window.Mp4Muxer = OriginalMp4Muxer;
+      window.showSaveFilePicker = OriginalShowSaveFilePicker;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalAnchorClick;
+    }
+  });
+
+  expect(exportResult.targetKinds).toEqual(['array-buffer']);
+  expect(exportResult.downloadClicks).toBe(1);
+});
+
+test('keeps the desktop preview height aligned with the control column across export ratio changes', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'preview-height.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildMinimalTwoBarSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+
+  const previewState = await page.evaluate(() => {
+    const ratioSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportRatioSelect'));
+    const controlStack = /** @type {HTMLElement | null} */ (document.querySelector('.control-stack'));
+    const resSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportResSelect'));
+    const viewport = /** @type {HTMLElement | null} */ (document.getElementById('viewport'));
+    if (!ratioSelect || !resSelect || !viewport || !controlStack) return null;
+
+    ratioSelect.value = '4:3';
+    ratioSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    resSelect.value = '2560';
+    resSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+    return {
+      controlHeight: controlStack.offsetHeight,
+      viewportHeight: viewport.offsetHeight,
+    };
+  });
+
+  expect(previewState).not.toBeNull();
+  expect(previewState.viewportHeight).toBe(previewState.controlHeight);
+});
+
+test('adapts the desktop preview width when export ratio changes', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'preview-width.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildMinimalTwoBarSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+
+  const previewWidths = await page.evaluate(() => {
+    const ratioSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportRatioSelect'));
+    const viewport = /** @type {HTMLElement | null} */ (document.getElementById('viewport'));
+    if (!ratioSelect || !viewport) return null;
+
+    ratioSelect.value = '4:3';
+    ratioSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const width43 = viewport.offsetWidth;
+    const height43 = viewport.offsetHeight;
+
+    ratioSelect.value = '9:16';
+    ratioSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const width916 = viewport.offsetWidth;
+    const height916 = viewport.offsetHeight;
+
+    return {
+      height43,
+      height916,
+      width43,
+      width916,
+    };
+  });
+
+  expect(previewWidths).not.toBeNull();
+  expect(previewWidths.height43).toBe(previewWidths.height916);
+  expect(previewWidths.width43).toBeGreaterThan(previewWidths.width916);
+});
+
+test('wires export resolution and ratio changes into desktop preview-frame syncing', async () => {
+  const uiEventsSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'ui-events.js'), 'utf8');
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(uiEventsSource).toContain('dom.exportRatioSelect?.addEventListener("change", handleExportRatioChange);');
+  expect(uiEventsSource).toContain('dom.exportResSelect?.addEventListener("change", handleExportResolutionChange);');
+  expect(appSource).toContain('syncDesktopPreviewFrame()');
+});
+
+test('adds an independent sticky lock slider beneath the scanline control', async () => {
+  const htmlSource = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8');
+  const domSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'core', 'dom.js'), 'utf8');
+  const stateSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'core', 'state.js'), 'utf8');
+
+  expect(htmlSource).toContain('吸顶位置');
+  expect(htmlSource).toContain('id="stickyLockRatioSlider"');
+  expect(domSource).toContain('stickyLockRatioSlider');
+  expect(domSource).toContain('stickyLockRatioVal');
+  expect(stateSource).toContain('stickyLockRatio');
+});
+
+test('uses separate horizontal ratios for the scanline and sticky lock onset column', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const uiEventsSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'ui-events.js'), 'utf8');
+
+  expect(appSource).toContain('const playlineScreenX = cachedViewportWidth * playlineRatio;');
+  expect(appSource).toContain('const stickyLockScreenX = cachedViewportWidth * stickyLockRatio;');
+  expect(appSource).toContain('const stickyLockOffset = stickyLockScreenX / globalZoom;');
+  expect(appSource).toContain('const maxStickySmoothX_initial = worldDistanceLeft + stickyMinX - stickyLockOffset;');
+  expect(appSource).not.toContain("ctx.translate(stickyScreenX, centerY)");
+  expect(uiEventsSource).toContain('dom.stickyLockRatioSlider?.addEventListener("input", handleStickyLockRatioInput);');
+});
+
+test('fills Light-theme MP4 export frames with the active background color', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'light-export.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildMinimalTwoBarSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+
+  const exportPixel = await page.evaluate(async () => {
+    /** @type {number[] | null} */
+    let capturedPixel = null;
+
+    const OriginalVideoEncoder = window.VideoEncoder;
+    const OriginalVideoFrame = window.VideoFrame;
+    const OriginalMp4Muxer = window.Mp4Muxer;
+    const OriginalShowSaveFilePicker = window.showSaveFilePicker;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+    const originalAlert = window.alert;
+
+    class FakeVideoFrame {
+      constructor(source) {
+        this.source = source;
+      }
+      close() {}
+    }
+
+    class FakeVideoEncoder {
+      constructor({ output }) {
+        this.output = output;
+        this.encodeQueueSize = 0;
+      }
+      configure() {}
+      encode(frame) {
+        if (!capturedPixel && frame?.source?.getContext) {
+          capturedPixel = Array.from(frame.source.getContext('2d').getImageData(2, 2, 1, 1).data);
+        }
+        this.output({ byteLength: 4 }, {});
+      }
+      async flush() {}
+      close() {}
+    }
+
+    class FakeArrayBufferTarget {
+      constructor() {
+        this.kind = 'array-buffer';
+        this.buffer = new Uint8Array([1, 2, 3]).buffer;
+      }
+    }
+
+    class FakeMuxer {
+      constructor(options) {
+        this.target = options.target;
+      }
+      addVideoChunk() {}
+      addAudioChunk() {}
+      finalize() {
+        if (!this.target.buffer) {
+          this.target.buffer = new Uint8Array([1, 2, 3]).buffer;
+        }
+      }
+    }
+
+    delete window.showSaveFilePicker;
+    window.alert = () => {};
+    window.VideoEncoder = FakeVideoEncoder;
+    window.VideoFrame = FakeVideoFrame;
+    window.Mp4Muxer = {
+      ArrayBufferTarget: FakeArrayBufferTarget,
+      FileSystemWritableFileStreamTarget: class {},
+      Muxer: FakeMuxer,
+    };
+    URL.createObjectURL = () => 'blob:fake';
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function click() {};
+
+    try {
+      document.getElementById('themeLightBtn')?.click();
+      const exportFpsSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportFpsSelect'));
+      const exportStartInput = /** @type {HTMLInputElement | null} */ (document.getElementById('exportStartInput'));
+      const exportEndInput = /** @type {HTMLInputElement | null} */ (document.getElementById('exportEndInput'));
+      if (exportFpsSelect) exportFpsSelect.value = '30';
+      if (exportStartInput) exportStartInput.value = '0';
+      if (exportEndInput) exportEndInput.value = '0.04';
+
+      document.getElementById('exportVideoBtn')?.click();
+
+      const started = performance.now();
+      while (!capturedPixel && performance.now() - started < 3000) {
+        await new Promise((resolve) => setTimeout(resolve, 16));
+      }
+
+      return capturedPixel;
+    } finally {
+      window.VideoEncoder = OriginalVideoEncoder;
+      window.VideoFrame = OriginalVideoFrame;
+      window.Mp4Muxer = OriginalMp4Muxer;
+      window.showSaveFilePicker = OriginalShowSaveFilePicker;
+      window.alert = originalAlert;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalAnchorClick;
+    }
+  });
+
+  expect(exportPixel).not.toBeNull();
+  expect(exportPixel[0]).toBeGreaterThan(200);
+  expect(exportPixel[1]).toBeGreaterThan(200);
+  expect(exportPixel[2]).toBeGreaterThan(200);
+});
+
+test('detects boxed and bare rehearsal marks as sticky candidates', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'rehearsal-mark-sticky.svg');
+  const svgAnalysisSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js'), 'utf8');
+  await loadFixtureIntoScore(page, fixturePath);
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox .highlight-rehearsalmark').length), {
+    message: 'waiting for rehearsal-mark detection to finish',
+  }).toBeGreaterThanOrEqual(4);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const texts = Array.from(svg.querySelectorAll('text'))
+      .filter((el) => ['A', 'AA', 'AB', 'AC'].includes((el.textContent || '').trim()))
+      .map((el) => ({
+        text: (el.textContent || '').trim(),
+        classes: el.className?.baseVal || '',
+      }));
+
+    return {
+      texts,
+      rehearsalClasses: Array.from(svg.querySelectorAll('.highlight-rehearsalmark')).length,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(svgAnalysisSource).toContain('RehearsalMark: "reh"');
+  expect(state.rehearsalClasses).toBeGreaterThanOrEqual(4);
+  expect(state.texts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ text: 'A', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'AA', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'AB', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'AC', classes: expect.stringContaining('highlight-rehearsalmark') }),
+  ]));
+});
+
+test('threads rehearsal marks into sticky lane replacement order', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'rehearsal-mark-sticky.svg');
+  const svgAnalysisSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js'), 'utf8');
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  await loadFixtureIntoScore(page, fixturePath);
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox .highlight-rehearsalmark').length), {
+    message: 'waiting for rehearsal-mark highlight classes',
+  }).toBeGreaterThanOrEqual(4);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+    return Array.from(svg.querySelectorAll('.highlight-rehearsalmark')).map((el) => el.tagName.toLowerCase());
+  });
+
+  expect(state).not.toBeNull();
+  expect(state).toEqual(expect.arrayContaining(['text']));
+  expect(state).toEqual(expect.arrayContaining(['path', 'circle']));
+  expect(svgAnalysisSource).toContain('const itemsByType = { inst: [], reh: [], clef: [], key: [], time: [], bar: [], brace: [] };');
+  expect(svgAnalysisSource).toContain('["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {');
+  expect(appSource).toContain("activeIdx[laneId] = { inst: -1, reh: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };");
+});
+
+test('keeps tightly enclosed Dorico rehearsal-mark frames attached to their letters', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'rehearsal-mark-tight-box.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return false;
+
+    const text = Array.from(svg.querySelectorAll('text')).find((el) => (el.textContent || '').trim() === 'C');
+    const rect = svg.querySelector('rect[x="138.54"]');
+    const linkedPaths = Array.from(svg.querySelectorAll('path')).filter((el) => (
+      (el.getAttribute('d') || '').includes('M138.54,22.6066')
+    ));
+
+    return (
+      (text?.className?.baseVal || '').includes('highlight-rehearsalmark')
+      && (rect?.className?.baseVal || '').includes('highlight-rehearsalmark')
+      && linkedPaths.some((el) => (el.className?.baseVal || '').includes('highlight-rehearsalmark'))
+    );
+  }), {
+    message: 'waiting for tightly boxed rehearsal-mark frame to be linked',
+  }).toBe(true);
+});
+
+test('uses shared sticky fade scheduling outside active playback', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).toContain('let stickyTransitionFrameId = 0;');
+  expect(appSource).toContain('function scheduleStickyTransitionFrame(currentX)');
+  expect(appSource).toMatch(/isPlaying\s*\|\|\s*isExportingVideoMode\s*\|\|\s*stickyTransitionPending/);
+  expect(appSource).toMatch(/if \(!isPlaying && !isExportingVideoMode\) \{\s*if \(stickyNeedsFollowupFrame\) scheduleStickyTransitionFrame\(currentX\);/);
+  expect(appSource).toMatch(/function startPlayback\(\) \{\s*if \(isPlaying \|\| mapData.length < 2\) return;\s*cancelStickyTransitionFrame\(\);/);
+});
+
 test('gates debug instrumentation behind a shared debug logger', async () => {
   const debugModulePath = path.resolve(__dirname, '..', 'scripts', 'utils', 'debug.js');
 
@@ -823,33 +1821,45 @@ test('keeps stacked opening time signatures while rejecting short stems and isol
     return svg ? svg.querySelectorAll('text').length : 0;
   })).toBeGreaterThan(0);
 
-  const detectionState = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    if (!svg) return null;
+  let detectionState = null;
+  await expect.poll(async () => {
+    detectionState = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
 
-    const openingFours = Array.from(svg.querySelectorAll('text'))
-      .filter((el) => (el.textContent || '').trim() === '')
-      .map((el) => ({
-        text: (el.textContent || '').trim(),
-        classes: el.className.baseVal || '',
-      }));
+      const openingFours = Array.from(svg.querySelectorAll('text'))
+        .filter((el) => (el.textContent || '').trim() === '')
+        .map((el) => ({
+          text: (el.textContent || '').trim(),
+          classes: el.className.baseVal || '',
+        }));
 
-    const isolatedTwo = Array.from(svg.querySelectorAll('text'))
-      .find((el) => (el.textContent || '').trim() === '');
+      const isolatedTwo = Array.from(svg.querySelectorAll('text'))
+        .find((el) => (el.textContent || '').trim() === '');
 
-    const shortStem = Array.from(svg.querySelectorAll('line, polyline'))
-      .find((el) => el.getAttribute('points') === '88,100 88,113');
+      const shortStem = Array.from(svg.querySelectorAll('line, polyline'))
+        .find((el) => el.getAttribute('points') === '88,100 88,113');
 
-    const openingBarline = Array.from(svg.querySelectorAll('line, polyline'))
-      .find((el) => el.getAttribute('x1') === '60' && el.getAttribute('x2') === '60');
+      const openingBarline = Array.from(svg.querySelectorAll('line, polyline'))
+        .find((el) => el.getAttribute('x1') === '60' && el.getAttribute('x2') === '60');
 
-    return {
-      openingFours,
-      isolatedTwoClasses: isolatedTwo?.className?.baseVal || '',
-      shortStemClasses: shortStem?.className?.baseVal || '',
-      openingBarlineClasses: openingBarline?.className?.baseVal || '',
-    };
-  });
+      return {
+        openingFours,
+        isolatedTwoClasses: isolatedTwo?.className?.baseVal || '',
+        shortStemClasses: shortStem?.className?.baseVal || '',
+        openingBarlineClasses: openingBarline?.className?.baseVal || '',
+      };
+    });
+
+    return Boolean(
+      detectionState &&
+      detectionState.openingFours.length === 2 &&
+      detectionState.openingFours.every((item) => item.classes.includes('highlight-timesig')) &&
+      detectionState.openingBarlineClasses.includes('highlight-barline')
+    );
+  }, {
+    message: 'waiting for stacked Sebastian opening time signatures to be classified',
+  }).toBe(true);
 
   expect(detectionState).not.toBeNull();
   expect(detectionState.openingFours).toHaveLength(2);
@@ -1395,18 +2405,31 @@ test('keeps Finale Ash opening time signatures decoded into the timeline', async
   const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-single-staff.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    const highlighted = Array.from(svg.querySelectorAll('text.highlight-timesig'))
-      .map((el) => (el.textContent || '').trim());
-    const display = document.getElementById('timeSigDisplay');
-    const color = display ? window.getComputedStyle(display).color : '';
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      const highlighted = Array.from(svg.querySelectorAll('text.highlight-timesig'))
+        .map((el) => (el.textContent || '').trim());
+      const display = document.getElementById('timeSigDisplay');
+      const color = display ? window.getComputedStyle(display).color : '';
+
+      return {
+        highlighted,
+        displayText: display?.textContent?.trim() || '',
+        displayColor: color,
+      };
+    });
 
     return {
-      highlighted,
-      displayText: display?.textContent?.trim() || '',
-      displayColor: color,
+      highlighted: state?.highlighted || [],
+      displayText: state?.displayText || '',
     };
+  }, {
+    message: 'waiting for Finale Ash opening time signatures to be highlighted',
+  }).toEqual({
+    highlighted: ['', ''],
+    displayText: '4/4',
   });
 
   expect(state.highlighted).toEqual(['', '']);
@@ -1418,32 +2441,45 @@ test('recognizes visually giant opening Bravura time signatures before later met
   const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-single-staff-bravura.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    const highlighted = Array.from(svg.querySelectorAll('text.highlight-timesig'))
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        return {
-          text: (el.textContent || '').trim(),
-          token: el.getAttribute('data-time-sig-token') || '',
-          left: rect.left,
-        };
-      })
-      .sort((a, b) => a.left - b.left);
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      const highlighted = Array.from(svg.querySelectorAll('text.highlight-timesig'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            text: (el.textContent || '').trim(),
+            token: el.getAttribute('data-time-sig-token') || '',
+            left: rect.left,
+          };
+        })
+        .sort((a, b) => a.left - b.left);
 
-    const display = document.getElementById('timeSigDisplay');
-    const color = display ? window.getComputedStyle(display).color : '';
+      const display = document.getElementById('timeSigDisplay');
+      const color = display ? window.getComputedStyle(display).color : '';
+
+      return {
+        highlighted,
+        displayText: display?.textContent?.trim() || '',
+        displayColor: color,
+      };
+    });
 
     return {
-      highlighted,
-      displayText: display?.textContent?.trim() || '',
-      displayColor: color,
+      highlightedCount: state?.highlighted.length || 0,
+      firstToken: state?.highlighted[0]?.token || '',
+      secondToken: state?.highlighted[1]?.token || '',
+      displayText: state?.displayText || '',
     };
+  }, {
+    message: 'waiting for giant Bravura opening time signatures to be highlighted',
+  }).toEqual({
+    highlightedCount: 2,
+    firstToken: '4',
+    secondToken: '4',
+    displayText: '4/4',
   });
-
-  expect(state.highlighted.length).toBeGreaterThanOrEqual(2);
-  expect(state.highlighted[0].token).toBe('4');
-  expect(state.highlighted[1].token).toBe('4');
   expect(state.displayText).toBe('4/4');
   expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
 });
@@ -1569,37 +2605,52 @@ test('keeps piano upper-staff measure-23 key-signature sharps separate from late
   const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20251227_长城谣/Scores/01 - Full score - 长城谣 - 001 (1).svg';
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    if (!svg) return null;
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
 
-    const sharpSignature = 'MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL';
-    const sharps = Array.from(svg.querySelectorAll('path')).map((el) => {
-      const rect = el.getBoundingClientRect();
+      const sharpSignature = 'MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL';
+      const sharps = Array.from(svg.querySelectorAll('path')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+          classes: el.className?.baseVal || '',
+          left: rect.left,
+          top: rect.top,
+        };
+      }).filter((item) => item.signature === sharpSignature);
+
+      const openingSharps = sharps
+        .filter((item) => item.left >= 5228 && item.left <= 5238)
+        .sort((a, b) => a.top - b.top);
+
+      const laterPianoUpperAccidental = sharps.find((item) => (
+        item.left >= 5248 &&
+        item.left <= 5258 &&
+        item.top >= -9538 &&
+        item.top <= -9496
+      )) || null;
+
       return {
-        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
-        classes: el.className?.baseVal || '',
-        left: rect.left,
-        top: rect.top,
+        openingSharps,
+        laterPianoUpperAccidental,
       };
-    }).filter((item) => item.signature === sharpSignature);
+    });
 
-    const openingSharps = sharps
-      .filter((item) => item.left >= 5228 && item.left <= 5238)
-      .sort((a, b) => a.top - b.top);
-
-    const laterPianoUpperAccidental = sharps.find((item) => (
-      item.left >= 5248 &&
-      item.left <= 5258 &&
-      item.top >= -9535 &&
-      item.top <= -9498
-    )) || null;
-
-    return {
-      openingSharps,
-      laterPianoUpperAccidental,
-    };
-  });
+    return Boolean(
+      state
+      && state.openingSharps.length === 3
+      && state.openingSharps.every((item) => item.classes.includes('highlight-keysig'))
+      && state.openingSharps.every((item) => !item.classes.includes('highlight-accidental'))
+      && state.laterPianoUpperAccidental
+      && state.laterPianoUpperAccidental.classes.includes('highlight-accidental')
+      && !state.laterPianoUpperAccidental.classes.includes('highlight-keysig')
+    );
+  }, {
+    message: 'waiting for Changchengyao measure-23 sharp cluster to separate from the later accidental',
+  }).toBe(true);
 
   expect(state).not.toBeNull();
   expect(state.openingSharps.length).toBe(3);
@@ -1614,40 +2665,58 @@ test('preserves Changchengyao mid-score key-signature clusters with note-adjacen
   const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20251227_长城谣/Scores/01 - Full score - 长城谣 - 001 (1).svg';
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    if (!svg) return null;
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
 
-    const summarizePaths = (signature, xMin, xMax, yMin, yMax) => Array.from(svg.querySelectorAll('path')).map((el) => {
-      const rect = el.getBoundingClientRect();
+      const summarizePaths = (signature, xMin, xMax) => Array.from(svg.querySelectorAll('path')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+          classes: el.className?.baseVal || '',
+          left: rect.left,
+        };
+      }).filter((item) => (
+        item.signature === signature
+        && item.left >= xMin
+        && item.left <= xMax
+      ));
+
       return {
-        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
-        classes: el.className?.baseVal || '',
-        left: rect.left,
-        top: rect.top,
+        regressedFlatKeySig: summarizePaths('MCCLCCCCCCCLMCCCCLC', 1598, 1628),
+        regressedSharpKeySig: summarizePaths('MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL', 2644, 2699),
+        flatSuffixAccidental: summarizePaths('MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL', 1638, 1648),
+        naturalSuffixAccidentals: summarizePaths('MLCCLLLLCLLLMCLLCLL', 1647, 1658)
+          .concat(summarizePaths('MLCCLLLLCLLLMCLLCLL', 2711, 2719)),
       };
-    }).filter((item) => (
-      item.signature === signature
-      && item.left >= xMin
-      && item.left <= xMax
-      && item.top >= yMin
-      && item.top <= yMax
-    ));
+    });
 
-    return {
-      regressedFlatKeySig: summarizePaths('MCCLCCCCCCCLMCCCCLC', 1598, 1623, -9545, -9510),
-      regressedSharpKeySig: summarizePaths('MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL', 2644, 2694, -9460, -9420),
-      flatSuffixAccidental: summarizePaths('MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL', 1638, 1648, -9515, -9485),
-      naturalSuffixAccidentals: summarizePaths('MLCCLLLLCLLLMCLLCLL', 1647, 1658, -9518, -9480)
-        .concat(summarizePaths('MLCCLLLLCLLLMCLLCLL', 2711, 2719, -9441, -9398)),
-    };
-  });
+    return Boolean(
+      state
+      && state.regressedFlatKeySig.length === 12
+      && state.regressedFlatKeySig.every((item) => item.classes.includes('highlight-keysig'))
+      && state.regressedFlatKeySig.every((item) => !item.classes.includes('highlight-accidental'))
+      && state.regressedSharpKeySig.length === 21
+      && state.regressedSharpKeySig.every((item) => item.classes.includes('highlight-keysig'))
+      && state.regressedSharpKeySig.every((item) => !item.classes.includes('highlight-accidental'))
+      && state.flatSuffixAccidental.length === 1
+      && state.flatSuffixAccidental[0].classes.includes('highlight-accidental')
+      && !state.flatSuffixAccidental[0].classes.includes('highlight-keysig')
+      && state.naturalSuffixAccidentals.length >= 4
+      && state.naturalSuffixAccidentals.every((item) => item.classes.includes('highlight-accidental'))
+      && state.naturalSuffixAccidentals.every((item) => !item.classes.includes('highlight-keysig'))
+    );
+  }, {
+    message: 'waiting for Changchengyao mid-score key signatures and suffix accidentals to settle',
+  }).toBe(true);
 
   expect(state).not.toBeNull();
-  expect(state.regressedFlatKeySig).toHaveLength(4);
+  expect(state.regressedFlatKeySig).toHaveLength(12);
   expect(state.regressedFlatKeySig.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
   expect(state.regressedFlatKeySig.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
-  expect(state.regressedSharpKeySig).toHaveLength(7);
+  expect(state.regressedSharpKeySig).toHaveLength(21);
   expect(state.regressedSharpKeySig.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
   expect(state.regressedSharpKeySig.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
   expect(state.flatSuffixAccidental).toHaveLength(1);
@@ -1728,46 +2797,58 @@ test('recognizes Wu Zetian opening percussion clefs and fragmented opening time 
   const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20241227_武则天/Scores/04 - Full Score - Concert Pitch - 武则天 - 001.svg';
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    if (!svg) return null;
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
 
-    const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline')).map((el) => {
-      const rect = el.getBoundingClientRect();
-      return (rect.left + rect.right) / 2;
-    }).filter(Number.isFinite).sort((a, b) => a - b);
-    const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
+      const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return (rect.left + rect.right) / 2;
+      }).filter(Number.isFinite).sort((a, b) => a - b);
+      const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
 
-    const openingPercussionClefs = Array.from(svg.querySelectorAll('path')).map((el) => {
-      const rect = el.getBoundingClientRect();
+      const openingPercussionClefs = Array.from(svg.querySelectorAll('path')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+          classes: el.className?.baseVal || '',
+          left: rect.left,
+        };
+      }).filter((item) => (
+        item.signature === 'MLLLLMLLLL' &&
+        item.left >= systemStartX - 2 &&
+        item.left <= systemStartX + 8
+      ));
+
+      const openingTimeSigs = Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          left: rect.left,
+          token: el.getAttribute('data-time-sig-token') || '',
+        };
+      }).filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 260);
+
+      const display = document.getElementById('timeSigDisplay');
+
       return {
-        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
-        classes: el.className?.baseVal || '',
-        left: rect.left,
+        openingPercussionClefs,
+        openingTimeSigs,
+        displayText: display?.textContent?.trim() || '',
+        displayColor: display ? getComputedStyle(display).color : '',
       };
-    }).filter((item) => (
-      item.signature === 'MLLLLMLLLL' &&
-      item.left >= systemStartX - 2 &&
-      item.left <= systemStartX + 8
-    ));
+    });
 
-    const openingTimeSigs = Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => {
-      const rect = el.getBoundingClientRect();
-      return {
-        left: rect.left,
-        token: el.getAttribute('data-time-sig-token') || '',
-      };
-    }).filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 260);
-
-    const display = document.getElementById('timeSigDisplay');
-
-    return {
-      openingPercussionClefs,
-      openingTimeSigs,
-      displayText: display?.textContent?.trim() || '',
-      displayColor: display ? getComputedStyle(display).color : '',
-    };
-  });
+    return Boolean(
+      state &&
+      state.openingPercussionClefs.length === 7 &&
+      state.openingTimeSigs.length > 0 &&
+      state.displayText === '4/4'
+    );
+  }, {
+    message: 'waiting for Wu Zetian opening percussion symbols to be classified',
+  }).toBe(true);
 
   expect(state).not.toBeNull();
   expect(state.openingPercussionClefs).toHaveLength(7);
@@ -1782,42 +2863,430 @@ test('does not treat tablature fingering digits as time signatures in Shounen no
   const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250826_少年的梦/Scores/02 - Score Rolling - 少年の夢 - 001.svg';
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    if (!svg) return null;
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
 
-    const tabDigitHighlights = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig')).map((el) => {
-      const rect = el.getBoundingClientRect();
-      const inheritedFontFamily = (() => {
-        let current = el;
-        while (current) {
-          const family = current.getAttribute?.('font-family');
-          if (family) return family;
-          current = current.parentElement;
-        }
-        return '';
-      })();
+      const tabDigitHighlights = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        const inheritedFontFamily = (() => {
+          let current = el;
+          while (current) {
+            const family = current.getAttribute?.('font-family');
+            if (family) return family;
+            current = current.parentElement;
+          }
+          return '';
+        })();
+
+        return {
+          text: (el.textContent || '').trim(),
+          left: rect.left,
+          top: rect.top,
+          fontFamily: inheritedFontFamily,
+        };
+      }).filter((item) => /[0-9]/.test(item.text) && /ounen-mouhitsu/i.test(item.fontFamily));
 
       return {
-        text: (el.textContent || '').trim(),
-        left: rect.left,
-        top: rect.top,
-        fontFamily: inheritedFontFamily,
+        barlineCount: document.getElementById('barlineCount')?.textContent?.trim() || '',
+        measureCount: document.getElementById('measureCount')?.textContent?.trim() || '',
+        displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+        tabDigitHighlights,
       };
-    }).filter((item) => /[0-9]/.test(item.text) && /ounen-mouhitsu/i.test(item.fontFamily));
+    });
 
-    return {
-      barlineCount: document.getElementById('barlineCount')?.textContent?.trim() || '',
-      measureCount: document.getElementById('measureCount')?.textContent?.trim() || '',
-      displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
-      tabDigitHighlights,
-    };
-  });
+    return Boolean(
+      Number(state?.barlineCount || 0) > 0 &&
+      Number(state?.measureCount || 0) > 0
+    );
+  }, {
+    message: 'waiting for Shounen no Yume tablature analysis to finish',
+  }).toBe(true);
 
   expect(state).not.toBeNull();
   expect(Number(state.barlineCount)).toBeGreaterThan(0);
   expect(Number(state.measureCount)).toBeGreaterThan(0);
   expect(state.tabDigitHighlights).toHaveLength(0);
+});
+
+test('recognizes opening tablature time signatures in the Shounen no Yume alternate export', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250826_少年的梦/Scores/02 - Score Rolling - 少年の夢 - 001 (1).svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const openingTimeSigs = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          token: el.getAttribute('data-time-sig-token') || '',
+          left: rect.left,
+          fontFamily: (() => {
+            let current = el;
+            while (current) {
+              const family = current.getAttribute?.('font-family');
+              if (family) return family;
+              current = current.parentElement;
+            }
+            return '';
+          })(),
+        };
+      }).filter((item) => (
+        item.left <= 900 &&
+        /ash/i.test(item.fontFamily)
+      ));
+
+      return {
+        displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+        openingTimeSigs,
+      };
+    });
+
+    return Boolean(
+      state &&
+      state.displayText === '4/4' &&
+      state.openingTimeSigs.length >= 2
+    );
+  }, {
+    timeout: 5000,
+    message: 'waiting for alternate Shounen no Yume tablature opening meter to classify',
+  }).toBe(true);
+
+  expect(state).not.toBeNull();
+  expect(state.displayText).toBe('4/4');
+  expect(state.openingTimeSigs.every((item) => item.token === '4')).toBe(true);
+});
+
+test('uses staff-kind-aware eligibility for time-signature bands', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).not.toContain('return Boolean(band && Array.isArray(band.lineYs) && band.lineYs.length === 5);');
+});
+
+test('recognizes opening tablature time signatures before fingering digits', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'tablature-opening-meter.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const openingMeterDigits = Array.from(svg.querySelectorAll('text.highlight-timesig')).map((el) => ({
+        text: (el.textContent || '').trim(),
+        x: el.getAttribute('x'),
+        y: el.getAttribute('y'),
+        token: el.getAttribute('data-time-sig-token') || '',
+      })).filter((item) => (
+        item.text === '4' &&
+        item.x === '126' &&
+        (item.y === '94' || item.y === '136')
+      ));
+
+      const fingeringHighlights = Array.from(svg.querySelectorAll('text.highlight-timesig')).map((el) => ({
+        text: (el.textContent || '').trim(),
+        x: el.getAttribute('x'),
+        y: el.getAttribute('y'),
+      })).filter((item) => (
+        item.x === '206' ||
+        item.x === '244' ||
+        item.x === '390' ||
+        item.x === '458' ||
+        item.x === '530'
+      ));
+
+      return {
+        openingMeterDigits,
+        fingeringHighlights,
+        displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+      };
+    });
+
+    return {
+      openingMeterCount: state?.openingMeterDigits.length || 0,
+      displayText: state?.displayText || '',
+    };
+  }, {
+    message: 'waiting for tablature opening time signatures to be classified',
+  }).toEqual({
+    openingMeterCount: 2,
+    displayText: '4/4',
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.openingMeterDigits).toHaveLength(2);
+  expect(state.openingMeterDigits.every((item) => item.token === '4')).toBe(true);
+  expect(state.fingeringHighlights).toHaveLength(0);
+  expect(state.displayText).toBe('4/4');
+});
+
+test('recognizes percussion time signatures for non-five-line staves', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20260309_qyy_遗失的钻戒/Scores/03 - Scroll - 遗失的钻戒 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const labelCenters = ['Triangle', 'Clash Cymbal', 'Suspended Cymbal', 'Mark Tree', 'Snare Drum', 'Bass Drum']
+        .map((label) => Array.from(svg.querySelectorAll('text')).find((el) => (el.textContent || '').trim() === label))
+        .filter(Boolean)
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return (rect.top + rect.bottom) / 2;
+        });
+
+      if (labelCenters.length === 0) {
+        return {
+          percussionTimeSigs: [],
+          displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+        };
+      }
+
+      const percussionTop = Math.min(...labelCenters) - 20;
+      const percussionBottom = Math.max(...labelCenters) + 20;
+      const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return (rect.left + rect.right) / 2;
+      }).filter(Number.isFinite).sort((a, b) => a - b);
+      const systemStartX = openingBarlineXs[0] || 0;
+
+      const percussionTimeSigs = Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          token: el.getAttribute('data-time-sig-token') || '',
+          left: rect.left,
+          centerY: (rect.top + rect.bottom) / 2,
+        };
+      }).filter((item) => (
+        item.left >= systemStartX - 10 &&
+        item.left <= systemStartX + 220 &&
+        item.centerY >= percussionTop &&
+        item.centerY <= percussionBottom
+      ));
+
+      return {
+        percussionTimeSigs,
+        displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+      };
+    });
+
+    return Boolean(state && state.percussionTimeSigs.length > 0 && state.displayText === '4/4');
+  }, {
+    message: 'waiting for percussion time signatures to be classified',
+  }).toBe(true);
+
+  expect(state).not.toBeNull();
+  expect(state.percussionTimeSigs.length).toBeGreaterThan(0);
+  expect(state.percussionTimeSigs.every((item) => item.token === '4')).toBe(true);
+  expect(state.displayText).toBe('4/4');
+});
+
+test('recognizes fragmented multi-group barlines in Dengshan imports', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250518_登山/Scores/01 - Scroll - 登山 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => ({
+      barlineCount: document.getElementById('barlineCount')?.textContent?.trim() || '',
+      measureCount: document.getElementById('measureCount')?.textContent?.trim() || '',
+      displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+    }));
+
+    return Boolean(
+      Number(state?.barlineCount || 0) > 1 &&
+      Number(state?.measureCount || 0) > 0 &&
+      state?.displayText &&
+      state.displayText !== '-/-'
+    );
+  }, {
+    timeout: 5000,
+    message: 'waiting for Dengshan fragmented barlines to map into timeline counts',
+  }).toBe(true);
+
+  expect(state).not.toBeNull();
+  expect(Number(state.barlineCount)).toBeGreaterThan(1);
+  expect(Number(state.measureCount)).toBeGreaterThan(0);
+  expect(state.displayText).not.toBe('-/-');
+});
+
+test('does not pin later-only key signatures as opening sticky blocks in Dengshan', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250518_登山/Scores/01 - Scroll - 登山 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const lateOpeningKeys = result.renderQueue
+      .filter((item) => (
+        item.symbolType === 'KeySig'
+        && item.blockIndex === 0
+        && item.absMinX > result.stickyMinX + 500
+      ))
+      .map((item) => ({
+        laneId: item.laneId,
+        absMinX: item.absMinX,
+        stickyMinX: result.stickyMinX,
+        lockDistance: item.lockDistance,
+      }))
+      .sort((a, b) => a.absMinX - b.absMinX);
+
+    return { lateOpeningKeys };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.lateOpeningKeys.every((item) => item.lockDistance > 500)).toBe(true);
+});
+
+test('keeps Dengshan piano bridge redraw limited to true full-span staff lines', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250518_登山/Scores/01 - Scroll - 登山 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { MusicFontRegistry } = await import('/scripts/data/music-font-registry.js');
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const clefMap = {};
+    Object.values(MusicFontRegistry).forEach((fontData) => {
+      if (!fontData?.clefs) return;
+      Object.entries(fontData.clefs).forEach(([name, signatures]) => {
+        (signatures || []).forEach((signature) => {
+          if (!(signature in clefMap)) clefMap[signature] = name;
+        });
+      });
+    });
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: (sig) => clefMap[sig] || null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const piano = result.renderQueue.find((item) => item.symbolType === 'InstName' && (item.text || '').trim() === 'Piano');
+    if (!piano) return null;
+
+    const nearbyBridgeLines = (result.globalAbsoluteBridgeLineYs || []).filter((line) => (
+      line.y >= piano.centerY - 80 &&
+      line.y <= piano.centerY + 80
+    )).map((line) => ({
+      y: line.y,
+      minX: line.minX,
+      maxX: line.maxX,
+      span: line.maxX - line.minX,
+    }));
+
+    return {
+      nearbyBridgeLines,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.nearbyBridgeLines).toHaveLength(10);
+  expect(state.nearbyBridgeLines.every((line) => line.span > 10000)).toBe(true);
+});
+
+test('keeps Dengshan timpani opening bass clef isolated in its own sticky lane and block', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250518_登山/Scores/01 - Scroll - 登山 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { MusicFontRegistry } = await import('/scripts/data/music-font-registry.js');
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const clefMap = {};
+    Object.values(MusicFontRegistry).forEach((fontData) => {
+      if (!fontData?.clefs) return;
+      Object.entries(fontData.clefs).forEach(([name, signatures]) => {
+        (signatures || []).forEach((signature) => {
+          if (!(signature in clefMap)) clefMap[signature] = name;
+        });
+      });
+    });
+
+    const identifyClefOrBrace = (sig) => clefMap[sig] || null;
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const timpani = result.renderQueue.find((item) => item.symbolType === 'InstName' && (item.text || '').trim() === 'Timpani');
+    if (!timpani?.laneId) return null;
+
+    const clefBlocks = (result.globalStickyLanes[timpani.laneId]?.typeBlocks?.clef || []).map((block) => ({
+      itemCount: block.items.length,
+      identities: block.items.map((item) => identifyClefOrBrace(
+        item.originalD ? item.originalD.replace(/[^a-zA-Z]/g, '').toUpperCase() : (item.text || '').trim()
+      ) || null),
+    }));
+
+    return {
+      laneId: timpani.laneId,
+      clefBlocks,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.clefBlocks.length).toBeGreaterThan(0);
+  expect(state.clefBlocks[0].itemCount).toBe(1);
+  expect(state.clefBlocks[0].identities).toContain('Bass Clef (低音谱号)');
+});
+
+test('reclassifies Dengshan measure-46 piano-lower sharp as an accidental despite nearby barline anchors', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250518_登山/Scores/01 - Scroll - 登山 - 001.svg';
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const targetSharp = Array.from(svg.querySelectorAll('path')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        classes: el.className?.baseVal || '',
+        left: rect.left,
+        top: rect.top,
+      };
+    }).find((item) => (
+      item.signature === 'MCLLLLCLLLLCLLLLLLCLLLLCLLLLCLLLLLLMCLLCLL'
+      && item.left >= 4934
+      && item.left <= 4937.5
+      && item.top >= -9483
+      && item.top <= -9468
+    )) || null;
+
+    return { targetSharp };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.targetSharp).not.toBeNull();
+  expect(state.targetSharp.classes).toContain('highlight-accidental');
+  expect(state.targetSharp.classes).not.toContain('highlight-keysig');
 });
 
 test('keeps opening time-signature offset isolated from later score time signatures', async () => {
@@ -1831,79 +3300,86 @@ test('anchors no-opening-barline bridge lines to the first visible sticky music 
   const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-single-staff-bravura.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    const staffLineStarts = Array.from(svg.querySelectorAll('line, polyline')).map((el) => {
-      let x1;
-      let y1;
-      let x2;
-      let y2;
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      const staffLineStarts = Array.from(svg.querySelectorAll('line, polyline')).map((el) => {
+        let x1;
+        let y1;
+        let x2;
+        let y2;
 
-      if (el.tagName.toLowerCase() === 'line') {
-        x1 = Number(el.getAttribute('x1'));
-        y1 = Number(el.getAttribute('y1'));
-        x2 = Number(el.getAttribute('x2'));
-        y2 = Number(el.getAttribute('y2'));
-      } else {
-        const coords = (el.getAttribute('points') || '')
-          .trim()
-          .split(/\s+|,/)
-          .filter(Boolean)
-          .map(Number);
-        if (coords.length < 4) return null;
-        x1 = coords[0];
-        y1 = coords[1];
-        x2 = coords[coords.length - 2];
-        y2 = coords[coords.length - 1];
-      }
+        if (el.tagName.toLowerCase() === 'line') {
+          x1 = Number(el.getAttribute('x1'));
+          y1 = Number(el.getAttribute('y1'));
+          x2 = Number(el.getAttribute('x2'));
+          y2 = Number(el.getAttribute('y2'));
+        } else {
+          const coords = (el.getAttribute('points') || '')
+            .trim()
+            .split(/\s+|,/)
+            .filter(Boolean)
+            .map(Number);
+          if (coords.length < 4) return null;
+          x1 = coords[0];
+          y1 = coords[1];
+          x2 = coords[coords.length - 2];
+          y2 = coords[coords.length - 1];
+        }
 
-      if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
-      if (Math.abs(y1 - y2) >= 1) return null;
-      if (Math.abs(x1 - x2) <= 100) return null;
+        if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+        if (Math.abs(y1 - y2) >= 1) return null;
+        if (Math.abs(x1 - x2) <= 100) return null;
 
-      const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
-      const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
-      if (!box || !matrix) return null;
+        const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
+        const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
+        if (!box || !matrix) return null;
 
-      const corners = [
-        { x: box.x, y: box.y },
-        { x: box.x + box.width, y: box.y },
-        { x: box.x, y: box.y + box.height },
-        { x: box.x + box.width, y: box.y + box.height },
-      ].map((point) => ({
-        x: matrix.a * point.x + matrix.c * point.y + matrix.e,
-        y: matrix.b * point.x + matrix.d * point.y + matrix.f,
-      }));
+        const corners = [
+          { x: box.x, y: box.y },
+          { x: box.x + box.width, y: box.y },
+          { x: box.x, y: box.y + box.height },
+          { x: box.x + box.width, y: box.y + box.height },
+        ].map((point) => ({
+          x: matrix.a * point.x + matrix.c * point.y + matrix.e,
+          y: matrix.b * point.x + matrix.d * point.y + matrix.f,
+        }));
 
-      return Math.min(...corners.map((point) => point.x));
-    }).filter((value) => Number.isFinite(value));
+        return Math.min(...corners.map((point) => point.x));
+      }).filter((value) => Number.isFinite(value));
 
-    const openingStickies = Array.from(
-      svg.querySelectorAll('.highlight-clef, .highlight-keysig, .highlight-timesig, .highlight-brace, .highlight-barline')
-    ).map((el) => {
-      const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
-      const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
-      if (!box || !matrix) return null;
-      const corners = [
-        { x: box.x, y: box.y },
-        { x: box.x + box.width, y: box.y },
-        { x: box.x, y: box.y + box.height },
-        { x: box.x + box.width, y: box.y + box.height },
-      ].map((point) => ({
-        x: matrix.a * point.x + matrix.c * point.y + matrix.e,
-        y: matrix.b * point.x + matrix.d * point.y + matrix.f,
-      }));
-      return Math.min(...corners.map((point) => point.x));
-    }).filter((value) => Number.isFinite(value));
+      const openingStickies = Array.from(
+        svg.querySelectorAll('.highlight-clef, .highlight-keysig, .highlight-timesig, .highlight-brace, .highlight-barline')
+      ).map((el) => {
+        const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
+        const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
+        if (!box || !matrix) return null;
+        const corners = [
+          { x: box.x, y: box.y },
+          { x: box.x + box.width, y: box.y },
+          { x: box.x, y: box.y + box.height },
+          { x: box.x + box.width, y: box.y + box.height },
+        ].map((point) => ({
+          x: matrix.a * point.x + matrix.c * point.y + matrix.e,
+          y: matrix.b * point.x + matrix.d * point.y + matrix.f,
+        }));
+        return Math.min(...corners.map((point) => point.x));
+      }).filter((value) => Number.isFinite(value));
 
-    return {
-      bridgeStartX: window.globalAbsoluteBridgeStartX,
-      systemStartX: window.globalAbsoluteSystemInternalX,
-      leftmostStaffLineX: staffLineStarts.length ? Math.min(...staffLineStarts) : null,
-      leftmostOpeningStickyX: openingStickies.length ? Math.min(...openingStickies) : null,
-      hasPhysicalStartBarline: window.hasPhysicalStartBarline,
-    };
-  });
+      return {
+        bridgeStartX: window.globalAbsoluteBridgeStartX,
+        systemStartX: window.globalAbsoluteSystemInternalX,
+        leftmostStaffLineX: staffLineStarts.length ? Math.min(...staffLineStarts) : null,
+        leftmostOpeningStickyX: openingStickies.length ? Math.min(...openingStickies) : null,
+        hasPhysicalStartBarline: window.hasPhysicalStartBarline,
+      };
+    });
+
+    return Boolean(state && state.leftmostStaffLineX !== null && state.leftmostOpeningStickyX !== null);
+  }, {
+    message: 'waiting for no-opening-barline bridge anchors to finish classification',
+  }).toBe(true);
 
   expect(state.hasPhysicalStartBarline).toBe(false);
   expect(state.leftmostStaffLineX).not.toBeNull();

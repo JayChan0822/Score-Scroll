@@ -3,7 +3,9 @@ export function bindUiEvents({
     handleAudioInputChange,
     handleAudioOffsetInput,
     handleExportRatioChange,
+    handleExportResolutionChange,
     handleGlowRangeInput,
+    handleStickyLockRatioInput,
     handleWindowKeydown,
     handlePlaylineRatioInput,
     handleProgressInput,
@@ -31,8 +33,10 @@ export function bindUiEvents({
     dom.toggleFlyinBtn?.addEventListener("click", onToggleFlyin);
     dom.progressSlider?.addEventListener("input", handleProgressInput);
     dom.exportRatioSelect?.addEventListener("change", handleExportRatioChange);
+    dom.exportResSelect?.addEventListener("change", handleExportResolutionChange);
     dom.cancelExportBtn?.addEventListener("click", onCancelExport);
     dom.playlineRatioSlider?.addEventListener("input", handlePlaylineRatioInput);
+    dom.stickyLockRatioSlider?.addEventListener("input", handleStickyLockRatioInput);
     dom.exportPngBtn?.addEventListener("click", onExportPngClick);
     dom.exportVideoBtn?.addEventListener("click", onExportVideoClick);
     window.addEventListener("keydown", handleWindowKeydown);

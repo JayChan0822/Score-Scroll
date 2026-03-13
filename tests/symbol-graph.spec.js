@@ -105,3 +105,22 @@ test('preserves a key-signature prefix when stacked note-adjacent accidental suf
   expect(result.keySignatureIds).toEqual(['key-sharp-1', 'key-sharp-2', 'key-sharp-3']);
   expect(result.accidentalIds).toEqual(['suffix-sharp-1', 'suffix-natural-1']);
 });
+
+test('prefers note-adjacent accidentals over nearby barline anchors', async () => {
+  const { classifyAccidentalGroups } = await importSymbolGraph();
+
+  const result = classifyAccidentalGroups({
+    accidentalGroups: [
+      { id: 'borderline-sharp-1', left: 103, right: 106.2, centerY: 100, bandIndex: 0 },
+    ],
+    noteheads: [
+      { id: 'note-1', left: 110.62, right: 114.62, centerY: 100.05, bandIndex: 0 },
+    ],
+    timeSignatureGlyphs: [],
+    trustedAnchors: [{ x: 100, kind: 'barline' }],
+    staffSpace: 3.4931640625,
+  });
+
+  expect(result.keySignatureIds).toEqual([]);
+  expect(result.accidentalIds).toEqual(['borderline-sharp-1']);
+});
