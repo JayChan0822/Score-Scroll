@@ -391,6 +391,7 @@ function syncViewportSizingMode(ratio = exportRatioSelect ? exportRatioSelect.va
     if (isPreviewFocusMode()) {
         viewportEl.style.aspectRatio = "auto";
         viewportEl.style.height = "100%";
+        viewportEl.style.maxWidth = "none";
         return;
     }
 
@@ -650,6 +651,9 @@ window.hasPhysicalStartBarline = false;
 function renderCanvas(currentX, options = {}) {
     if (!ctx || !canvas) return;
     if (isPlaying || isExportingVideoMode) cancelStickyTransitionFrame();
+    if (typeof window.__lastRenderX === 'undefined') window.__lastRenderX = currentX;
+    const isXJump = Math.abs(currentX - window.__lastRenderX) > 200;
+    window.__lastRenderX = currentX;
     const { transparentBackground = false } = options;
 
     const noteColor = noteColorPicker ? noteColorPicker.value : defaultNoteColor;
@@ -776,12 +780,18 @@ function renderCanvas(currentX, options = {}) {
             || stickyTransitionPending
         );
 
-        if (shouldAnimateStickyTransition) {
+        if (isXJump) {
+            item.currentOpacity = targetOpacity;
+            item.currentExtraX = targetExtraX;
+            item.currentScale = targetScale;
+        } else if (shouldAnimateStickyTransition) {
             item.currentOpacity += (targetOpacity - item.currentOpacity) * 0.15;
             item.currentExtraX += (targetExtraX - item.currentExtraX) * 0.20;
             item.currentScale += (targetScale - item.currentScale) * 0.15;
         } else {
-            item.currentOpacity = targetOpacity; item.currentExtraX = targetExtraX; item.currentScale = targetScale;
+            item.currentOpacity = targetOpacity;
+            item.currentExtraX = targetExtraX;
+            item.currentScale = targetScale;
         }
 
         if (
@@ -1003,7 +1013,7 @@ function syncViewportHeight() {
 }
 
 function resizeCanvas() {
-    if (!canvas || !viewportEl) return;
+    if (!canvas || !viewportEl || isExportingVideoMode) return;
     syncViewportHeight();
     syncWorkspaceScaleFrameMetrics();
     // 使用布局尺寸，避免祖先 transform 缩放后再次把 canvas 写小一遍。

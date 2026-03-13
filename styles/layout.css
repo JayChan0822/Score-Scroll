@@ -117,41 +117,42 @@ header {
     z-index: 10;
 }
 
+/* ==== 预览聚焦模式 (Preview Focus Mode) ==== */
 body.preview-focus-mode {
-    padding: 12px;
+    overflow: hidden; /* 隐藏原页面的滚动条，彻底锁死底层 */
 }
 
+/* 隐藏干扰元素，包括背景噪点 */
 body.preview-focus-mode header,
-body.preview-focus-mode .control-stack {
+body.preview-focus-mode .control-stack,
+body.preview-focus-mode .noise-overlay {
     display: none !important;
 }
 
-body.preview-focus-mode .app-shell {
-    gap: 0;
-    max-width: none;
-    min-height: calc(100dvh - 24px);
-}
-
-body.preview-focus-mode .workspace-scale-frame {
-    flex: 1 1 auto;
-    width: 100%;
-}
-
+/* 关键修复：必须清除 transform，否则 fixed 定位会失效并相对于此容器定位 */
 body.preview-focus-mode .workspace-layout {
-    grid-template-columns: minmax(0, 1fr);
-    min-height: 100%;
-    transform: none;
-    width: 100%;
+    transform: none !important;
 }
 
+/* 将预览列提升为顶级固定层，铺满视口但保留 12px 安全边距 */
 body.preview-focus-mode .stage-wrap {
-    height: 100%;
-    min-height: calc(100dvh - 24px);
+    position: fixed !important;
+    inset: 12px !important;
+    width: calc(100vw - 24px) !important;
+    height: calc(100dvh - 24px) !important;
+    z-index: 9999 !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
+/* 让视口容器在固定层内 100% 填满，并突破原有最大宽度限制 */
 body.preview-focus-mode .stage-wrap #viewport {
-    height: 100%;
-    min-height: calc(100dvh - 24px);
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    aspect-ratio: auto !important;
+    margin: 0 !important;
 }
 
 .workspace-scale-frame {
