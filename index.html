@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="./styles/main.css">
     <script>
         (() => {
-            const APP_MODULE_VERSION = '20260313-sticky-fade-unify-1';
+            const APP_MODULE_VERSION = '20260313-viewport-fullscreen-pill-1';
 
             const loadAppModule = () => {
                 const appScript = document.createElement('script');
@@ -274,6 +274,7 @@
                         <button class="zoom-btn" id="zoomOutBtn">−</button>
                         <input type="range" id="zoomSlider" min="0.2" max="3" step="0.01" value="1">
                         <button class="zoom-btn" id="zoomInBtn">+</button>
+                        <button class="zoom-btn" id="viewportFullscreenBtn" type="button" aria-label="进入全屏预览" title="进入全屏预览">⤢</button>
                         <span id="zoomValDisplay" class="zoom-value">100%</span>
                     </div>
                 </div>

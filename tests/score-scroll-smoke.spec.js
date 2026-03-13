@@ -218,6 +218,43 @@ test('positions the zoom slider at the top-left of the viewport', async ({ page 
   expect(zoomBox.y - viewportBox.y).toBeLessThan(32);
 });
 
+test('renders a viewport fullscreen button inside the zoom pill', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const zoomControl = page.locator('.zoom-control-wrapper');
+  const zoomInBtn = page.locator('#zoomInBtn');
+  const fullscreenBtn = page.locator('#viewportFullscreenBtn');
+  const zoomValue = page.locator('#zoomValDisplay');
+
+  await expect(zoomControl).toBeVisible();
+  await expect(fullscreenBtn).toBeVisible();
+
+  const zoomInBox = await zoomInBtn.boundingBox();
+  const fullscreenBox = await fullscreenBtn.boundingBox();
+  const zoomValueBox = await zoomValue.boundingBox();
+
+  expect(zoomInBox).not.toBeNull();
+  expect(fullscreenBox).not.toBeNull();
+  expect(zoomValueBox).not.toBeNull();
+  expect(fullscreenBox.x).toBeGreaterThan(zoomInBox.x);
+  expect(fullscreenBox.x + fullscreenBox.width).toBeLessThan(zoomValueBox.x + zoomValueBox.width);
+});
+
+test('toggles viewport web fullscreen from the zoom pill', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const fullscreenBtn = page.locator('#viewportFullscreenBtn');
+
+  await expect(fullscreenBtn).toBeVisible();
+  await fullscreenBtn.click();
+
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.id ?? null)).toBe('viewport');
+
+  await fullscreenBtn.click();
+
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.id ?? null)).toBe(null);
+});
+
 test('uses the 8px minimum height threshold for initial barline detection', async () => {
   const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
 

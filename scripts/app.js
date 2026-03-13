@@ -2,7 +2,7 @@ import {
     PRIVATE_USE_GLYPH_REGEX,
     TIME_SIGNATURE_GLYPH_REGEX,
 } from "./core/constants.js";
-import { getDomRefs } from "./core/dom.js?v=20260313-sticky-lock-light-export-1";
+import { getDomRefs } from "./core/dom.js?v=20260313-viewport-fullscreen-pill-1";
 import { createInitialState } from "./core/state.js?v=20260313-sticky-lock-light-export-1";
 import { MusicFontRegistry } from "./data/music-font-registry.js";
 import { createAudioFeature } from "./features/audio.js";
@@ -132,6 +132,7 @@ const {
     toggleHighlightBtn,
     toggleScanGlowBtn,
     viewportEl,
+    viewportFullscreenBtn,
     zoomInBtn,
     zoomOutBtn,
     zoomSliderContainer,
@@ -186,6 +187,7 @@ const dom = {
     toggleHighlightBtn,
     toggleScanGlowBtn,
     viewportEl,
+    viewportFullscreenBtn,
     zoomInBtn,
     zoomOutBtn,
     zoomSliderContainer,
@@ -327,6 +329,51 @@ function setGlobalZoom(val) {
 
     if (typeof renderCanvas === 'function') {
         renderCanvas(smoothX);
+    }
+}
+
+function canToggleViewportFullscreen() {
+    return Boolean(
+        viewportEl
+        && typeof viewportEl.requestFullscreen === "function"
+        && typeof document.exitFullscreen === "function"
+    );
+}
+
+function isViewportFullscreen() {
+    return document.fullscreenElement === viewportEl;
+}
+
+function syncViewportFullscreenButtonState() {
+    if (!viewportFullscreenBtn) return;
+
+    const supported = canToggleViewportFullscreen();
+    const isFullscreen = supported && isViewportFullscreen();
+    const nextLabel = isFullscreen ? "退出全屏预览" : "进入全屏预览";
+
+    viewportFullscreenBtn.disabled = !supported;
+    viewportFullscreenBtn.textContent = isFullscreen ? "⤡" : "⤢";
+    viewportFullscreenBtn.setAttribute("aria-label", nextLabel);
+    viewportFullscreenBtn.setAttribute("aria-pressed", String(isFullscreen));
+    viewportFullscreenBtn.title = nextLabel;
+}
+
+async function toggleViewportFullscreen() {
+    if (!canToggleViewportFullscreen()) {
+        syncViewportFullscreenButtonState();
+        return;
+    }
+
+    try {
+        if (isViewportFullscreen()) {
+            await document.exitFullscreen();
+        } else {
+            await viewportEl.requestFullscreen();
+        }
+    } catch (error) {
+        debugLog("Viewport fullscreen toggle failed", error);
+    } finally {
+        syncViewportFullscreenButtonState();
     }
 }
 
@@ -474,6 +521,14 @@ zoomOutBtn.addEventListener('click', () => {
 zoomInBtn.addEventListener('click', () => {
     setGlobalZoom(globalZoom + 0.1);
 });
+
+if (viewportFullscreenBtn) {
+    syncViewportFullscreenButtonState();
+    viewportFullscreenBtn.addEventListener("click", () => {
+        void toggleViewportFullscreen();
+    });
+    document.addEventListener("fullscreenchange", syncViewportFullscreenButtonState);
+}
 
 // 🌟 音乐字体特征注册表 (Music Font Registry)
 let activeSignatureMap = { clefs: {}, accidentals: {}, noteheads: {} };

@@ -57,6 +57,10 @@
     padding: 0 4px;
 }
 
+#viewportFullscreenBtn {
+    font-size: 16px;
+}
+
 .zoom-btn:hover {
     box-shadow: none;
     color: #fff;

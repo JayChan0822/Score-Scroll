@@ -47,6 +47,7 @@
  * @property {HTMLButtonElement | null} toggleHighlightBtn
  * @property {HTMLButtonElement | null} toggleScanGlowBtn
  * @property {HTMLElement | null} viewportEl
+ * @property {HTMLButtonElement | null} viewportFullscreenBtn
  * @property {HTMLButtonElement | null} zoomInBtn
  * @property {HTMLButtonElement | null} zoomOutBtn
  * @property {HTMLElement | null} zoomSliderContainer
@@ -114,6 +115,7 @@ export function getDomRefs(doc = document) {
         toggleHighlightBtn: byId(doc, "toggleHighlightBtn"),
         toggleScanGlowBtn: byId(doc, "toggleScanGlowBtn"),
         viewportEl: byId(doc, "viewport"),
+        viewportFullscreenBtn: byId(doc, "viewportFullscreenBtn"),
         zoomInBtn: byId(doc, "zoomInBtn"),
         zoomOutBtn: byId(doc, "zoomOutBtn"),
         zoomSliderContainer: byId(doc, "zoomSlider"),
