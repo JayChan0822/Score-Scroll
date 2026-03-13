@@ -58,7 +58,68 @@
 }
 
 #viewportFullscreenBtn {
-    font-size: 16px;
+    padding: 0;
+    position: relative;
+    width: 18px;
+}
+
+.focus-mode-icon {
+    display: block;
+    height: 16px;
+    position: relative;
+    width: 16px;
+}
+
+.focus-mode-corner {
+    border-color: currentColor;
+    height: 6px;
+    position: absolute;
+    transition: transform 0.2s var(--easing);
+    width: 6px;
+}
+
+.corner-tl {
+    border-left: 1.5px solid currentColor;
+    border-top: 1.5px solid currentColor;
+    left: 0;
+    top: 0;
+}
+
+.corner-tr {
+    border-right: 1.5px solid currentColor;
+    border-top: 1.5px solid currentColor;
+    right: 0;
+    top: 0;
+}
+
+.corner-bl {
+    border-bottom: 1.5px solid currentColor;
+    border-left: 1.5px solid currentColor;
+    bottom: 0;
+    left: 0;
+}
+
+.corner-br {
+    border-bottom: 1.5px solid currentColor;
+    border-right: 1.5px solid currentColor;
+    bottom: 0;
+    right: 0;
+}
+
+#viewportFullscreenBtn[data-mode="exit"] .corner-tl {
+    transform: translate(2px, 2px);
+}
+
+#viewportFullscreenBtn[data-mode="exit"] .corner-tr {
+    transform: translate(-2px, 2px);
+}
+
+#viewportFullscreenBtn[data-mode="exit"] .corner-bl {
+    transform: translate(2px, -2px);
+}
+
+#viewportFullscreenBtn[data-mode="exit"] .corner-br {
+    transform: translate(-2px, -2px);
 }
 
 .zoom-btn:hover {

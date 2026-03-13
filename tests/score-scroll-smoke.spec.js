@@ -240,19 +240,46 @@ test('renders a viewport fullscreen button inside the zoom pill', async ({ page 
   expect(fullscreenBox.x + fullscreenBox.width).toBeLessThan(zoomValueBox.x + zoomValueBox.width);
 });
 
-test('toggles viewport web fullscreen from the zoom pill', async ({ page }) => {
+test('toggles preview focus mode from the zoom pill', async ({ page }) => {
   await page.goto('/index.html');
 
   const fullscreenBtn = page.locator('#viewportFullscreenBtn');
+  const header = page.locator('header');
+  const controlStack = page.locator('.control-stack');
+  const viewport = page.locator('#viewport');
 
   await expect(fullscreenBtn).toBeVisible();
+  await expect(header).toBeVisible();
+  await expect(controlStack).toBeVisible();
+
+  const defaultViewportBox = await viewport.boundingBox();
+
   await fullscreenBtn.click();
 
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.id ?? null)).toBe('viewport');
+  await expect.poll(() => page.evaluate(() => ({
+    isFocusMode: document.body.classList.contains('preview-focus-mode'),
+    fullscreenId: document.fullscreenElement?.id ?? null,
+  }))).toEqual({
+    isFocusMode: true,
+    fullscreenId: null,
+  });
+
+  await expect(header).toBeHidden();
+  await expect(controlStack).toBeHidden();
+
+  const focusViewportBox = await viewport.boundingBox();
+
+  expect(defaultViewportBox).not.toBeNull();
+  expect(focusViewportBox).not.toBeNull();
+  expect(focusViewportBox.width).toBeGreaterThan(defaultViewportBox.width);
+  expect(focusViewportBox.height).toBeGreaterThanOrEqual(defaultViewportBox.height);
+  expect(focusViewportBox.width * focusViewportBox.height).toBeGreaterThan(defaultViewportBox.width * defaultViewportBox.height);
 
   await fullscreenBtn.click();
 
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.id ?? null)).toBe(null);
+  await expect.poll(() => page.evaluate(() => document.body.classList.contains('preview-focus-mode'))).toBe(false);
+  await expect(header).toBeVisible();
+  await expect(controlStack).toBeVisible();
 });
 
 test('uses the 8px minimum height threshold for initial barline detection', async () => {

@@ -2,7 +2,7 @@ import {
     PRIVATE_USE_GLYPH_REGEX,
     TIME_SIGNATURE_GLYPH_REGEX,
 } from "./core/constants.js";
-import { getDomRefs } from "./core/dom.js?v=20260313-viewport-fullscreen-pill-1";
+import { getDomRefs } from "./core/dom.js?v=20260313-preview-focus-mode-1";
 import { createInitialState } from "./core/state.js?v=20260313-sticky-lock-light-export-1";
 import { MusicFontRegistry } from "./data/music-font-registry.js";
 import { createAudioFeature } from "./features/audio.js";
@@ -35,6 +35,7 @@ import { clamp } from "./utils/math.js";
 
 const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
 const PLAYBACK_TAIL_BUFFER_SEC = 2;
+const PREVIEW_FOCUS_MODE_CLASS = "preview-focus-mode";
 const controlStackEl = document.querySelector(".control-stack");
 const stageWrapEl = document.querySelector(".stage-wrap");
 const workspaceScaleFrame = document.querySelector(".workspace-scale-frame");
@@ -332,49 +333,35 @@ function setGlobalZoom(val) {
     }
 }
 
-function canToggleViewportFullscreen() {
-    return Boolean(
-        viewportEl
-        && typeof viewportEl.requestFullscreen === "function"
-        && typeof document.exitFullscreen === "function"
-    );
+function isPreviewFocusMode() {
+    return document.body.classList.contains(PREVIEW_FOCUS_MODE_CLASS);
 }
 
-function isViewportFullscreen() {
-    return document.fullscreenElement === viewportEl;
-}
-
-function syncViewportFullscreenButtonState() {
+function syncPreviewFocusButtonState() {
     if (!viewportFullscreenBtn) return;
 
-    const supported = canToggleViewportFullscreen();
-    const isFullscreen = supported && isViewportFullscreen();
-    const nextLabel = isFullscreen ? "退出全屏预览" : "进入全屏预览";
+    const isFocusMode = isPreviewFocusMode();
+    const nextLabel = isFocusMode ? "退出预览聚焦模式" : "进入预览聚焦模式";
 
-    viewportFullscreenBtn.disabled = !supported;
-    viewportFullscreenBtn.textContent = isFullscreen ? "⤡" : "⤢";
+    viewportFullscreenBtn.dataset.mode = isFocusMode ? "exit" : "enter";
     viewportFullscreenBtn.setAttribute("aria-label", nextLabel);
-    viewportFullscreenBtn.setAttribute("aria-pressed", String(isFullscreen));
+    viewportFullscreenBtn.setAttribute("aria-pressed", String(isFocusMode));
     viewportFullscreenBtn.title = nextLabel;
 }
 
-async function toggleViewportFullscreen() {
-    if (!canToggleViewportFullscreen()) {
-        syncViewportFullscreenButtonState();
-        return;
-    }
+function schedulePreviewFocusLayoutSync() {
+    syncViewportSizingMode();
+    resizeCanvas();
+    requestAnimationFrame(() => {
+        syncViewportSizingMode();
+        resizeCanvas();
+    });
+}
 
-    try {
-        if (isViewportFullscreen()) {
-            await document.exitFullscreen();
-        } else {
-            await viewportEl.requestFullscreen();
-        }
-    } catch (error) {
-        debugLog("Viewport fullscreen toggle failed", error);
-    } finally {
-        syncViewportFullscreenButtonState();
-    }
+function togglePreviewFocusMode() {
+    document.body.classList.toggle(PREVIEW_FOCUS_MODE_CLASS);
+    syncPreviewFocusButtonState();
+    schedulePreviewFocusLayoutSync();
 }
 
 function fitScoreToViewportHeight() {
@@ -400,6 +387,12 @@ function syncViewportSizingMode(ratio = exportRatioSelect ? exportRatioSelect.va
     viewportEl.style.width = "100%";
     viewportEl.style.maxHeight = "none";
     viewportEl.style.margin = "0 auto";
+
+    if (isPreviewFocusMode()) {
+        viewportEl.style.aspectRatio = "auto";
+        viewportEl.style.height = "100%";
+        return;
+    }
 
     if (window.innerWidth > DESKTOP_LAYOUT_BREAKPOINT_PX) {
         viewportEl.style.aspectRatio = "auto";
@@ -501,6 +494,11 @@ function syncMobileExportPreviewHeight() {
 function syncWorkspaceScaleFrameMetrics() {
     if (!workspaceScaleFrame || !workspaceLayout) return;
 
+    if (isPreviewFocusMode()) {
+        workspaceScaleFrame.style.height = "";
+        return;
+    }
+
     if (window.innerWidth <= DESKTOP_LAYOUT_BREAKPOINT_PX) {
         workspaceScaleFrame.style.height = "";
         return;
@@ -523,11 +521,10 @@ zoomInBtn.addEventListener('click', () => {
 });
 
 if (viewportFullscreenBtn) {
-    syncViewportFullscreenButtonState();
+    syncPreviewFocusButtonState();
     viewportFullscreenBtn.addEventListener("click", () => {
-        void toggleViewportFullscreen();
+        togglePreviewFocusMode();
     });
-    document.addEventListener("fullscreenchange", syncViewportFullscreenButtonState);
 }
 
 // 🌟 音乐字体特征注册表 (Music Font Registry)
@@ -995,6 +992,10 @@ function renderCanvas(currentX, options = {}) {
 }
 
 function syncViewportHeight() {
+    if (isPreviewFocusMode()) {
+        return;
+    }
+
     if (syncDesktopPreviewFrame()) {
         return;
     }
