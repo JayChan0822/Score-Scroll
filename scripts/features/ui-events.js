@@ -4,6 +4,7 @@ export function bindUiEvents({
     handleAudioOffsetInput,
     handleExportRatioChange,
     handleExportResolutionChange,
+    handleExportFpsChange,
     handleGlowRangeInput,
     handleStickyLockRatioInput,
     handleWindowKeydown,
@@ -34,6 +35,7 @@ export function bindUiEvents({
     dom.progressSlider?.addEventListener("input", handleProgressInput);
     dom.exportRatioSelect?.addEventListener("change", handleExportRatioChange);
     dom.exportResSelect?.addEventListener("change", handleExportResolutionChange);
+    dom.exportFpsSelect?.addEventListener("change", handleExportFpsChange);
     dom.cancelExportBtn?.addEventListener("click", onCancelExport);
     dom.playlineRatioSlider?.addEventListener("input", handlePlaylineRatioInput);
     dom.stickyLockRatioSlider?.addEventListener("input", handleStickyLockRatioInput);
