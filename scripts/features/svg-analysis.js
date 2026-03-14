@@ -517,6 +517,31 @@ export function createSvgAnalysisFeature({
             });
         });
 
+        const rehTextItems = renderQueue.filter(item => item.type === "text" && item.symbolType === "RehearsalMark");
+        const potentialFrames = renderQueue.filter(item => ["rect", "ellipse", "path"].includes(item.type));
+
+        rehTextItems.forEach(rehText => {
+            const hasFrame = potentialFrames.some(frame => {
+                // 1. X轴包围：框的左右边界应该包裹住文本（允许 2px 的坐标计算容差）
+                const isXEnclosing = (frame.absMinX <= rehText.absMinX + 2) && (frame.absMaxX >= rehText.absMaxX - 2);
+
+                // 2. Y轴对齐：框的 Y 轴中心点应该和文本的中心点接近
+                const isYAlign = Math.abs(frame.centerY - rehText.centerY) < 15;
+
+                // 3. 尺寸合理：框的宽度应该大于文本宽度，但不能无限大（防止误把长连线或背景框认作排演记号的框）
+                const textWidth = Math.max(1, rehText.absMaxX - rehText.absMinX);
+                const frameWidth = frame.absMaxX - frame.absMinX;
+                const isReasonableWidth = frameWidth >= textWidth && frameWidth < textWidth + 40;
+
+                return isXEnclosing && isYAlign && isReasonableWidth;
+            });
+
+            if (!hasFrame) {
+                // 如果周围没有合法的框线包围，则剥夺其排演记号的身份，退化为普通文本
+                rehText.symbolType = null;
+            }
+        });
+        
         if (rawHorizontalBridgeLines.length > 0) {
             rawHorizontalBridgeLines.sort((a, b) => a.y - b.y);
             const dedupedBridgeLines = [];
