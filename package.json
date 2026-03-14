@@ -20,6 +20,7 @@
   "homepage": "https://github.com/JayChan0822/Score-Scroll#readme",
   "description": "",
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "mp4-muxer": "^5.2.2"
   },
   "devDependencies": {
