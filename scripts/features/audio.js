@@ -109,6 +109,9 @@ export function createAudioFeature({
 
     /** @returns {Promise<void>} */
     async function tryAlignAudioAndScore() {
+        return;
+
+        /*
         const globalAudioOnsetSec = getGlobalAudioOnsetSec();
         const renderQueue = getRenderQueue();
         const mapData = getMapData();
@@ -130,6 +133,7 @@ export function createAudioFeature({
         } catch (error) {
             console.error("⚠️ 自动对齐失败:", error);
         }
+        */
     }
 
     /**
@@ -183,6 +187,7 @@ export function createAudioFeature({
         audioPlayer.load();
         setIsAudioLoaded(true);
 
+        /*
         try {
             const onset = await detectFirstAudioOnset(file);
             setGlobalAudioOnsetSec(onset);
@@ -191,6 +196,7 @@ export function createAudioFeature({
         } catch (error) {
             console.error("⚠️ 音频起音检测失败:", error);
         }
+        */
     }
 
     return {

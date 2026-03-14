@@ -952,6 +952,7 @@ function renderCanvas(currentX, options = {}) {
             // 🌟 五线谱桥梁连接线起点：遮罩始终从左侧边界开始
             const worldMaskLeft = currentX - worldDistanceLeft;
             const worldMaskRight = worldMaskLeft + (maskW / globalZoom);
+
             const lineGradient = ctx.createLinearGradient(worldMaskLeft, 0, worldMaskRight, 0);
             let nr = 255, ng = 255, nb = 255;
             if (noteColor.startsWith('#') && noteColor.length === 7) { nr = parseInt(noteColor.slice(1,3), 16); ng = parseInt(noteColor.slice(3,5), 16); nb = parseInt(noteColor.slice(5,7), 16); }
