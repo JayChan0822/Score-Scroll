@@ -460,9 +460,18 @@ function syncDesktopPreviewFrame() {
         }
     }
 
-    const clampedPreviewWidth = Math.max(320, Math.min(stageAvailableWidth, desiredPreviewWidth));
+    let clampedPreviewWidth;
+    if (selectedRatio === "auto") {
+        // Auto 模式：依然受限于浏览器可用宽度，防止溢出
+        clampedPreviewWidth = Math.max(320, Math.min(stageAvailableWidth, desiredPreviewWidth));
+        viewportEl.style.maxWidth = "100%";
+    } else {
+        // 非 Auto 模式（如 16:9）：严格保持计算出的准确宽度，即使浏览器变窄也不再被挤压改变
+        clampedPreviewWidth = Math.max(320, desiredPreviewWidth);
+        viewportEl.style.maxWidth = "none";
+    }
+
     viewportEl.style.width = `${clampedPreviewWidth}px`;
-    viewportEl.style.maxWidth = "100%";
     viewportEl.style.margin = "0 auto";
     return true;
 }
