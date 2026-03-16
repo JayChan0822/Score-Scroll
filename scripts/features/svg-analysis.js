@@ -621,6 +621,17 @@ export function createSvgAnalysisFeature({
         }
         globalAbsoluteBridgeStartX = globalAbsoluteSystemInternalX;
 
+        renderQueue.forEach(item => {
+            if (item.symbolType === "Brace") {
+                // 真正的花括号必定位于大谱表系统的极左侧，通常在第一根小节线的左侧或附近。
+                // 如果它的起始 X 坐标远远落后于系统起点（例如相差大于 100px 容差），
+                // 则说明该元素是乐谱中段发生特征碰撞的普通符号，我们剥夺其 Brace 身份。
+                if (item.absMinX > globalAbsoluteSystemInternalX + 100) {
+                    item.symbolType = null;
+                }
+            }
+        });
+
         const stickyTypesMap = { InstName: "inst", RehearsalMark: "reh", Clef: "clef", KeySig: "key", TimeSig: "time", Barline: "bar", Brace: "brace" };
         const stickies = renderQueue.filter(item => item.symbolType && stickyTypesMap[item.symbolType]);
         const clusterThresholdX = 35;
