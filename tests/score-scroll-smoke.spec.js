@@ -2548,6 +2548,55 @@ test('recognizes visually giant opening Bravura time signatures before later met
   expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
 });
 
+test('recognizes non-power-of-two stacked numeric time signatures in Dorico imports', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'non-power-time-signatures.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const highlighted = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            left: rect.left,
+            top: rect.top,
+            token: (el.getAttribute('data-time-sig-token') || '').trim(),
+          };
+        })
+        .filter((item) => item.token && /^\d+$/.test(item.token))
+        .sort((a, b) => a.left - b.left || a.top - b.top);
+
+      const groups = [];
+      highlighted.forEach((item) => {
+        let group = groups.find((candidate) => Math.abs(candidate.left - item.left) < 20);
+        if (!group) {
+          group = { left: item.left, items: [] };
+          groups.push(group);
+        }
+        group.items.push(item);
+      });
+
+      const pairs = groups.map((group) => {
+        const items = group.items.slice().sort((a, b) => a.top - b.top);
+        return `${items[0]?.token || ''}/${items[1]?.token || ''}`;
+      }).filter((pair) => /^\d+\/\d+$/.test(pair));
+
+      return { pairs };
+    });
+
+    return state?.pairs?.length || 0;
+  }, {
+    message: 'waiting for Dorico numeric time signatures to be highlighted',
+  }).toBeGreaterThan(0);
+
+  expect(state).not.toBeNull();
+  expect(state.pairs).toEqual(expect.arrayContaining(['5/6', '9/10', '15/16']));
+});
+
 test('reclassifies mid-system naturals near notes as accidentals in single-line scores', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'zhangchengyao-mid-system-naturals.svg');
   await loadFixtureIntoScore(page, fixturePath);
@@ -3477,6 +3526,78 @@ test('decodes non-MuseScore path time signatures into the timeline', async ({ pa
   expect(state.highlightedPaths).toHaveLength(2);
   expect(state.displayText).toBe('4/4');
   expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
+});
+
+test('resolves Broadway from glyph signatures when path font metadata is missing', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const state = await page.evaluate(async () => {
+    const modulePath = `/scripts/features/time-signature-decoder.js?glyph-font-fallback=${Date.now()}`;
+    const {
+      resolveMusicFontFamilyForPathSignature,
+    } = await import(modulePath);
+
+    const signature = 'MCCCCCLCLCCCCCCCCCCCCCCCCCCCCCCCCCMCCCCCCCCCCC';
+    const resolvedFont = resolveMusicFontFamilyForPathSignature({
+      signature,
+      category: 'timeSignatures',
+    });
+
+    return { resolvedFont };
+  });
+
+  expect(state.resolvedFont).toBe('Broadway');
+});
+
+test('decodes Broadway MuseScore path time signatures without font-family metadata', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', 'Broadway.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const highlightedPaths = Array.from(svg.querySelectorAll('path.highlight-timesig'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            token: el.getAttribute('data-time-sig-token') || '',
+            left: rect.left,
+            top: rect.top,
+          };
+        })
+        .sort((a, b) => a.left - b.left);
+
+      const leftmostGroup = highlightedPaths
+        .filter((item) => Math.abs(item.left - highlightedPaths[0]?.left) < 28)
+        .sort((a, b) => a.top - b.top);
+
+      const openingTokens = leftmostGroup.map((item) => item.token);
+
+      return {
+        highlightedCount: highlightedPaths.length,
+        openingTokens,
+        displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+      };
+    });
+
+    return {
+      highlightedCount: state?.highlightedCount || 0,
+      openingTokens: state?.openingTokens || [],
+      displayText: state?.displayText || '',
+    };
+  }, {
+    message: 'waiting for Broadway MuseScore path time signatures to decode without font metadata',
+  }).toMatchObject({
+    openingTokens: ['1', '2'],
+    displayText: '1/2',
+  });
+
+  expect(state.highlightedCount).toBeGreaterThanOrEqual(2);
+  expect(state.openingTokens).toEqual(['1', '2']);
+  expect(state.displayText).toBe('1/2');
 });
 
 test('classifies left-of-system verticals as bracket lines without relying on barline classes', async ({ page }) => {

@@ -11,8 +11,12 @@ import { MusicFontRegistry } from "../data/music-font-registry.js";
  * @property {boolean} isGiant
  */
 
-/** @type {Record<string, { timeSignatures?: Record<string, string[]> }>} */
-const musicFontRegistry = /** @type {Record<string, { timeSignatures?: Record<string, string[]> }> } */ (MusicFontRegistry);
+/**
+ * @typedef {{ [category: string]: Record<string, string[]> | undefined }} MusicFontDefinition
+ */
+
+/** @type {Record<string, MusicFontDefinition>} */
+const musicFontRegistry = /** @type {Record<string, MusicFontDefinition>} */ (MusicFontRegistry);
 
 const RANGE_DIGIT_OFFSETS = [
     { start: 0xE080, end: 0xE089 },
@@ -37,6 +41,14 @@ const FONT_ALIASES = [
 ];
 
 const pathTimeSignatureLookupCache = new Map();
+const registryCategorySignatureLookupCache = new Map();
+
+const GLYPH_REGISTRY_CATEGORIES = new Set([
+    "timeSignatures",
+    "clefs",
+    "accidentals",
+    "noteheads",
+]);
 
 /**
  * @param {number} codepoint
@@ -96,6 +108,41 @@ function buildPathLookup(fontName) {
 }
 
 /**
+ * @param {string} category
+ * @returns {Map<string, string[]>}
+ */
+function buildRegistryCategorySignatureLookup(category) {
+    if (registryCategorySignatureLookupCache.has(category)) {
+        return registryCategorySignatureLookupCache.get(category);
+    }
+
+    /** @type {Map<string, string[]>} */
+    const lookup = new Map();
+
+    Object.entries(musicFontRegistry).forEach(([fontName, fontData]) => {
+        const categoryMap = fontData?.[category];
+        if (!categoryMap || typeof categoryMap !== "object") return;
+
+        Object.values(categoryMap).forEach((signatures) => {
+            (Array.isArray(signatures) ? signatures : []).forEach((signature) => {
+                if (!signature) return;
+                let fonts = lookup.get(signature);
+                if (!fonts) {
+                    fonts = [];
+                    lookup.set(signature, fonts);
+                }
+                if (!fonts.includes(fontName)) {
+                    fonts.push(fontName);
+                }
+            });
+        });
+    });
+
+    registryCategorySignatureLookupCache.set(category, lookup);
+    return lookup;
+}
+
+/**
  * @param {string} d
  * @returns {string}
  */
@@ -118,6 +165,47 @@ export function normalizeMusicFontFamily(fontFamily) {
     }
 
     return musicFontRegistry[compact] ? compact : null;
+}
+
+/**
+ * @param {{
+ *   signature: string,
+ *   category: string,
+ *   explicitFontFamily?: string,
+ *   preferredFontFamily?: string,
+ *   contextFontFamily?: string,
+ * }} options
+ * @returns {string | null}
+ */
+export function resolveMusicFontFamilyForPathSignature({
+    signature,
+    category,
+    explicitFontFamily = "",
+    preferredFontFamily = "",
+    contextFontFamily = "",
+}) {
+    const normalizedExplicitFont = normalizeMusicFontFamily(explicitFontFamily);
+    if (normalizedExplicitFont) return normalizedExplicitFont;
+    if (!signature || !GLYPH_REGISTRY_CATEGORIES.has(category)) return null;
+
+    const lookup = buildRegistryCategorySignatureLookup(category);
+    const candidates = lookup.get(signature) || [];
+    if (candidates.length === 0) return null;
+
+    /** @type {string[]} */
+    const preferredCandidates = [];
+    const normalizedContextFont = normalizeMusicFontFamily(contextFontFamily);
+    const normalizedPreferredFont = normalizeMusicFontFamily(preferredFontFamily);
+    if (normalizedContextFont) preferredCandidates.push(normalizedContextFont);
+    if (normalizedPreferredFont) preferredCandidates.push(normalizedPreferredFont);
+
+    for (const preferredCandidate of preferredCandidates) {
+        if (candidates.includes(preferredCandidate)) {
+            return preferredCandidate;
+        }
+    }
+
+    return candidates[0] || null;
 }
 
 /**
@@ -191,10 +279,17 @@ export function decodeTimeSignatureText(content) {
 /**
  * @param {string} signature
  * @param {string} fontFamily
+ * @param {{ preferredFontFamily?: string, contextFontFamily?: string }} [options]
  * @returns {DecodedTimeSignature | null}
  */
-export function decodeTimeSignaturePath(signature, fontFamily) {
-    const normalizedFont = normalizeMusicFontFamily(fontFamily);
+export function decodeTimeSignaturePath(signature, fontFamily, options = {}) {
+    const normalizedFont = resolveMusicFontFamilyForPathSignature({
+        signature,
+        category: "timeSignatures",
+        explicitFontFamily: fontFamily,
+        preferredFontFamily: options.preferredFontFamily || "",
+        contextFontFamily: options.contextFontFamily || "",
+    });
     if (!normalizedFont || !signature) return null;
 
     const lookup = buildPathLookup(normalizedFont);

@@ -26,7 +26,7 @@ import {
     decodeTimeSignatureText,
     getInheritedSvgFontFamily,
     simplifySvgPathSignature,
-} from "./features/time-signature-decoder.js";
+} from "./features/time-signature-decoder.js?v=20260317-glyph-font-fallback-1";
 import { createTimelineFeature } from "./features/timeline.js";
 import { bindUiEvents } from "./features/ui-events.js?v=20260313-sticky-lock-light-export-1";
 import { debugLog } from "./utils/debug.js";
@@ -1586,7 +1586,10 @@ function buildTimeSignatureStaffBandsFromLineYs(lineYs) {
 
 const PERCUSSION_INSTRUMENT_REGEX = /\b(?:timpani|triangle|cymbal|drum|mark tree|tambourine|tam(?:-| )?tam|glockenspiel|xylophone|marimba|vibraphone|wood ?block|claves|cabasa|guiro|shaker|cowbell|conga|bongo|tom(?:-tom)?|bell tree|chimes|sleigh bells|suspended)\b/i;
 const TAB_LETTER_REGEX = /^(?:TAB|T|A|B)$/i;
-const LEGAL_TIME_SIGNATURE_DENOMINATORS = new Set(['1', '2', '4', '8', '16', '32', '64']);
+
+function isPositiveIntegerTimeSignatureToken(token) {
+    return /^[1-9]\d*$/.test(token || '');
+}
 
 function getHighlightedClefIdentity(el) {
     if (!el) return null;
@@ -2352,14 +2355,14 @@ function getSvgTextScreenAnchor(el) {
 }
 
 function getTimeSignatureCandidateReferencePoint(candidate) {
-    if (candidate?.referencePoint && Number.isFinite(candidate.referencePoint.x) && Number.isFinite(candidate.referencePoint.y)) {
-        return candidate.referencePoint;
-    }
     if (candidate?.rect) {
         return {
-            x: candidate.rect.left,
-            y: candidate.rect.top,
+            x: candidate.rect.left + candidate.rect.width / 2,
+            y: candidate.rect.top + candidate.rect.height / 2,
         };
+    }
+    if (candidate?.referencePoint && Number.isFinite(candidate.referencePoint.x) && Number.isFinite(candidate.referencePoint.y)) {
+        return candidate.referencePoint;
     }
     return null;
 }
@@ -2437,8 +2440,8 @@ function getValidStackedTimeSignaturePair(candidate, candidates) {
     const numerator = topCandidate.decodedToken || '';
     const denominator = bottomCandidate.decodedToken || '';
 
-    if (!/^[1-9]\d*$/.test(numerator)) return null;
-    if (!LEGAL_TIME_SIGNATURE_DENOMINATORS.has(denominator)) return null;
+    if (!isPositiveIntegerTimeSignatureToken(numerator)) return null;
+    if (!isPositiveIntegerTimeSignatureToken(denominator)) return null;
 
     return {
         topCandidate,
@@ -2675,6 +2678,17 @@ function identifyAndHighlightTimeSignatures() {
         svgRoot.querySelectorAll('path').forEach((el) => {
             if (!hasSvgClass(el, 'TimeSig')) return;
 
+            const d = el.getAttribute('d');
+            if (!d) return;
+
+            const signature = simplifySvgPathSignature(d);
+            if (!signature) return;
+
+            const explicitFontFamily = getInheritedSvgFontFamily(el);
+            const decoded = decodeTimeSignaturePath(signature, explicitFontFamily, {
+                preferredFontFamily: fallbackFontFamily,
+            });
+
             const rect = el.getBoundingClientRect();
             if (!(rect.width > 0 && rect.height > 0)) return;
 
@@ -2685,9 +2699,9 @@ function identifyAndHighlightTimeSignatures() {
             candidates.push({
                 el,
                 content: '',
-                decodedToken: '',
-                requiresStackPartner: false,
-                isGiantTimeSig: false,
+                decodedToken: decoded?.token || '',
+                requiresStackPartner: decoded?.kind === 'number' && !isVisuallyGiantTimeSignature(rect, decoded),
+                isGiantTimeSig: isVisuallyGiantTimeSignature(rect, decoded),
                 isMuseScoreSemantic: true,
                 rect,
                 referencePoint: null,
@@ -2710,8 +2724,10 @@ function identifyAndHighlightTimeSignatures() {
             const signature = simplifySvgPathSignature(d);
             if (!signature) return;
 
-            const fontFamily = getInheritedSvgFontFamily(el, fallbackFontFamily);
-            const decoded = decodeTimeSignaturePath(signature, fontFamily);
+            const explicitFontFamily = getInheritedSvgFontFamily(el);
+            const decoded = decodeTimeSignaturePath(signature, explicitFontFamily, {
+                preferredFontFamily: fallbackFontFamily,
+            });
             if (!decoded) return;
 
             const rect = el.getBoundingClientRect();
