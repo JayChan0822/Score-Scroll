@@ -36,6 +36,8 @@ import { clamp } from "./utils/math.js";
 const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
 const PLAYBACK_TAIL_BUFFER_SEC = 2;
 const PREVIEW_FOCUS_MODE_CLASS = "preview-focus-mode";
+const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
+const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.3;
 const controlStackEl = document.querySelector(".control-stack");
 const stageWrapEl = document.querySelector(".stage-wrap");
 const workspaceScaleFrame = document.querySelector(".workspace-scale-frame");
@@ -545,6 +547,7 @@ let allKnownNoteheadMap = {};
 let currentRawSvgContent = null; // 用于切换字体时热重载 SVG
 let svgProcessingGeneration = 0;
 let currentMappedSvgRoot = null;
+let currentSvgIsMuseScore = false;
 let stickyTransitionFrameId = 0;
 let stickyTransitionRenderX = 0;
 
@@ -668,6 +671,7 @@ function renderCanvas(currentX, options = {}) {
     const noteColor = noteColorPicker ? noteColorPicker.value : defaultNoteColor;
     const solidBgColor = bgColorPicker ? bgColorPicker.value : defaultBgColor;
     const bgColor = transparentBackground ? 'rgba(0, 0, 0, 0)' : solidBgColor;
+    const activeMidClefStickyScale = currentSvgIsMuseScore ? MUSESCORE_MID_CLEF_STICKY_SCALE : DORICO_MID_CLEF_STICKY_SCALE;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!transparentBackground) {
@@ -723,7 +727,7 @@ function renderCanvas(currentX, options = {}) {
                 if (currentX >= layerMaxX) {
                     if (index > activeIdx[laneId][type]) {
                         activeIdx[laneId][type] = index;
-                        activeWidth[laneId][type] = (type === 'clef' && index > 0) ? block.width * 1.5 : block.width;
+                        activeWidth[laneId][type] = (type === 'clef' && index > 0) ? block.width * activeMidClefStickyScale : block.width;
                     }
                 }
             });
@@ -765,7 +769,7 @@ function renderCanvas(currentX, options = {}) {
             if (item.stickyType === 'key') targetExtraX = laneOffsets[item.laneId].clef;
             else if (item.stickyType === 'time') targetExtraX = laneOffsets[item.laneId].clef + laneOffsets[item.laneId].key;
 
-            if (currentX >= layerMaxX) { isPinned = true; pinShiftX = currentX - layerMaxX; if (item.isMidClef) targetScale = 1.5; }
+            if (currentX >= layerMaxX) { isPinned = true; pinShiftX = currentX - layerMaxX; if (item.isMidClef) targetScale = activeMidClefStickyScale; }
             if (item.blockIndex === currentActive) {
                 if (layerMaxX - currentX < 300) shouldShowMask = true;
                 const worldRightX = item.absMaxX + pinShiftX + targetExtraX + (item.absMaxX - item.blockMinX) * (targetScale - 1);
@@ -843,11 +847,14 @@ function renderCanvas(currentX, options = {}) {
         }
 
         const appliedExtraX = isPinned ? item.currentExtraX : 0;
+        const midClefScaleProgress = item.isMidClef && activeMidClefStickyScale > 1
+            ? Math.max(0, (item.currentScale - 1) / (activeMidClefStickyScale - 1))
+            : 0;
         const drawCmd = {
             item, drawColor, isPureBg,
             alpha: alpha * item.currentOpacity,
             tx: flyOffsetX + pinShiftX + appliedExtraX,
-            ty: flyOffsetY + ((item.midClefOffsetY || 0) * ((item.currentScale - 1) / 0.5)),
+            ty: flyOffsetY + ((item.midClefOffsetY || 0) * midClefScaleProgress),
             scale: item.currentScale
         };
 
@@ -1357,11 +1364,13 @@ function autoDetectMusicFont(svgText) {
 async function processSvgContent(svgContent) {
     const processingGeneration = ++svgProcessingGeneration;
     currentMappedSvgRoot = null;
+    currentSvgIsMuseScore = false;
     const sandbox = document.getElementById('svg-sandbox');
     sandbox.innerHTML = svgContent;
 
     const newSvgRoot = sandbox.querySelector('svg');
     if (!newSvgRoot) return;
+    currentSvgIsMuseScore = isMuseScoreSvg(newSvgRoot);
 
     // 清理旧样式
     document.querySelectorAll('.svg-extracted-style').forEach(el => el.remove());
@@ -1895,19 +1904,15 @@ function identifyAndHighlightInitialBarlines() {
         let absoluteLeftmostV = Math.min(...openingCandidateVerticals.map(v => v.x));
         let startCluster = openingCandidateVerticals.filter(vLine => vLine.x <= absoluteLeftmostV + openingClusterGap);
 
-        if (startCluster.length > 1) {
-            const tallestClusterHeight = Math.max(...startCluster.map(vLine => vLine.height));
-            const dominantHeightFloor = Math.max(10, tallestClusterHeight * 0.7);
-            const dominantCluster = startCluster.filter(vLine => vLine.height >= dominantHeightFloor);
-
-            if (dominantCluster.length > 0) {
-                startCluster = dominantCluster;
-            }
-        }
-
         // 🌟 3. 核心判定：只有靠近 staff left edge 的最左竖线簇，才可能是真实起手线。
         if (absoluteLeftmostV - absoluteLeftEdge <= openingAnchorThreshold) {
-            let rightmostLine = startCluster.reduce((prev, current) => (prev.screenX > current.screenX) ? prev : current);
+            let rightmostLine = startCluster.reduce((prev, current) => (
+                current.x > prev.x || (Math.abs(current.x - prev.x) < 0.5 && current.screenX > prev.screenX)
+            ) ? current : prev);
+            const alignedStartCluster = startCluster.filter((vLine) => Math.abs(vLine.x - rightmostLine.x) < 0.5);
+            if (alignedStartCluster.length > 0) {
+                startCluster = alignedStartCluster;
+            }
             trueBarlineX = rightmostLine.x;
             trueBarlineScreenX = rightmostLine.screenX;
             window.hasPhysicalStartBarline = true;
