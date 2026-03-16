@@ -162,6 +162,20 @@ export const MusicFontRegistry = {
             'Notehead_X_Half': ['MLLLLLLLLLLLLMLLLLLLLLLLLL'],
             'Notehead_X_Whole': ['MLLLLLLLLLLLLMCLLCLLCLLCLL'],
             'Notehead_X_DoubleWhole': ['MLLLLLLLLLLLLLLLLLLMLLLLMLLLLMLLLMLLLMLLLLLLLLLLLL']
+        },
+        timeSignatures: {
+            '0': ['MCCCCZMCLCCLCZM'],
+            '1': ['MLCLLLLLCLCLL'],
+            '2': ['MCCCCCCCCCCCCCCCLCCCL'],
+            '3': ['MCCCCCCCCCCLCCCCCCCC'],
+            '4': ['MLLLLLLCLCLLLCLLLCLL'],
+            '5': ['MCCLCCCCCCCCCCCCCLCC'],
+            '6': ['MCCCCCCCCCCCCMCCCC'],
+            '7': ['MCCCCLLLCCCCCCCCCCCCL'],
+            '8': ['MCCCCCCCCMCCCCMCCCC'],
+            '9': ['MCCCCCCCCCCCCMCCCC'],
+            'Common Time': ['MCCCLCCCCCCCCC'],
+            'Cut Time': ['MLLCLCLCCCCCCCLLLCCLMCLC']
         }
     },
 
@@ -393,6 +407,20 @@ export const MusicFontRegistry = {
             'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],
             'Notehead_X_Whole': ['MLCLCCLLCCLCLLCLCCLLCCLCLMLLLLLLLLLLLL'],
             'Notehead_X_DoubleWhole': ['MLLLMLLLMLLLLLLLLLLLLMCLCLCLCLMCLCLCLCLLCLCLCLCLCLCLCLCLLCLCLCLCLMCLCLCLCL']
+        },
+        timeSignatures: {
+            '0': ['MCCCCCCCCCLMCCCCCC'],
+            '1': ['MCCCCCCCCCCCCCCCCCCCCCCCCCC'],
+            '2': ['MCCCCCCCCCCCCCCCCCCCCCCCCCLC'],
+            '3': ['MCCCCCCCCCCCCCCCCCCCLCC'],
+            '4': ['MCCCCCLCLCCCCCCCCCCCCCCCCCCCCCCCCCMCCCCCCCCCCC'],
+            '5': ['MCCCCCCCCCCCLCCCCCLCCCCCCCCCCCCCC'],
+            '6': ['MCCCCCCCCCCCMCCCC'],
+            '7': ['MCCCCCCCCCCCCCCCCCCCCCC'],
+            '8': ['MCCCCCCCCCCCCCCCCLMCCCCCMCCCLCCCC'],
+            '9': ['MCCCCCCCCCCCCCMCCCCCC'],
+            'Common Time': ['MCCCLCCCCCLCCCCCCCCCCCCCC'],
+            'Cut Time': ['MCCCCCCCCCCCLCLCCCCLCCCCCCCCCCCCMCCCCC']
         }
     },
 
@@ -537,6 +565,54 @@ export const MusicFontRegistry = {
             'Notehead_Half': [''],
             'Notehead_Whole': [''],
             'Notehead_DoubleWhole': []
+        }
+    },
+    'Emmentaler': {
+        timeSignatures: {
+            '0': ['MCCCLCCCCLCMCCCCCCCC'],
+            '1': ['MCCCCCLCCCCCCCCCCCCLCCCLCCCCLC'],
+            '2': ['MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'],
+            '3': ['MCLCCCLCCLCCLCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'],
+            '4': ['MCCCCLLLCCCCLLCCLLCCCCCCCCCCCCLLCCCCCCCCC'],
+            '5': ['MCCCCCCCCCCLCCCCCCCCCCCCCCCCCCCCLC'],
+            '6': ['MCCCLCCCCCMCCCCCCCCCCCCCCCCCCCCCCC'],
+            '7': ['MCCCCCCCCLCCLCCLCCCCCCCCCCCCCCCLCLCCC'],
+            '8': ['MCCCCCCLMCCCCCCCCCCCCCMCCCCCCL'],
+            '9': ['MCCCLCCCCCMCCCCCCCCCCCCCCCCCCCCCCC'],
+            'Common Time': ['MCCCCCCCCCCCLCCCCCCCCCCCCCCCCC'],
+            'Cut Time': ['MCCCCCCCLLCLCCCCCCCCLLCLCLCCCCLCLCLLCCCMLCCLCC']
+        }
+    },
+    'Gonville': {
+        timeSignatures: {
+            '0': ['MCCCCMCCCC'],
+            '1': ['MCCLLCCCLCCCLCLCLC'],
+            '2': ['MCCCCCCCCCCCCCCCCCCCCCCC'],
+            '3': ['MCCCCCCCCCCCCCCCCCCCC'],
+            '4': ['MCLLCCCLCCCLLCCLLCCLCLLLCCLCCC'],
+            '5': ['MCCCCLCCCCCCCCCCCCCCCCCCCC'],
+            '6': ['MCCCCCCCCCCCMCCCC'],
+            '7': ['MCCCCCCCCCLCCCCCCCCCCCCCL'],
+            '8': ['MCCCCCCCCMCCCCMCCCC'],
+            '9': ['MCCCCCCCCCCCMCCCC'],
+            'Common Time': ['MCCCCCCCCCCCCC'],
+            'Cut Time': ['MCLCCLCCCCLCCCCCLCCLCMCLC']
+        }
+    },
+    'MuseJazz': {
+        timeSignatures: {
+            '0': ['MCCCCLLCCCCCCMCCCLCCCCCCC'],
+            '1': ['MCLLCLCLLCCLLCCCCCCCCLLCLLCC'],
+            '2': ['MCLCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'],
+            '3': ['MCCCCCCCCLCCCCLCCCCCCCCCCCCCCCCCCCCCCCCCC'],
+            '4': ['MLCCLCCLLCCCCLCCLCCCCCCCCCCCCCCCCCLLLCLLLCMLLCCLCLLCL'],
+            '5': ['MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'],
+            '6': ['MCCCLCCCCCCCCLLCCCCMCCCCCCCCCC'],
+            '7': ['MCCCCCLCCCCCCCCCCCCCCC'],
+            '8': ['MCCCCCCCCCCCCCCCCCMCCCCCCCCLCLMCCCCCCCCC'],
+            '9': ['MCCCCCCLLCCCCCLLCCCCCCCMCCCCCCCC'],
+            'Common Time': ['MCCCCCCCCCCCLCLLLLCCCCCCCCCLLLLCCCCCCMCCCCCCCCCCCCLCCCCCCLLCCCCCCC'],
+            'Cut Time': ['MCCCCCCCCCCCCLCCCCCCLLCCCCCCCMCCLLCCLCCLLLCCLLLLCCCLCCLLCCCLLLCCCCCLLCCCCCLLCCMLLCCCCLLL']
         }
     },
 };
