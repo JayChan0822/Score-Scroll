@@ -2597,6 +2597,46 @@ test('recognizes non-power-of-two stacked numeric time signatures in Dorico impo
   expect(state.pairs).toEqual(expect.arrayContaining(['5/6', '9/10', '15/16']));
 });
 
+test('keeps MuseScore opening path time signatures paired when short horizontal lines pollute staff-band spacing', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'musescore-polluted-staff-band-timesig.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const highlightedPaths = Array.from(svg.querySelectorAll('path.TimeSig.highlight-timesig')).map((el) => ({
+        token: el.getAttribute('data-time-sig-token') || '',
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+      }));
+
+      return {
+        highlightedPaths,
+        displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+        displayColor: getComputedStyle(document.getElementById('timeSigDisplay')).color,
+      };
+    });
+
+    return {
+      highlightedCount: state?.highlightedPaths.length || 0,
+      displayText: state?.displayText || '',
+    };
+  }, {
+    message: 'waiting for polluted MuseScore opening time signatures to classify',
+  }).toEqual({
+    highlightedCount: 2,
+    displayText: '3/8',
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.highlightedPaths).toHaveLength(2);
+  expect(state.highlightedPaths.map((item) => item.token)).toEqual(['3', '8']);
+  expect(state.displayText).toBe('3/8');
+  expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
+});
+
 test('reclassifies mid-system naturals near notes as accidentals in single-line scores', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'zhangchengyao-mid-system-naturals.svg');
   await loadFixtureIntoScore(page, fixturePath);

@@ -2610,7 +2610,7 @@ function identifyAndHighlightTimeSignatures() {
     const useMuseScoreSemanticClasses = isMuseScoreSvg(svgRoot);
     const fallbackFontFamily = document.getElementById('musicFontSelect')?.value || '';
 
-    const staffLineYs = [];
+    const horizontalSegments = [];
     const verticalLineXs = [];
 
     // --- 1. 收集五线谱和垂直小节线坐标 ---
@@ -2633,11 +2633,23 @@ function identifyAndHighlightTimeSignatures() {
         const lineRect = el.getBoundingClientRect();
 
         if (Math.abs(y1 - y2) <= 1.5) {
-            if (lineRect.width > 24) staffLineYs.push((lineRect.top + lineRect.bottom) / 2);
+            horizontalSegments.push({
+                centerY: (lineRect.top + lineRect.bottom) / 2,
+                length: Math.abs(x1 - x2),
+            });
         } else if (Math.abs(x1 - x2) <= 1.5 && Math.abs(y1 - y2) > 10) {
             verticalLineXs.push((lineRect.left + lineRect.right) / 2);
         }
     });
+
+    const maxHorizontalLength = horizontalSegments.length > 0
+        ? Math.max(...horizontalSegments.map((segment) => segment.length))
+        : 0;
+    const dominantStaffLines = horizontalSegments.filter((segment) => (
+        segment.length >= Math.max(24, maxHorizontalLength * 0.6)
+    ));
+    const staffLineYs = (dominantStaffLines.length > 0 ? dominantStaffLines : horizontalSegments)
+        .map((segment) => segment.centerY);
 
     const staffBands = classifyTimeSignatureStaffBands(
         svgRoot,
@@ -2767,7 +2779,6 @@ function identifyAndHighlightTimeSignatures() {
     // 🌟 第二步：对候选人进行严格的交叉审查
     candidates.forEach(candidate => {
         const { el, requiresStackPartner, isGiantTimeSig, rect, decodedToken, bandIndex, staffKind, anchorInfo } = candidate;
-
         const isGiantText = isGiantTimeSig || rect.height > GIANT_TIME_SIGNATURE_HEIGHT_PX;
 
         // 🛡️ 校验一：垂直 Y 轴必须在合法谱表内
