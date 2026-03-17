@@ -72,6 +72,12 @@ export function createSvgAnalysisFeature({
         return null;
     }
 
+    function getTimeSigIsGiant(el) {
+        if (typeof el?.getAttribute !== "function") return false;
+        const rawValue = (el.getAttribute("data-time-sig-giant") || "").trim().toLowerCase();
+        return rawValue === "1" || rawValue === "true";
+    }
+
     function shouldStartNewStickyBlock(type, currentBlock, nextItem, clusterThresholdX) {
         if (!currentBlock || !nextItem) return false;
 
@@ -187,6 +193,103 @@ export function createSvgAnalysisFeature({
         return staffBands;
     }
 
+    function assignLaneSystemIndices(lanes) {
+        if (!Array.isArray(lanes) || lanes.length === 0) return;
+
+        let currentSystemIndex = 0;
+        lanes[0].systemIndex = currentSystemIndex;
+
+        for (let i = 1; i < lanes.length; i++) {
+            const previousLane = lanes[i - 1];
+            const currentLane = lanes[i];
+            const previousBottom = Number.isFinite(previousLane.bandBottom) ? previousLane.bandBottom : previousLane.anchorY;
+            const currentTop = Number.isFinite(currentLane.bandTop) ? currentLane.bandTop : currentLane.anchorY;
+            const gap = currentTop - previousBottom;
+            const systemBreakThreshold = Math.max(
+                24,
+                (previousLane.staffSpace || 0) * 10,
+                (currentLane.staffSpace || 0) * 10,
+            );
+
+            if (gap > systemBreakThreshold) {
+                currentSystemIndex += 1;
+            }
+
+            currentLane.systemIndex = currentSystemIndex;
+        }
+    }
+
+    function registerSharedGiantTimeStickyGroups(renderQueue, stickyMinX, openingThresholdX) {
+        const giantTimeItems = renderQueue
+            .filter((item) => item.isSticky && item.stickyType === "time" && item.timeSigIsGiant)
+            .sort((a, b) => (
+                ((a.systemIndex || 0) - (b.systemIndex || 0))
+                || (((Number.isFinite(a.timeSigAnchorX) ? a.timeSigAnchorX : a.absMinX) - (Number.isFinite(b.timeSigAnchorX) ? b.timeSigAnchorX : b.absMinX)))
+                || (a.absMinX - b.absMinX)
+                || (a.centerY - b.centerY)
+            ));
+
+        if (giantTimeItems.length === 0) return {};
+
+        /** @type {Map<number, Array<{ anchorX: number, minX: number, maxX: number, items: Array<Record<string, unknown>>, lockDistance?: number }>>} */
+        const systemBlocks = new Map();
+
+        giantTimeItems.forEach((item) => {
+            const systemIndex = Number.isFinite(item.systemIndex) ? item.systemIndex : 0;
+            const anchorX = Number.isFinite(item.timeSigAnchorX) ? item.timeSigAnchorX : item.absMinX;
+            let blocks = systemBlocks.get(systemIndex);
+            if (!blocks) {
+                blocks = [];
+                systemBlocks.set(systemIndex, blocks);
+            }
+
+            const lastBlock = blocks[blocks.length - 1];
+            if (!lastBlock || Math.abs(anchorX - lastBlock.anchorX) > 10) {
+                blocks.push({
+                    anchorX,
+                    minX: item.absMinX,
+                    maxX: item.absMaxX,
+                    items: [item],
+                });
+                return;
+            }
+
+            lastBlock.items.push(item);
+            lastBlock.minX = Math.min(lastBlock.minX, item.absMinX);
+            lastBlock.maxX = Math.max(lastBlock.maxX, item.absMaxX);
+        });
+
+        const sharedGroupsById = {};
+        systemBlocks.forEach((blocks, systemIndex) => {
+            if (!Array.isArray(blocks) || blocks.length === 0) return;
+            const groupId = `time-giant-system-${systemIndex}`;
+            const firstBlock = blocks[0];
+
+            blocks.forEach((block, index) => {
+                block.lockDistance = calculateStickyBlockLockDistance({
+                    type: "time",
+                    blockMinX: block.minX,
+                    firstBlockMinX: firstBlock.minX,
+                    openingThresholdX,
+                    stickyMinX,
+                });
+
+                block.items.forEach((item) => {
+                    item.sharedStickyGroupId = groupId;
+                    item.sharedBlockIndex = index;
+                    item.sharedLockDistance = block.lockDistance;
+                });
+            });
+
+            sharedGroupsById[groupId] = {
+                type: "time",
+                blocks,
+            };
+        });
+
+        return sharedGroupsById;
+    }
+
     function preprocessSvgColors(svgNode) {
         const isBgColor = (colorValue) => {
             if (!colorValue) return false;
@@ -260,6 +363,7 @@ export function createSvgAnalysisFeature({
     function buildRenderQueue(svgRoot) {
         const renderQueue = [];
         const globalStickyLanes = {};
+        const globalStickySharedGroups = {};
         let stickyMinX = 0;
         let globalAbsoluteStaffLineYs = [];
         let globalAbsoluteBridgeLineYs = [];
@@ -274,6 +378,7 @@ export function createSvgAnalysisFeature({
                 globalAbsoluteBridgeStartX,
                 globalAbsoluteSystemInternalX,
                 globalStickyLanes,
+                globalStickySharedGroups,
                 renderQueue,
                 stickyMinX,
             };
@@ -407,6 +512,7 @@ export function createSvgAnalysisFeature({
                     absMinX: limits.minX, absMaxX: limits.maxX, symbolType,
                     centerY: limits.minX + (limits.maxX - limits.minX) / 2,
                     timeSigAnchorX: getTimeSigAnchorX(el),
+                    timeSigIsGiant: getTimeSigIsGiant(el),
                     ...getMathFlyinParams(),
                 });
             } else if (el.tagName.toLowerCase() === "polyline") {
@@ -446,6 +552,7 @@ export function createSvgAnalysisFeature({
                         absMinX: Math.min(tx1, tx2), absMaxX: Math.max(tx1, tx2),
                         symbolType, centerY: matrix.b * ltx1 + matrix.d * lty1 + matrix.f,
                         timeSigAnchorX: getTimeSigAnchorX(el),
+                        timeSigIsGiant: getTimeSigIsGiant(el),
                         ...getMathFlyinParams(),
                     });
                 }
@@ -490,6 +597,7 @@ export function createSvgAnalysisFeature({
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams(),
                 timeSigAnchorX: getTimeSigAnchorX(el),
+                timeSigIsGiant: getTimeSigIsGiant(el),
             });
         });
 
@@ -523,6 +631,7 @@ export function createSvgAnalysisFeature({
                 centerY: matrix.b * cx + matrix.d * cy + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
                 timeSigAnchorX: getTimeSigAnchorX(el),
+                timeSigIsGiant: getTimeSigIsGiant(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -566,6 +675,7 @@ export function createSvgAnalysisFeature({
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
                 timeSigToken: getTimeSigToken(el),
                 timeSigAnchorX: getTimeSigAnchorX(el),
+                timeSigIsGiant: getTimeSigIsGiant(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -590,6 +700,7 @@ export function createSvgAnalysisFeature({
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
                 timeSigToken: getTimeSigToken(el),
                 timeSigAnchorX: getTimeSigAnchorX(el),
+                timeSigIsGiant: getTimeSigIsGiant(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -622,6 +733,7 @@ export function createSvgAnalysisFeature({
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 timeSigToken: getTimeSigToken(el),
                 timeSigAnchorX: getTimeSigAnchorX(el),
+                timeSigIsGiant: getTimeSigIsGiant(el),
                 box,
                 ...getMathFlyinParams(),
             });
@@ -747,6 +859,7 @@ export function createSvgAnalysisFeature({
                     laneId: `lane-${index}`,
                 });
             });
+            assignLaneSystemIndices(globalLanes);
 
             stickies.forEach(item => {
                 let targetLane = globalLanes.find(lane => item.centerY >= lane.bandTop && item.centerY <= lane.bandBottom) || null;
@@ -792,6 +905,12 @@ export function createSvgAnalysisFeature({
             }
         }
 
+        globalLanes.forEach((lane) => {
+            if (!Number.isFinite(lane.systemIndex)) {
+                lane.systemIndex = 0;
+            }
+        });
+
         let globalMinX = Infinity;
         globalLanes.forEach(lane => {
             lane.items.forEach(item => {
@@ -812,12 +931,12 @@ export function createSvgAnalysisFeature({
             stickyMinX = globalAbsoluteSystemInternalX;
         }
 
+        const stickyOpeningThresholdX = 200;
         globalLanes.forEach(lane => {
             const currentStaffSpace = lane.staffSpace || 10;
             const itemsByType = { inst: [], reh: [], clef: [], key: [], time: [], bar: [], brace: [] };
             lane.items.forEach(item => itemsByType[stickyTypesMap[item.symbolType]].push(item));
             const typeBlocks = {};
-            const openingThresholdX = 200;
 
             ["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {
                 const items = itemsByType[type];
@@ -851,11 +970,11 @@ export function createSvgAnalysisFeature({
             });
 
             const openingClefBlock = typeBlocks.clef?.[0] || null;
-            const openingClefMinX = openingClefBlock && openingClefBlock.minX <= stickyMinX + openingThresholdX
+            const openingClefMinX = openingClefBlock && openingClefBlock.minX <= stickyMinX + stickyOpeningThresholdX
                 ? openingClefBlock.minX
                 : null;
             const openingTimeBlock = typeBlocks.time?.[0] || null;
-            const openingTimeMinX = openingTimeBlock && openingTimeBlock.minX <= stickyMinX + openingThresholdX
+            const openingTimeMinX = openingTimeBlock && openingTimeBlock.minX <= stickyMinX + stickyOpeningThresholdX
                 ? openingTimeBlock.minX
                 : null;
 
@@ -863,7 +982,7 @@ export function createSvgAnalysisFeature({
             ["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {
                 if (typeBlocks[type] && typeBlocks[type].length > 0) {
                     const firstBlock = typeBlocks[type][0];
-                    if (type === "inst" || firstBlock.minX <= stickyMinX + openingThresholdX) {
+                    if (type === "inst" || firstBlock.minX <= stickyMinX + stickyOpeningThresholdX) {
                         baseWidths[type] = Number.isFinite(firstBlock.stickyWidth)
                             ? firstBlock.stickyWidth
                             : firstBlock.width;
@@ -877,7 +996,7 @@ export function createSvgAnalysisFeature({
                 const firstBlock = typeBlocks[type][0];
                 typeBlocks[type].forEach((block, index) => {
                     let fallbackAnchorX = null;
-                    const hasOpeningBlock = firstBlock.minX <= stickyMinX + openingThresholdX;
+                    const hasOpeningBlock = firstBlock.minX <= stickyMinX + stickyOpeningThresholdX;
                     if (type === "key" && !hasOpeningBlock) {
                         if (Number.isFinite(openingTimeMinX)) fallbackAnchorX = openingTimeMinX;
                         else if (openingClefBlock) fallbackAnchorX = openingClefBlock.maxX;
@@ -888,7 +1007,7 @@ export function createSvgAnalysisFeature({
                         firstBlockMinX: firstBlock.minX,
                         openingClefMinX,
                         fallbackAnchorX,
-                        openingThresholdX,
+                        openingThresholdX: stickyOpeningThresholdX,
                         stickyMinX,
                     });
                     block.lockDistance = lockDistance;
@@ -899,6 +1018,7 @@ export function createSvgAnalysisFeature({
                         item.isSticky = true;
                         item.stickyType = type;
                         item.laneId = lane.laneId;
+                        item.systemIndex = Number.isFinite(lane.systemIndex) ? lane.systemIndex : 0;
                         item.blockIndex = index;
                         item.lockDistance = lockDistance;
                         item.blockMinX = block.minX;
@@ -920,6 +1040,11 @@ export function createSvgAnalysisFeature({
             });
         });
 
+        Object.assign(
+            globalStickySharedGroups,
+            registerSharedGiantTimeStickyGroups(renderQueue, stickyMinX, stickyOpeningThresholdX),
+        );
+
         renderQueue.sort((a, b) => (a.domIndex || 0) - (b.domIndex || 0));
         debugLog(`📦 内存数据库构建：已提取强分离指令 ${renderQueue.length} 条！`);
 
@@ -929,6 +1054,7 @@ export function createSvgAnalysisFeature({
             globalAbsoluteBridgeStartX,
             globalAbsoluteSystemInternalX,
             globalStickyLanes,
+            globalStickySharedGroups,
             renderQueue,
             stickyMinX,
         };

@@ -105,6 +105,59 @@ function buildNaturalKeySignatureClearSvg() {
   `.trim();
 }
 
+function buildSharedGiantTimeSignatureSvg() {
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="280" height="170" viewBox="0 0 280 170">
+      <line x1="20" y1="20" x2="260" y2="20" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="30" x2="260" y2="30" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="40" x2="260" y2="40" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="50" x2="260" y2="50" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="60" x2="260" y2="60" stroke="#000" stroke-width="1" />
+
+      <line x1="20" y1="90" x2="260" y2="90" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="100" x2="260" y2="100" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="110" x2="260" y2="110" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="120" x2="260" y2="120" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="130" x2="260" y2="130" stroke="#000" stroke-width="1" />
+
+      <line class="highlight-barline" x1="20" y1="18" x2="20" y2="132" stroke="#000" stroke-width="1.5" />
+      <line class="highlight-barline" x1="120" y1="18" x2="120" y2="132" stroke="#000" stroke-width="1.5" />
+      <line class="highlight-barline" x1="220" y1="18" x2="220" y2="132" stroke="#000" stroke-width="1.5" />
+
+      <text
+        class="highlight-timesig"
+        x="40"
+        y="56"
+        font-family="Bravura"
+        font-size="48"
+        data-time-sig-token="4"
+        data-time-sig-anchor-x="20"
+        data-time-sig-giant="1"
+      >4</text>
+      <text
+        class="highlight-timesig"
+        x="40"
+        y="116"
+        font-family="Bravura"
+        font-size="48"
+        data-time-sig-token="4"
+        data-time-sig-anchor-x="20"
+        data-time-sig-giant="1"
+      >4</text>
+      <text
+        class="highlight-timesig"
+        x="140"
+        y="64"
+        font-family="Bravura"
+        font-size="48"
+        data-time-sig-token="CUT"
+        data-time-sig-anchor-x="120"
+        data-time-sig-giant="1"
+      >¢</text>
+    </svg>
+  `.trim();
+}
+
 function buildPpq960TempoChangeMidiBuffer() {
   const header = [
     0x4d, 0x54, 0x68, 0x64,
@@ -2593,6 +2646,70 @@ test('keeps consecutive piano lower-staff clef changes as separate sticky blocks
   expect(state.targetClefs[0].blockIndex).not.toBe(state.targetClefs[1].blockIndex);
 });
 
+test('shares giant time-signature sticky activation across lanes when a later cut-time glyph replaces a stacked meter', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const state = await page.evaluate(async (svgMarkup) => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgMarkup, 'image/svg+xml');
+    const svg = svgDoc.documentElement;
+    document.body.appendChild(svg);
+
+    try {
+      const svgAnalysisFeature = createSvgAnalysisFeature({
+        getFallbackSystemInternalX: () => 0,
+        getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+        identifyClefOrBrace: () => null,
+      });
+
+      const result = svgAnalysisFeature.buildRenderQueue(svg);
+      const timeItems = result.renderQueue
+        .filter((item) => item.symbolType === 'TimeSig')
+        .map((item) => ({
+          token: item.timeSigToken || item.text || '',
+          laneId: item.laneId,
+          blockIndex: item.blockIndex,
+          sharedStickyGroupId: item.sharedStickyGroupId || null,
+          sharedBlockIndex: Number.isFinite(item.sharedBlockIndex) ? item.sharedBlockIndex : null,
+          sharedLockDistance: Number.isFinite(item.sharedLockDistance) ? item.sharedLockDistance : null,
+          absMinX: item.absMinX,
+          centerY: item.centerY,
+        }))
+        .sort((a, b) => a.absMinX - b.absMinX || a.centerY - b.centerY);
+
+      const sharedGroups = Object.fromEntries(
+        Object.entries(result.globalStickySharedGroups || {}).map(([groupId, group]) => [
+          groupId,
+          {
+            blockCount: Array.isArray(group?.blocks) ? group.blocks.length : 0,
+          },
+        ]),
+      );
+
+      return { timeItems, sharedGroups };
+    } finally {
+      svg.remove();
+    }
+  }, buildSharedGiantTimeSignatureSvg());
+
+  expect(state).not.toBeNull();
+  expect(state.timeItems).toHaveLength(3);
+
+  const [topFour, bottomFour, cutTime] = state.timeItems;
+  expect(topFour.token).toBe('4');
+  expect(bottomFour.token).toBe('4');
+  expect(cutTime.token).toBe('CUT');
+  expect(topFour.laneId).not.toBe(bottomFour.laneId);
+  expect(topFour.sharedStickyGroupId).toBeTruthy();
+  expect(topFour.sharedStickyGroupId).toBe(bottomFour.sharedStickyGroupId);
+  expect(topFour.sharedStickyGroupId).toBe(cutTime.sharedStickyGroupId);
+  expect(topFour.sharedBlockIndex).toBe(bottomFour.sharedBlockIndex);
+  expect(cutTime.sharedBlockIndex).toBeGreaterThan(topFour.sharedBlockIndex);
+  expect(state.sharedGroups[topFour.sharedStickyGroupId]).toEqual({ blockCount: 2 });
+});
+
 test('reclassifies the Violin II measure-21 flat in Dorico imports as an accidental', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'water-town-opening-instruments.svg');
 
@@ -4414,6 +4531,51 @@ test('resolves Broadway from glyph signatures when path font metadata is missing
   });
 
   expect(state.resolvedFont).toBe('Broadway');
+});
+
+test('decodes Bravura narrow giant time-signature glyphs from the correct SMuFL range', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const state = await page.evaluate(async () => {
+    const modulePath = `/scripts/features/time-signature-decoder.js?bravura-narrow=${Date.now()}`;
+    const { decodeTimeSignatureText } = await import(modulePath);
+
+    const samples = [
+      [0xF506, { token: '0', kind: 'number', isGiant: true }],
+      [0xF507, { token: '1', kind: 'number', isGiant: true }],
+      [0xF508, { token: '2', kind: 'number', isGiant: true }],
+      [0xF509, { token: '3', kind: 'number', isGiant: true }],
+      [0xF50A, { token: '4', kind: 'number', isGiant: true }],
+      [0xF50B, { token: '5', kind: 'number', isGiant: true }],
+      [0xF50C, { token: '6', kind: 'number', isGiant: true }],
+      [0xF50D, { token: '7', kind: 'number', isGiant: true }],
+      [0xF50E, { token: '8', kind: 'number', isGiant: true }],
+      [0xF50F, { token: '9', kind: 'number', isGiant: true }],
+      [0xF510, { token: 'COMMON', kind: 'common', isGiant: true }],
+      [0xF511, { token: 'CUT', kind: 'cut', isGiant: true }],
+    ];
+
+    return samples.map(([codepoint, expected]) => ({
+      codepoint,
+      actual: decodeTimeSignatureText(String.fromCodePoint(codepoint)),
+      expected,
+    }));
+  });
+
+  expect(state).toEqual([
+    { codepoint: 0xF506, actual: { token: '0', kind: 'number', isGiant: true }, expected: { token: '0', kind: 'number', isGiant: true } },
+    { codepoint: 0xF507, actual: { token: '1', kind: 'number', isGiant: true }, expected: { token: '1', kind: 'number', isGiant: true } },
+    { codepoint: 0xF508, actual: { token: '2', kind: 'number', isGiant: true }, expected: { token: '2', kind: 'number', isGiant: true } },
+    { codepoint: 0xF509, actual: { token: '3', kind: 'number', isGiant: true }, expected: { token: '3', kind: 'number', isGiant: true } },
+    { codepoint: 0xF50A, actual: { token: '4', kind: 'number', isGiant: true }, expected: { token: '4', kind: 'number', isGiant: true } },
+    { codepoint: 0xF50B, actual: { token: '5', kind: 'number', isGiant: true }, expected: { token: '5', kind: 'number', isGiant: true } },
+    { codepoint: 0xF50C, actual: { token: '6', kind: 'number', isGiant: true }, expected: { token: '6', kind: 'number', isGiant: true } },
+    { codepoint: 0xF50D, actual: { token: '7', kind: 'number', isGiant: true }, expected: { token: '7', kind: 'number', isGiant: true } },
+    { codepoint: 0xF50E, actual: { token: '8', kind: 'number', isGiant: true }, expected: { token: '8', kind: 'number', isGiant: true } },
+    { codepoint: 0xF50F, actual: { token: '9', kind: 'number', isGiant: true }, expected: { token: '9', kind: 'number', isGiant: true } },
+    { codepoint: 0xF510, actual: { token: 'COMMON', kind: 'common', isGiant: true }, expected: { token: 'COMMON', kind: 'common', isGiant: true } },
+    { codepoint: 0xF511, actual: { token: 'CUT', kind: 'cut', isGiant: true }, expected: { token: 'CUT', kind: 'cut', isGiant: true } },
+  ]);
 });
 
 test('decodes Broadway MuseScore path time signatures without font-family metadata', async ({ page }) => {

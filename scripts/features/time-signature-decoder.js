@@ -19,15 +19,22 @@ import { MusicFontRegistry } from "../data/music-font-registry.js";
 const musicFontRegistry = /** @type {Record<string, MusicFontDefinition>} */ (MusicFontRegistry);
 
 const RANGE_DIGIT_OFFSETS = [
-    { start: 0xE080, end: 0xE089 },
-    { start: 0xE090, end: 0xE099 },
-    { start: 0xE0A0, end: 0xE0A9 },
-    { start: 0xF440, end: 0xF449 },
-    { start: 0xF50C, end: 0xF515 },
+    { start: 0xE080, end: 0xE089, isGiant: false },
+    { start: 0xE090, end: 0xE099, isGiant: false },
+    { start: 0xE0A0, end: 0xE0A9, isGiant: false },
+    { start: 0xF440, end: 0xF449, isGiant: true },
+    { start: 0xF506, end: 0xF50F, isGiant: true },
 ];
 
-const COMMON_TIME_CODEPOINTS = new Set([0xE08A]);
-const CUT_TIME_CODEPOINTS = new Set([0xE08B]);
+const COMMON_TIME_CODEPOINTS = new Map([
+    [0xE08A, false],
+    [0xF510, true],
+]);
+
+const CUT_TIME_CODEPOINTS = new Map([
+    [0xE08B, false],
+    [0xF511, true],
+]);
 
 const FONT_ALIASES = [
     ["finale ash", "Ash"],
@@ -52,12 +59,15 @@ const GLYPH_REGISTRY_CATEGORIES = new Set([
 
 /**
  * @param {number} codepoint
- * @returns {string | null}
+ * @returns {{ digit: string, isGiant: boolean } | null}
  */
 function mapCodepointToDigit(codepoint) {
     for (const range of RANGE_DIGIT_OFFSETS) {
         if (codepoint >= range.start && codepoint <= range.end) {
-            return String(codepoint - range.start);
+            return {
+                digit: String(codepoint - range.start),
+                isGiant: Boolean(range.isGiant),
+            };
         }
     }
     return null;
@@ -244,11 +254,13 @@ export function decodeTimeSignatureText(content) {
     if (trimmed.length === 1) {
         const codepoint = trimmed.codePointAt(0);
         if (codepoint === undefined) return null;
-        if (COMMON_TIME_CODEPOINTS.has(codepoint)) {
-            return { token: "COMMON", kind: /** @type {TimeSignatureKind} */ ("common"), isGiant: false };
+        const commonTimeIsGiant = COMMON_TIME_CODEPOINTS.get(codepoint);
+        if (commonTimeIsGiant !== undefined) {
+            return { token: "COMMON", kind: /** @type {TimeSignatureKind} */ ("common"), isGiant: commonTimeIsGiant };
         }
-        if (CUT_TIME_CODEPOINTS.has(codepoint)) {
-            return { token: "CUT", kind: /** @type {TimeSignatureKind} */ ("cut"), isGiant: false };
+        const cutTimeIsGiant = CUT_TIME_CODEPOINTS.get(codepoint);
+        if (cutTimeIsGiant !== undefined) {
+            return { token: "CUT", kind: /** @type {TimeSignatureKind} */ ("cut"), isGiant: cutTimeIsGiant };
         }
     }
 
@@ -263,10 +275,10 @@ export function decodeTimeSignatureText(content) {
 
         const codepoint = char.codePointAt(0);
         if (codepoint === undefined) return null;
-        const digit = mapCodepointToDigit(codepoint);
-        if (digit !== null) {
-            digits += digit;
-            if (codepoint >= 0xF000) isGiant = true;
+        const digitInfo = mapCodepointToDigit(codepoint);
+        if (digitInfo !== null) {
+            digits += digitInfo.digit;
+            if (digitInfo.isGiant) isGiant = true;
             continue;
         }
 

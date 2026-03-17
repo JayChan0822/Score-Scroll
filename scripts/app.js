@@ -657,6 +657,7 @@ function getMathFlyinParams() {
 }
 
 let globalStickyLanes = {};
+let globalStickySharedGroups = {};
 
 // 🌟 全局缓存：用于存储原生的五线谱绝对位置，以便在遮罩层重新绘制桥梁
 window.globalAbsoluteStaffLineYs = [];
@@ -704,6 +705,7 @@ function renderCanvas(currentX, options = {}) {
     const maxStickySmoothX_initial = worldDistanceLeft + stickyMinX - stickyLockOffset;
 
     const activeIdx = {}; const activeWidth = {}; const laneOffsets = {};
+    const sharedActiveIdx = {};
 
     const systemBaseWidths = { clef: 0, key: 0 };
     for (const laneId in globalStickyLanes) {
@@ -715,6 +717,19 @@ function renderCanvas(currentX, options = {}) {
     const systemActiveWidths = { clef: 0, key: 0 };
 
     let maxStickyRightScreenX = 0; let shouldShowMask = false;
+
+    for (const groupId in globalStickySharedGroups) {
+        sharedActiveIdx[groupId] = -1;
+        const blocks = globalStickySharedGroups[groupId]?.blocks || [];
+        for (let index = 0; index < blocks.length; index++) {
+            const block = blocks[index];
+            const lockDistance = Number.isFinite(block?.lockDistance) ? block.lockDistance : 0;
+            const layerMaxX = maxStickySmoothX_initial + lockDistance;
+            if (currentX >= layerMaxX) {
+                sharedActiveIdx[groupId] = index;
+            }
+        }
+    }
 
     for (const laneId in globalStickyLanes) {
         activeIdx[laneId] = { inst: -1, reh: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };
@@ -779,14 +794,23 @@ function renderCanvas(currentX, options = {}) {
         let isPinned = false; let pinShiftX = 0; let targetOpacity = 1; let targetExtraX = 0; let targetScale = 1;
 
         if (item.isSticky) {
-            const layerMaxX = maxStickySmoothX_initial + item.lockDistance;
-            const currentActive = activeIdx[item.laneId][item.stickyType];
-            if (item.blockIndex < currentActive) targetOpacity = 0;
+            const sharedStickyGroupId = item.sharedStickyGroupId || null;
+            const itemLockDistance = sharedStickyGroupId && Number.isFinite(item.sharedLockDistance)
+                ? item.sharedLockDistance
+                : item.lockDistance;
+            const itemBlockIndex = sharedStickyGroupId && Number.isFinite(item.sharedBlockIndex)
+                ? item.sharedBlockIndex
+                : item.blockIndex;
+            const layerMaxX = maxStickySmoothX_initial + itemLockDistance;
+            const currentActive = sharedStickyGroupId
+                ? (sharedActiveIdx[sharedStickyGroupId] ?? -1)
+                : activeIdx[item.laneId][item.stickyType];
+            if (itemBlockIndex < currentActive) targetOpacity = 0;
             if (item.stickyType === 'key') targetExtraX = laneOffsets[item.laneId].clef;
             else if (item.stickyType === 'time') targetExtraX = laneOffsets[item.laneId].clef + laneOffsets[item.laneId].key;
 
             if (currentX >= layerMaxX) { isPinned = true; pinShiftX = currentX - layerMaxX; if (item.isMidClef) targetScale = activeMidClefStickyScale; }
-            if (item.blockIndex === currentActive) {
+            if (itemBlockIndex === currentActive) {
                 if (layerMaxX - currentX < 300) shouldShowMask = true;
                 const worldRightX = item.absMaxX + pinShiftX + targetExtraX + (item.absMaxX - item.blockMinX) * (targetScale - 1);
                 const screenRightX = (worldRightX - currentX) * globalZoom + playlineScreenX;
@@ -1429,6 +1453,7 @@ async function processSvgContent(svgContent) {
     renderQueue = svgAnalysis.renderQueue;
     stickyMinX = svgAnalysis.stickyMinX;
     globalStickyLanes = svgAnalysis.globalStickyLanes;
+    globalStickySharedGroups = svgAnalysis.globalStickySharedGroups || {};
     window.globalAbsoluteStaffLineYs = svgAnalysis.globalAbsoluteStaffLineYs;
     window.globalAbsoluteBridgeLineYs = svgAnalysis.globalAbsoluteBridgeLineYs;
     window.globalAbsoluteBridgeStartX = svgAnalysis.globalAbsoluteBridgeStartX;
@@ -2997,6 +3022,9 @@ function identifyAndHighlightTimeSignatures() {
         el.classList.add('highlight-timesig');
         if (decodedToken) {
             el.setAttribute('data-time-sig-token', decodedToken);
+        }
+        if (isGiantTimeSig) {
+            el.setAttribute('data-time-sig-giant', '1');
         }
         if (Number.isFinite(anchorInfo?.anchorX)) {
             el.setAttribute('data-time-sig-anchor-x', String(anchorInfo.anchorX));
