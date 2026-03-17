@@ -2686,9 +2686,94 @@ test('uses the left staff edge as a virtual start anchor when no physical openin
     anchorState = await page.evaluate(() => {
       const svg = document.querySelector('#svg-sandbox svg');
       if (!svg) return null;
+      const absoluteStaffLines = Array.isArray(window.globalAbsoluteStaffLineYs)
+        ? window.globalAbsoluteStaffLineYs.filter((line) => Number.isFinite(line?.minX))
+        : [];
+      const absoluteStaffLeftEdge = absoluteStaffLines.length > 0
+        ? Math.min(...absoluteStaffLines.map((line) => line.minX))
+        : null;
+
+      const sortedStaffYs = absoluteStaffLines
+        .map((line) => line.y)
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+      const staffTop = sortedStaffYs[0] ?? null;
+      const staffBottom = sortedStaffYs[sortedStaffYs.length - 1] ?? null;
+      const completeBarlineTolerance = 2.5;
+      const completeBarlineXs = [];
+
+      Array.from(svg.querySelectorAll('line, polyline, rect, path')).forEach((el) => {
+        try {
+          const box = el.getBBox();
+          if (!(box.width <= 3.5 && box.height >= 2)) return;
+
+          const ctm = el.getCTM();
+          const matrix = ctm
+            ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f }
+            : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+          const x = box.x + box.width / 2;
+          const absX = matrix.a * x + matrix.c * (box.y + box.height / 2) + matrix.e;
+          const absYTop = matrix.b * x + matrix.d * box.y + matrix.f;
+          const absYBottom = matrix.b * x + matrix.d * (box.y + box.height) + matrix.f;
+          const top = Math.min(absYTop, absYBottom);
+          const bottom = Math.max(absYTop, absYBottom);
+
+          if (
+            Number.isFinite(staffTop)
+            && Number.isFinite(staffBottom)
+            && Math.abs(top - staffTop) <= completeBarlineTolerance
+            && Math.abs(bottom - staffBottom) <= completeBarlineTolerance
+          ) {
+            completeBarlineXs.push(absX);
+          }
+        } catch {
+          // Ignore elements without stable geometry.
+        }
+      });
+
+      completeBarlineXs.sort((a, b) => a - b);
+
+      return {
+        absoluteStaffLeftEdge,
+        startAnchor: window.globalAbsoluteSystemInternalX,
+        hasPhysicalStartBarline: window.hasPhysicalStartBarline,
+        firstCompleteBarlineX: completeBarlineXs[0] ?? null,
+      };
+    });
+
+    return {
+      absoluteStaffLeftEdge: anchorState?.absoluteStaffLeftEdge,
+      startAnchor: anchorState?.startAnchor,
+      hasPhysicalStartBarline: anchorState?.hasPhysicalStartBarline,
+      firstCompleteBarlineX: anchorState?.firstCompleteBarlineX,
+      isReady: Number.isFinite(anchorState?.absoluteStaffLeftEdge) && Number.isFinite(anchorState?.startAnchor),
+    };
+  }).toMatchObject({
+    hasPhysicalStartBarline: false,
+    isReady: true,
+  });
+
+  expect(anchorState).not.toBeNull();
+  expect(anchorState.startAnchor).toBeCloseTo(anchorState.absoluteStaffLeftEdge, 1);
+  expect(anchorState.hasPhysicalStartBarline).toBe(false);
+  expect(anchorState.firstCompleteBarlineX).not.toBeNull();
+  expect(anchorState.firstCompleteBarlineX).toBeGreaterThan(anchorState.startAnchor + 50);
+});
+
+test('keeps a tight first measure barline virtual when it appears only to the right of the opening clef', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'no-opening-barline-tight-after-clef.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let anchorState = null;
+  await expect.poll(async () => {
+    anchorState = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
 
       const horizontals = [];
       const verticals = [];
+      const openingClef = svg.querySelector('.highlight-clef');
+      const openingClefRect = openingClef?.getBoundingClientRect() || null;
 
       Array.from(svg.querySelectorAll('polyline, line')).forEach((el) => {
         let x1;
@@ -2719,9 +2804,10 @@ test('uses the left staff edge as a virtual start anchor when no physical openin
         if (Math.abs(y1 - y2) < 1) {
           horizontals.push(Math.min(x1, x2));
         } else if (Math.abs(x1 - x2) < 1 && Math.abs(y1 - y2) >= 8) {
+          const rect = el.getBoundingClientRect();
           verticals.push({
             x: x1,
-            height: Math.abs(y1 - y2),
+            left: rect.left,
             classes: el.className?.baseVal || '',
           });
         }
@@ -2733,8 +2819,9 @@ test('uses the left staff edge as a virtual start anchor when no physical openin
         staffLeftEdge: Math.min(...horizontals),
         startAnchor: window.globalAbsoluteSystemInternalX,
         hasPhysicalStartBarline: window.hasPhysicalStartBarline,
-        firstPhysicalBarline: verticals[0] || null,
         openingBarlineCount: verticals.filter((item) => item.classes.includes('highlight-barline')).length,
+        firstPhysicalBarline: verticals[0] || null,
+        openingClefLeft: openingClefRect ? openingClefRect.left : null,
       };
     });
 
@@ -2753,11 +2840,94 @@ test('uses the left staff edge as a virtual start anchor when no physical openin
 
   expect(anchorState).not.toBeNull();
   expect(anchorState.startAnchor).toBeCloseTo(anchorState.staffLeftEdge, 1);
-  expect(anchorState.hasPhysicalStartBarline).toBe(false);
   expect(anchorState.firstPhysicalBarline).not.toBeNull();
-  expect(anchorState.firstPhysicalBarline.x).toBeGreaterThan(anchorState.startAnchor + 50);
   expect(anchorState.firstPhysicalBarline.classes).not.toContain('highlight-barline');
-  expect(anchorState.openingBarlineCount).toBe(0);
+  expect(anchorState.openingClefLeft).not.toBeNull();
+  expect(anchorState.firstPhysicalBarline.left).toBeGreaterThan(anchorState.openingClefLeft);
+});
+
+test('uses a virtual opening anchor for Tianwen melody score when no barline exists before the clef', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '天问 旋律谱.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let anchorState = null;
+  await expect.poll(async () => {
+    anchorState = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+      const absoluteStaffLines = Array.isArray(window.globalAbsoluteStaffLineYs)
+        ? window.globalAbsoluteStaffLineYs.filter((line) => Number.isFinite(line?.minX))
+        : [];
+      const absoluteStaffLeftEdge = absoluteStaffLines.length > 0
+        ? Math.min(...absoluteStaffLines.map((line) => line.minX))
+        : null;
+
+      const sortedStaffYs = absoluteStaffLines
+        .map((line) => line.y)
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+      const staffTop = sortedStaffYs[0] ?? null;
+      const staffBottom = sortedStaffYs[sortedStaffYs.length - 1] ?? null;
+      const completeBarlineTolerance = 2.5;
+      const completeBarlineXs = [];
+
+      Array.from(svg.querySelectorAll('line, polyline, rect, path')).forEach((el) => {
+        try {
+          const box = el.getBBox();
+          if (!(box.width <= 3.5 && box.height >= 2)) return;
+
+          const ctm = el.getCTM();
+          const matrix = ctm
+            ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f }
+            : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+          const x = box.x + box.width / 2;
+          const absX = matrix.a * x + matrix.c * (box.y + box.height / 2) + matrix.e;
+          const absYTop = matrix.b * x + matrix.d * box.y + matrix.f;
+          const absYBottom = matrix.b * x + matrix.d * (box.y + box.height) + matrix.f;
+          const top = Math.min(absYTop, absYBottom);
+          const bottom = Math.max(absYTop, absYBottom);
+
+          if (
+            Number.isFinite(staffTop)
+            && Number.isFinite(staffBottom)
+            && Math.abs(top - staffTop) <= completeBarlineTolerance
+            && Math.abs(bottom - staffBottom) <= completeBarlineTolerance
+          ) {
+            completeBarlineXs.push(absX);
+          }
+        } catch {
+          // Ignore elements without stable geometry.
+        }
+      });
+
+      completeBarlineXs.sort((a, b) => a - b);
+
+      return {
+        absoluteStaffLeftEdge,
+        startAnchor: window.globalAbsoluteSystemInternalX,
+        hasPhysicalStartBarline: window.hasPhysicalStartBarline,
+        firstCompleteBarlineX: completeBarlineXs[0] ?? null,
+        completeBarlineXs: completeBarlineXs.slice(0, 6),
+      };
+    });
+
+    return {
+      absoluteStaffLeftEdge: anchorState?.absoluteStaffLeftEdge,
+      startAnchor: anchorState?.startAnchor,
+      hasPhysicalStartBarline: anchorState?.hasPhysicalStartBarline,
+      firstCompleteBarlineX: anchorState?.firstCompleteBarlineX,
+      isReady: Number.isFinite(anchorState?.absoluteStaffLeftEdge) && Number.isFinite(anchorState?.startAnchor),
+    };
+  }).toMatchObject({
+    hasPhysicalStartBarline: false,
+    isReady: true,
+  });
+
+  expect(anchorState).not.toBeNull();
+  expect(anchorState.completeBarlineXs.length).toBeGreaterThanOrEqual(3);
+  expect(anchorState.startAnchor).toBeCloseTo(anchorState.absoluteStaffLeftEdge, 1);
+  expect(anchorState.firstCompleteBarlineX).not.toBeNull();
+  expect(anchorState.firstCompleteBarlineX).toBeGreaterThan(anchorState.startAnchor + 50);
 });
 
 test('recognizes the Sebastian opening treble clef variant in the no-opening-barline fixture', async ({ page }) => {
@@ -4196,7 +4366,7 @@ test('anchors no-opening-barline bridge lines to the first visible sticky music 
   expect(state.leftmostOpeningStickyX).not.toBeNull();
   expect(state.bridgeStartX).toBeCloseTo(state.leftmostStaffLineX, 1);
   expect(state.bridgeStartX).toBeLessThan(state.leftmostOpeningStickyX - 1);
-  expect(state.bridgeStartX).toBeGreaterThan(state.systemStartX + 20);
+  expect(state.bridgeStartX).toBeCloseTo(state.systemStartX, 1);
 });
 
 test('decodes non-MuseScore path time signatures into the timeline', async ({ page }) => {

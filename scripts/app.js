@@ -1866,44 +1866,74 @@ function identifyAndHighlightInitialBarlines() {
             x2 = coords[coords.length - 2]; y2 = coords[coords.length - 1];
         }
 
+        if (![x1, y1, x2, y2].every(Number.isFinite)) return;
+
+        const lineRect = line.getBoundingClientRect();
+        const ctm = line.getCTM();
+        const matrix = ctm
+            ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f }
+            : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+        const absX1 = matrix.a * x1 + matrix.c * y1 + matrix.e;
+        const absY1 = matrix.b * x1 + matrix.d * y1 + matrix.f;
+        const absX2 = matrix.a * x2 + matrix.c * y2 + matrix.e;
+        const absY2 = matrix.b * x2 + matrix.d * y2 + matrix.f;
         if (Math.abs(y1 - y2) < 1) {
             horizontalSegments.push({
-                leftX: Math.min(x1, x2),
-                rightX: Math.max(x1, x2),
-                y: (y1 + y2) / 2,
-                length: Math.abs(x1 - x2),
+                leftX: Math.min(absX1, absX2),
+                rightX: Math.max(absX1, absX2),
+                screenLeftX: Math.min(lineRect.left, lineRect.right),
+                screenRightX: Math.max(lineRect.left, lineRect.right),
+                screenY: (lineRect.top + lineRect.bottom) / 2,
+                screenLength: Math.abs(lineRect.right - lineRect.left),
             });
         } else if (Math.abs(x1 - x2) < 1) {
+            const screenX = (lineRect.left + lineRect.right) / 2;
             verticalLines.push({
                 element: line,
-                x: x1,
-                screenX: line.getBoundingClientRect().left,
-                height: Math.abs(y1 - y2),
+                x: (absX1 + absX2) / 2,
+                screenX,
+                height: Math.abs(lineRect.bottom - lineRect.top),
             });
         }
     });
 
     if (horizontalSegments.length === 0) return;
 
-    const maxHorizontalLength = Math.max(...horizontalSegments.map(seg => seg.length));
+    const maxHorizontalLength = Math.max(...horizontalSegments.map(seg => seg.screenLength));
     const dominantStaffLines = horizontalSegments.filter(seg =>
-        seg.length >= Math.max(24, maxHorizontalLength * 0.6)
+        seg.screenLength >= Math.max(24, maxHorizontalLength * 0.6)
     );
     const staffLines = dominantStaffLines.length > 0 ? dominantStaffLines : horizontalSegments;
     const absoluteLeftEdge = Math.min(...staffLines.map(seg => seg.leftX));
-
-    const sortedStaffYs = staffLines.map(seg => seg.y).sort((a, b) => a - b);
-    const positiveDiffs = [];
-    for (let i = 0; i < sortedStaffYs.length - 1; i++) {
-        const delta = sortedStaffYs[i + 1] - sortedStaffYs[i];
-        if (delta > 1) positiveDiffs.push(delta);
+    const absoluteLeftEdgeScreenX = Math.min(...staffLines.map(seg => seg.screenLeftX));
+    const sortedStaffScreenYs = staffLines
+        .map((seg) => seg.screenY)
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+    const positiveScreenDiffs = [];
+    for (let i = 0; i < sortedStaffScreenYs.length - 1; i++) {
+        const delta = sortedStaffScreenYs[i + 1] - sortedStaffScreenYs[i];
+        if (delta > 0.5) positiveScreenDiffs.push(delta);
     }
-    const staffSpace = positiveDiffs.length > 0
-        ? positiveDiffs.sort((a, b) => a - b)[Math.floor(positiveDiffs.length / 2)]
+    const screenStaffSpace = positiveScreenDiffs.length > 0
+        ? positiveScreenDiffs.sort((a, b) => a - b)[Math.floor(positiveScreenDiffs.length / 2)]
         : 10;
-    const openingClusterGap = Math.max(4, staffSpace * 1.5);
-    const openingAnchorThreshold = Math.max(10, staffSpace * 4);
-    const openingLeftAllowance = Math.max(2, staffSpace * 0.75);
+    const openingClusterGap = Math.max(4, screenStaffSpace * 1.5);
+    const openingAnchorThreshold = Math.max(10, screenStaffSpace * 4);
+    const openingLeftAllowance = Math.max(2, screenStaffSpace * 0.75);
+    const openingClefAllowance = Math.max(2, screenStaffSpace * 0.5);
+
+    let leftmostOpeningClefScreenX = Infinity;
+    svgRoot.querySelectorAll('.highlight-clef').forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        if (!(rect.width > 0 || rect.height > 0)) return;
+        if (Number.isFinite(rect.left) && rect.left < leftmostOpeningClefScreenX) {
+            leftmostOpeningClefScreenX = rect.left;
+        }
+    });
+    const openingClefScreenX = Number.isFinite(leftmostOpeningClefScreenX)
+        ? leftmostOpeningClefScreenX
+        : null;
 
     // 🌟 2. 过滤有效垂直线（剔除短促的符干，保留高度 >= 8 的潜在小节线）
     let validVerticals = verticalLines.filter(vLine => vLine.height >= 8);
@@ -1913,19 +1943,24 @@ function identifyAndHighlightInitialBarlines() {
     let foundCount = 0;
 
     const openingCandidateVerticals = validVerticals.filter(vLine =>
-        vLine.x >= absoluteLeftEdge - openingLeftAllowance
+        vLine.screenX >= absoluteLeftEdgeScreenX - openingLeftAllowance
     );
 
     if (openingCandidateVerticals.length > 0) {
-        let absoluteLeftmostV = Math.min(...openingCandidateVerticals.map(v => v.x));
-        let startCluster = openingCandidateVerticals.filter(vLine => vLine.x <= absoluteLeftmostV + openingClusterGap);
+        let absoluteLeftmostVScreenX = Math.min(...openingCandidateVerticals.map(v => v.screenX));
+        let startCluster = openingCandidateVerticals.filter(vLine => vLine.screenX <= absoluteLeftmostVScreenX + openingClusterGap);
 
         // 🌟 3. 核心判定：只有靠近 staff left edge 的最左竖线簇，才可能是真实起手线。
-        if (absoluteLeftmostV - absoluteLeftEdge <= openingAnchorThreshold) {
+        const clusterLeftmostScreenX = Math.min(...startCluster.map((vLine) => vLine.screenX));
+        const clusterSitsBeforeOpeningClef = (
+            openingClefScreenX === null
+            || clusterLeftmostScreenX <= openingClefScreenX + openingClefAllowance
+        );
+        if (absoluteLeftmostVScreenX - absoluteLeftEdgeScreenX <= openingAnchorThreshold && clusterSitsBeforeOpeningClef) {
             let rightmostLine = startCluster.reduce((prev, current) => (
-                current.x > prev.x || (Math.abs(current.x - prev.x) < 0.5 && current.screenX > prev.screenX)
+                current.screenX > prev.screenX || (Math.abs(current.screenX - prev.screenX) < 0.5 && current.x > prev.x)
             ) ? current : prev);
-            const alignedStartCluster = startCluster.filter((vLine) => Math.abs(vLine.x - rightmostLine.x) < 0.5);
+            const alignedStartCluster = startCluster.filter((vLine) => Math.abs(vLine.screenX - rightmostLine.screenX) < 1);
             if (alignedStartCluster.length > 0) {
                 startCluster = alignedStartCluster;
             }
@@ -1948,7 +1983,7 @@ function identifyAndHighlightInitialBarlines() {
 
     globalSystemBarlineScreenX = trueBarlineScreenX !== null
         ? trueBarlineScreenX
-        : projectSvgInternalXToScreenX(svgRoot, globalSystemInternalX);
+        : absoluteLeftEdgeScreenX;
 
     debugLog(`✅ 开头小节线扫描完毕，共点亮 ${foundCount} 根！起点 X 已纠正为：${globalSystemInternalX} | 物理起手线：${window.hasPhysicalStartBarline}`);
 }
