@@ -85,6 +85,26 @@ function buildMuseScoreSegmentedOpeningBarlineSvgBuffer() {
   return Buffer.from(svg, 'utf8');
 }
 
+function buildNaturalKeySignatureClearSvg() {
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120">
+      <line x1="10" y1="20" x2="220" y2="20" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="30" x2="220" y2="30" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="40" x2="220" y2="40" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="50" x2="220" y2="50" stroke="#000" stroke-width="1" />
+      <line x1="10" y1="60" x2="220" y2="60" stroke="#000" stroke-width="1" />
+
+      <line class="highlight-barline" x1="10" y1="18" x2="10" y2="62" stroke="#000" stroke-width="1" />
+
+      <text class="highlight-keysig" x="42" y="47" font-size="24">♯</text>
+      <text class="highlight-keysig" x="56" y="47" font-size="24">♯</text>
+
+      <text class="highlight-keysig" x="146" y="47" font-size="24">♮</text>
+      <text class="highlight-keysig" x="160" y="47" font-size="24">♮</text>
+    </svg>
+  `.trim();
+}
+
 function buildPpq960TempoChangeMidiBuffer() {
   const header = [
     0x4d, 0x54, 0x68, 0x64,
@@ -1772,13 +1792,49 @@ test('fills Light-theme MP4 export frames with the active background color', asy
   expect(exportPixel[2]).toBeGreaterThan(200);
 });
 
-test('detects boxed and bare rehearsal marks as sticky candidates', async ({ page }) => {
+test('detects only boxed rehearsal marks regardless of vertical placement', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'rehearsal-mark-boxed-only.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox .highlight-rehearsalmark').length), {
+    message: 'waiting for boxed rehearsal-mark detection to finish',
+  }).toBeGreaterThanOrEqual(10);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const texts = Array.from(svg.querySelectorAll('text'))
+      .filter((el) => ['A', 'B', 'C', 'D', 'E', 'ZZ'].includes((el.textContent || '').trim()))
+      .map((el) => ({
+        text: (el.textContent || '').trim(),
+        classes: el.className?.baseVal || '',
+      }));
+
+    return {
+      texts,
+      rehearsalClasses: Array.from(svg.querySelectorAll('.highlight-rehearsalmark')).length,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.rehearsalClasses).toBeGreaterThanOrEqual(10);
+  expect(state.texts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ text: 'A', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'B', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'C', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'D', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'E', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'ZZ', classes: '' }),
+  ]));
+});
+
+test('detects boxed rehearsal marks as sticky candidates', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'rehearsal-mark-sticky.svg');
   const svgAnalysisSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js'), 'utf8');
   await loadFixtureIntoScore(page, fixturePath);
   await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox .highlight-rehearsalmark').length), {
     message: 'waiting for rehearsal-mark detection to finish',
-  }).toBeGreaterThanOrEqual(4);
+  }).toBeGreaterThanOrEqual(3);
 
   const state = await page.evaluate(() => {
     const svg = document.querySelector('#svg-sandbox svg');
@@ -1799,12 +1855,12 @@ test('detects boxed and bare rehearsal marks as sticky candidates', async ({ pag
 
   expect(state).not.toBeNull();
   expect(svgAnalysisSource).toContain('RehearsalMark: "reh"');
-  expect(state.rehearsalClasses).toBeGreaterThanOrEqual(4);
+  expect(state.rehearsalClasses).toBeGreaterThanOrEqual(3);
   expect(state.texts).toEqual(expect.arrayContaining([
     expect.objectContaining({ text: 'A', classes: expect.stringContaining('highlight-rehearsalmark') }),
     expect.objectContaining({ text: 'AA', classes: expect.stringContaining('highlight-rehearsalmark') }),
     expect.objectContaining({ text: 'AB', classes: expect.stringContaining('highlight-rehearsalmark') }),
-    expect.objectContaining({ text: 'AC', classes: expect.stringContaining('highlight-rehearsalmark') }),
+    expect.objectContaining({ text: 'AC', classes: '' }),
   ]));
 });
 
@@ -2113,30 +2169,46 @@ test('preserves choir fixture piano opening key signatures', async ({ page }) =>
   const fixturePath = path.resolve(__dirname, 'fixtures', 'choir-with-piano-opening-keysig.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  const openingPianoFlats = await getTextClassification(page, [
+  const selectors = [
     { text: '', x: '650', y: '2417' },
     { text: '', x: '650', y: '3380' },
-  ]);
+  ];
+  await expect.poll(async () => {
+    const items = await getTextClassification(page, selectors);
+    return Array.isArray(items)
+      && items.every((item) => item.exists)
+      && items.every((item) => item.classes.includes('highlight-keysig'))
+      && items.every((item) => !item.classes.includes('highlight-accidental'));
+  }, {
+    timeout: 5000,
+    message: 'waiting for choir opening piano flats to settle as key signatures',
+  }).toBe(true);
 
+  const openingPianoFlats = await getTextClassification(page, selectors);
   expect(openingPianoFlats).not.toBeNull();
-  expect(openingPianoFlats.every((item) => item.exists)).toBe(true);
-  expect(openingPianoFlats.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
-  expect(openingPianoFlats.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
 });
 
 test('preserves green tea fixture piano opening key signatures', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'green-tea-opening-keysig.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  const openingPianoFlats = await getTextClassification(page, [
+  const selectors = [
     { text: '', x: '859', y: '1122' },
     { text: '', x: '859', y: '1555' },
-  ]);
+  ];
+  await expect.poll(async () => {
+    const items = await getTextClassification(page, selectors);
+    return Array.isArray(items)
+      && items.every((item) => item.exists)
+      && items.every((item) => item.classes.includes('highlight-keysig'))
+      && items.every((item) => !item.classes.includes('highlight-accidental'));
+  }, {
+    timeout: 5000,
+    message: 'waiting for green tea opening piano flats to settle as key signatures',
+  }).toBe(true);
 
+  const openingPianoFlats = await getTextClassification(page, selectors);
   expect(openingPianoFlats).not.toBeNull();
-  expect(openingPianoFlats.every((item) => item.exists)).toBe(true);
-  expect(openingPianoFlats.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);
-  expect(openingPianoFlats.every((item) => !item.classes.includes('highlight-accidental'))).toBe(true);
 });
 
 test('preserves italic font-style for imported text when drawing to canvas', async ({ page }) => {
@@ -2303,6 +2375,58 @@ test('keeps split opening instrument labels sticky for Dorico imports', async ({
   ))).toBe(true);
   expect(openingInstrumentParts.closingParen.some((item) => item.classes.includes('highlight-instname'))).toBe(true);
   expect(openingInstrumentParts.piano.some((item) => item.classes.includes('highlight-instname'))).toBe(true);
+});
+
+test('preserves segmented Water Town bridge lines for opening flute and oboe rows', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'water-town-opening-instruments.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { MusicFontRegistry } = await import('/scripts/data/music-font-registry.js');
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const clefMap = {};
+    Object.values(MusicFontRegistry).forEach((fontData) => {
+      if (!fontData?.clefs) return;
+      Object.entries(fontData.clefs).forEach(([name, signatures]) => {
+        (signatures || []).forEach((signature) => {
+          if (!(signature in clefMap)) clefMap[signature] = name;
+        });
+      });
+    });
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: (sig) => clefMap[sig] || null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const openingWoodwinds = result.renderQueue
+      .filter((item) => item.symbolType === 'InstName' && /Flute|Oboe/.test((item.text || '').trim()))
+      .sort((a, b) => a.centerY - b.centerY)
+      .map((item) => ({
+        text: (item.text || '').trim(),
+        centerY: item.centerY,
+        nearbyBridgeLines: (result.globalAbsoluteBridgeLineYs || [])
+          .filter((line) => Math.abs(line.y - item.centerY) <= 8)
+          .map((line) => line.y),
+      }));
+
+    return { openingWoodwinds };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.openingWoodwinds).toHaveLength(4);
+  expect(state.openingWoodwinds).toEqual([
+    expect.objectContaining({ text: 'Flute', nearbyBridgeLines: expect.arrayContaining([expect.any(Number)]) }),
+    expect.objectContaining({ text: 'Flute', nearbyBridgeLines: expect.arrayContaining([expect.any(Number)]) }),
+    expect.objectContaining({ text: 'Oboe', nearbyBridgeLines: expect.arrayContaining([expect.any(Number)]) }),
+    expect.objectContaining({ text: 'Oboe', nearbyBridgeLines: expect.arrayContaining([expect.any(Number)]) }),
+  ]);
+  expect(state.openingWoodwinds.map((item) => item.nearbyBridgeLines.length)).toEqual([5, 5, 5, 5]);
 });
 
 test('preserves opening instrument and expression fonts when drawing Dorico imports to canvas', async ({ page }) => {
@@ -3432,6 +3556,135 @@ test('does not pin later-only key signatures as opening sticky blocks in Dengsha
 
   expect(state).not.toBeNull();
   expect(state.lateOpeningKeys.every((item) => item.lockDistance > 500)).toBe(true);
+});
+
+test('does not add synthetic key padding for Ardor late-only sticky key signatures', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', 'Ardor.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const { calculateStickySystemDelta } = await import('/scripts/features/sticky-layout.mjs');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const lateKeyBlocks = Object.values(result.globalStickyLanes)
+      .flatMap((lane) => lane.typeBlocks.key || [])
+      .filter((block) => block.minX > result.stickyMinX + 500)
+      .map((block) => ({
+        width: block.width,
+        delta: calculateStickySystemDelta({
+          type: 'key',
+          baseWidth: 0,
+          currentWidth: block.width,
+        }),
+      }));
+
+    return { lateKeyBlocks };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.lateKeyBlocks.length).toBeGreaterThan(0);
+  expect(state.lateKeyBlocks.every((item) => Math.abs(item.delta - item.width) < 0.001)).toBe(true);
+});
+
+test('anchors Ardor late-only key signatures to the opening time column', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', 'Ardor.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const targetLane = Object.values(result.globalStickyLanes).find((lane) => (
+      (lane.typeBlocks.key || []).some((block) => block.minX > result.stickyMinX + 500)
+      && (lane.typeBlocks.time || []).length > 0
+    ));
+
+    if (!targetLane) return null;
+
+    const openingTimeBlock = targetLane.typeBlocks.time[0] || null;
+    const firstLateKeyBlock = (targetLane.typeBlocks.key || []).find((block) => block.minX > result.stickyMinX + 500) || null;
+    if (!openingTimeBlock || !firstLateKeyBlock) return null;
+
+    return {
+      stickyMinX: result.stickyMinX,
+      openingTimeMinX: openingTimeBlock.minX,
+      lateKeyMinX: firstLateKeyBlock.minX,
+      lateKeyLockDistance: firstLateKeyBlock.lockDistance,
+      expectedLockDistance: firstLateKeyBlock.minX - openingTimeBlock.minX,
+      currentStickyMinAnchorDistance: firstLateKeyBlock.minX - result.stickyMinX,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(Math.abs(state.lateKeyLockDistance - state.expectedLockDistance)).toBeLessThan(0.001);
+});
+
+test('marks natural-only key signature blocks as sticky clear events', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const state = await page.evaluate(async (svgMarkup) => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgMarkup, 'image/svg+xml');
+    const svg = svgDoc.documentElement;
+    document.body.appendChild(svg);
+
+    try {
+      const svgAnalysisFeature = createSvgAnalysisFeature({
+        getFallbackSystemInternalX: () => 0,
+        getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+        identifyClefOrBrace: () => null,
+        identifyAccidental: (sig) => {
+          if (sig === '♮') return 'Natural';
+          if (sig === '♯') return 'Sharp';
+          return null;
+        },
+      });
+
+      const result = svgAnalysisFeature.buildRenderQueue(svg);
+      const keyBlocks = Object.values(result.globalStickyLanes)
+        .flatMap((lane) => lane.typeBlocks.key || [])
+        .map((block) => ({
+          minX: block.minX,
+          clearsKeySignature: Boolean(block.clearsKeySignature),
+          stickyWidth: block.stickyWidth,
+          stickyItemCount: block.items.filter((item) => item.isSticky).length,
+          text: block.items.map((item) => item.text || '').join(''),
+        }))
+        .sort((a, b) => a.minX - b.minX);
+
+      return { keyBlocks };
+    } finally {
+      svg.remove();
+    }
+  }, buildNaturalKeySignatureClearSvg());
+
+  expect(state).not.toBeNull();
+  expect(state.keyBlocks).toHaveLength(2);
+  expect(state.keyBlocks[0].clearsKeySignature).toBe(false);
+  expect(state.keyBlocks[0].stickyItemCount).toBeGreaterThan(0);
+  expect(state.keyBlocks[1].text).toBe('♮♮');
+  expect(state.keyBlocks[1].clearsKeySignature).toBe(true);
+  expect(state.keyBlocks[1].stickyWidth).toBe(0);
+  expect(state.keyBlocks[1].stickyItemCount).toBe(0);
 });
 
 test('keeps Dengshan piano bridge redraw limited to true full-span staff lines', async ({ page }) => {

@@ -1,9 +1,14 @@
 import { debugLog } from "../utils/debug.js";
+import {
+    calculateStickyBlockLockDistance,
+    getStickyBlockDisplayWidth,
+} from "./sticky-layout.mjs?v=20260317-natural-key-clear-1";
 
 export function createSvgAnalysisFeature({
     getFallbackSystemInternalX,
     getMathFlyinParams,
     identifyClefOrBrace,
+    identifyAccidental,
 }) {
     function getStickyClefIdentity(item) {
         if (!item) return null;
@@ -29,6 +34,27 @@ export function createSvgAnalysisFeature({
         }
 
         return null;
+    }
+
+    function getStickyKeyAccidentalIdentity(item) {
+        if (typeof identifyAccidental !== "function" || !item) return null;
+
+        if (item.type === "path" && item.originalD) {
+            const sig = item.originalD.replace(/[^a-zA-Z]/g, "").toUpperCase();
+            return identifyAccidental(sig);
+        }
+
+        if (item.type === "text" && item.text) {
+            return identifyAccidental((item.text || "").trim());
+        }
+
+        return null;
+    }
+
+    function isNaturalOnlyKeySignatureBlock(items) {
+        return Array.isArray(items)
+            && items.length > 0
+            && items.every((item) => getStickyKeyAccidentalIdentity(item) === "Natural");
     }
 
     function shouldStartNewStickyBlock(type, currentBlock, nextItem, clusterThresholdX) {
@@ -274,6 +300,50 @@ export function createSvgAnalysisFeature({
 
         function collectHorizontalBridgeLine(entry) {
             rawHorizontalBridgeLines.push(entry);
+        }
+
+        function mergeHorizontalBridgeLineRows(items) {
+            if (!Array.isArray(items) || items.length === 0) return [];
+
+            const rowTolerance = 2;
+            const mergeGapTolerance = 2;
+            const sortedItems = items
+                .filter((item) => Number.isFinite(item?.y) && Number.isFinite(item?.minX) && Number.isFinite(item?.maxX))
+                .sort((a, b) => (a.y - b.y) || (a.minX - b.minX));
+
+            const rows = [];
+            sortedItems.forEach((item) => {
+                const lastRow = rows[rows.length - 1];
+                if (!lastRow || Math.abs(item.y - lastRow.y) > rowTolerance) {
+                    rows.push({ y: item.y, segments: [item] });
+                    return;
+                }
+                lastRow.segments.push(item);
+            });
+
+            const mergedRows = [];
+            rows.forEach((row) => {
+                const segments = row.segments.slice().sort((a, b) => a.minX - b.minX);
+                if (segments.length === 0) return;
+
+                let current = { ...segments[0] };
+                for (let i = 1; i < segments.length; i++) {
+                    const segment = segments[i];
+                    if (segment.minX <= current.maxX + mergeGapTolerance) {
+                        current.maxX = Math.max(current.maxX, segment.maxX);
+                        current.minX = Math.min(current.minX, segment.minX);
+                        current.width = Math.max(current.width || 0, segment.width || 0);
+                        current.y = (current.y + segment.y) / 2;
+                    } else {
+                        mergedRows.push(current);
+                        current = { ...segment };
+                    }
+                }
+
+                mergedRows.push(current);
+            });
+
+            return mergedRows;
         }
 
         svgRoot.querySelectorAll("line, polyline").forEach(el => {
@@ -543,41 +613,27 @@ export function createSvgAnalysisFeature({
         });
         
         if (rawHorizontalBridgeLines.length > 0) {
-            rawHorizontalBridgeLines.sort((a, b) => a.y - b.y);
-            const dedupedBridgeLines = [];
-            rawHorizontalBridgeLines.forEach(item => {
-                const last = dedupedBridgeLines[dedupedBridgeLines.length - 1];
-                if (!last || Math.abs(item.y - last.y) > 2) {
-                    dedupedBridgeLines.push(item);
-                    return;
-                }
+            const mergedBridgeLines = mergeHorizontalBridgeLineRows(rawHorizontalBridgeLines);
 
-                const lastSpan = (last.maxX - last.minX);
-                const currentSpan = (item.maxX - item.minX);
-                if (currentSpan > lastSpan) {
-                    dedupedBridgeLines[dedupedBridgeLines.length - 1] = item;
-                }
-            });
-
-            const maxBridgeSpan = Math.max(...dedupedBridgeLines.map((item) => item.maxX - item.minX), 0);
-            const fullSpanCandidates = dedupedBridgeLines.filter((item) => (
+            const maxBridgeSpan = Math.max(...mergedBridgeLines.map((item) => item.maxX - item.minX), 0);
+            const fullSpanCandidates = mergedBridgeLines.filter((item) => (
                 (item.maxX - item.minX) >= maxBridgeSpan * 0.9
             ));
 
-            const dominantEnvelopeSource = fullSpanCandidates.length > 0 ? fullSpanCandidates : dedupedBridgeLines;
+            const dominantEnvelopeSource = fullSpanCandidates.length > 0 ? fullSpanCandidates : mergedBridgeLines;
             const sortedMinXs = dominantEnvelopeSource.map((item) => item.minX).sort((a, b) => a - b);
             const sortedMaxXs = dominantEnvelopeSource.map((item) => item.maxX).sort((a, b) => a - b);
             const dominantMinX = sortedMinXs[Math.floor(sortedMinXs.length / 2)] ?? 0;
             const dominantMaxX = sortedMaxXs[Math.floor(sortedMaxXs.length / 2)] ?? 0;
             const envelopeTolerance = Math.max(6, maxBridgeSpan * 0.01);
 
-            globalAbsoluteBridgeLineYs = dedupedBridgeLines.filter((item) => (
+            globalAbsoluteBridgeLineYs = mergedBridgeLines.filter((item) => (
                 Math.abs(item.minX - dominantMinX) <= envelopeTolerance &&
                 Math.abs(item.maxX - dominantMaxX) <= envelopeTolerance
             ));
 
             if (globalAbsoluteBridgeLineYs.length === 0) {
-                globalAbsoluteBridgeLineYs = fullSpanCandidates.length > 0 ? fullSpanCandidates : dedupedBridgeLines;
+                globalAbsoluteBridgeLineYs = fullSpanCandidates.length > 0 ? fullSpanCandidates : mergedBridgeLines;
             }
 
             const deduped = [];
@@ -742,15 +798,35 @@ export function createSvgAnalysisFeature({
                 }
                 currentBlock.width = currentBlock.maxX - currentBlock.minX;
                 blocks.push(currentBlock);
+                blocks.forEach((block) => {
+                    const clearsKeySignature = type === "key" && isNaturalOnlyKeySignatureBlock(block.items);
+                    block.clearsKeySignature = clearsKeySignature;
+                    block.stickyWidth = getStickyBlockDisplayWidth({
+                        type,
+                        blockWidth: block.width,
+                        clearsKeySignature,
+                    });
+                });
                 typeBlocks[type] = blocks;
             });
+
+            const openingClefBlock = typeBlocks.clef?.[0] || null;
+            const openingClefMinX = openingClefBlock && openingClefBlock.minX <= stickyMinX + openingThresholdX
+                ? openingClefBlock.minX
+                : null;
+            const openingTimeBlock = typeBlocks.time?.[0] || null;
+            const openingTimeMinX = openingTimeBlock && openingTimeBlock.minX <= stickyMinX + openingThresholdX
+                ? openingTimeBlock.minX
+                : null;
 
             const baseWidths = { inst: 0, reh: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
             ["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {
                 if (typeBlocks[type] && typeBlocks[type].length > 0) {
                     const firstBlock = typeBlocks[type][0];
                     if (type === "inst" || firstBlock.minX <= stickyMinX + openingThresholdX) {
-                        baseWidths[type] = firstBlock.width;
+                        baseWidths[type] = Number.isFinite(firstBlock.stickyWidth)
+                            ? firstBlock.stickyWidth
+                            : firstBlock.width;
                     }
                 }
             });
@@ -759,14 +835,27 @@ export function createSvgAnalysisFeature({
             ["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {
                 if (!typeBlocks[type]) return;
                 const firstBlock = typeBlocks[type][0];
-                const anchorX = (type === "inst" || firstBlock.minX <= stickyMinX + openingThresholdX)
-                    ? firstBlock.minX
-                    : stickyMinX;
                 typeBlocks[type].forEach((block, index) => {
-                    const lockDistance = Math.max(0, block.minX - anchorX);
+                    let fallbackAnchorX = null;
+                    const hasOpeningBlock = firstBlock.minX <= stickyMinX + openingThresholdX;
+                    if (type === "key" && !hasOpeningBlock) {
+                        if (Number.isFinite(openingTimeMinX)) fallbackAnchorX = openingTimeMinX;
+                        else if (openingClefBlock) fallbackAnchorX = openingClefBlock.maxX;
+                    }
+                    const lockDistance = calculateStickyBlockLockDistance({
+                        type,
+                        blockMinX: block.minX,
+                        firstBlockMinX: firstBlock.minX,
+                        openingClefMinX,
+                        fallbackAnchorX,
+                        openingThresholdX,
+                        stickyMinX,
+                    });
                     block.lockDistance = lockDistance;
                     const isMidClef = type === "clef" && index > 0;
+                    const shouldSkipStickyRegistration = type === "key" && block.clearsKeySignature;
                     block.items.forEach(item => {
+                        if (shouldSkipStickyRegistration) return;
                         item.isSticky = true;
                         item.stickyType = type;
                         item.laneId = lane.laneId;

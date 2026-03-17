@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="160" viewBox="0 0 520 160">
+  <rect width="520" height="160" fill="#fff"/>
+
+  <line x1="20" y1="80" x2="500" y2="80" stroke="#000" stroke-width="1"/>
+  <line x1="20" y1="90" x2="500" y2="90" stroke="#000" stroke-width="1"/>
+  <line x1="20" y1="100" x2="500" y2="100" stroke="#000" stroke-width="1"/>
+  <line x1="20" y1="110" x2="500" y2="110" stroke="#000" stroke-width="1"/>
+  <line x1="20" y1="120" x2="500" y2="120" stroke="#000" stroke-width="1"/>
+
+  <line x1="20" y1="78" x2="20" y2="122" stroke="#000" stroke-width="1"/>
+  <line x1="120" y1="78" x2="120" y2="122" stroke="#000" stroke-width="1"/>
+  <line x1="220" y1="78" x2="220" y2="122" stroke="#000" stroke-width="1"/>
+  <line x1="320" y1="78" x2="320" y2="122" stroke="#000" stroke-width="1"/>
+  <line x1="420" y1="78" x2="420" y2="122" stroke="#000" stroke-width="1"/>
+  <line x1="500" y1="78" x2="500" y2="122" stroke="#000" stroke-width="1"/>
+
+  <rect x="36" y="8" width="28" height="24" fill="#fff" stroke="#000" stroke-width="1"/>
+  <text x="50" y="26" font-family="Academico" font-size="18" text-anchor="middle">A</text>
+
+  <rect x="136" y="12" width="28" height="24" fill="#fff" stroke="#000" stroke-width="1"/>
+  <text x="150" y="30" font-family="Academico" font-size="18" text-anchor="middle">B</text>
+
+  <rect x="236" y="40" width="28" height="24" fill="#fff" stroke="#000" stroke-width="1"/>
+  <text x="250" y="58" font-family="Academico" font-size="18" text-anchor="middle">C</text>
+
+  <rect x="336" y="40" width="28" height="24" fill="#fff" stroke="#000" stroke-width="1"/>
+  <text x="350" y="58" font-family="Academico" font-size="18" text-anchor="middle">D</text>
+
+  <rect x="436" y="10" width="28" height="24" fill="#fff" stroke="#000" stroke-width="1"/>
+  <text x="450" y="28" font-family="Academico" font-size="18" text-anchor="middle">E</text>
+
+  <text x="320" y="72" font-family="Academico" font-size="18" text-anchor="middle">ZZ</text>
+</svg>

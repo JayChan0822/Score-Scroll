@@ -16,7 +16,11 @@ import {
     buildTrustedBarlineAnchors,
     classifyAccidentalGroups,
 } from "./features/symbol-graph.mjs";
-import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260313-rehearsal-mark-frame-1";
+import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260317-natural-key-clear-1";
+import {
+    calculateStickySystemDelta,
+    getStickyBlockDisplayWidth,
+} from "./features/sticky-layout.mjs?v=20260317-natural-key-clear-1";
 import {
     clearInjectedSvgLocalFontFaces,
     registerImportedSvgTextFonts,
@@ -272,6 +276,7 @@ const svgAnalysisFeature = createSvgAnalysisFeature({
     getFallbackSystemInternalX: () => globalSystemInternalX,
     getMathFlyinParams,
     identifyClefOrBrace,
+    identifyAccidental,
 });
 
 const exportFeature = createExportVideoFeature({
@@ -720,6 +725,13 @@ function renderCanvas(currentX, options = {}) {
         ['inst', 'reh', 'clef', 'key', 'time', 'bar', 'brace'].forEach(type => {
             if (!typeBlocks[type]) return;
             typeBlocks[type].forEach((block, index) => {
+                const blockDisplayWidth = Number.isFinite(block.stickyWidth)
+                    ? block.stickyWidth
+                    : getStickyBlockDisplayWidth({
+                        type,
+                        blockWidth: block.width,
+                        clearsKeySignature: block.clearsKeySignature === true,
+                    });
                 const lockDistance = Number.isFinite(block.lockDistance)
                     ? block.lockDistance
                     : Math.max(0, block.minX - typeBlocks[type][0].minX);
@@ -727,7 +739,9 @@ function renderCanvas(currentX, options = {}) {
                 if (currentX >= layerMaxX) {
                     if (index > activeIdx[laneId][type]) {
                         activeIdx[laneId][type] = index;
-                        activeWidth[laneId][type] = (type === 'clef' && index > 0) ? block.width * activeMidClefStickyScale : block.width;
+                        activeWidth[laneId][type] = (type === 'clef' && index > 0)
+                            ? blockDisplayWidth * activeMidClefStickyScale
+                            : blockDisplayWidth;
                     }
                 }
             });
@@ -742,9 +756,11 @@ function renderCanvas(currentX, options = {}) {
     const calcSystemDelta = (type) => {
         const b = systemBaseWidths[type] || 0;
         const currentW = systemActiveWidths[type] || 0;
-        let delta = currentW - b;
-        if (b === 0 && currentW > 0) delta += 15; else if (b > 0 && currentW === 0) delta -= 15;
-        return delta;
+        return calculateStickySystemDelta({
+            type,
+            baseWidth: b,
+            currentWidth: currentW,
+        });
     };
 
     const sysDeltaClef = calcSystemDelta('clef');
@@ -2199,25 +2215,6 @@ function identifyAndHighlightRehearsalMarks() {
     const svgRoot = document.querySelector('#score-container svg');
     if (!svgRoot) return;
 
-    const horizontalLineYs = Array.from(svgRoot.querySelectorAll('line, polyline'))
-        .map((el) => {
-            const rect = el.getBoundingClientRect();
-            if (!(rect.width > 40) || !(rect.height <= 3)) return null;
-            return rect.top + rect.height / 2;
-        })
-        .filter((value) => Number.isFinite(value));
-
-    const staffBands = buildTimeSignatureStaffBandsFromLineYs(horizontalLineYs);
-    if (!Array.isArray(staffBands) || staffBands.length === 0) return;
-
-    const barlineXs = Array.from(svgRoot.querySelectorAll('line, polyline'))
-        .map((el) => {
-            const rect = el.getBoundingClientRect();
-            if (!(rect.height > 12) || !(rect.width <= 6)) return null;
-            return rect.left + rect.width / 2;
-        })
-        .filter((value) => Number.isFinite(value));
-
     const enclosureCandidates = Array.from(svgRoot.querySelectorAll('rect, path, circle, ellipse'))
         .filter((el) => (
             !el.classList.contains('highlight-clef')
@@ -2238,18 +2235,6 @@ function identifyAndHighlightRehearsalMarks() {
         const textRect = textEl.getBoundingClientRect();
         if (!(textRect.width > 0) || !(textRect.height > 0)) return;
 
-        const targetBand = staffBands.find((band) => (
-            textRect.bottom <= band.top + band.staffSpace * 1.5 &&
-            textRect.top >= band.top - band.staffSpace * 8.5
-        ));
-        if (!targetBand) return;
-
-        const rehearsalCenterX = (textRect.left + textRect.right) / 2;
-        const nearBarline = barlineXs.some((barX) => Math.abs(barX - rehearsalCenterX) <= Math.max(36, targetBand.staffSpace * 6));
-        const nearSystemStart = globalSystemBarlineScreenX > 0
-            && rehearsalCenterX >= globalSystemBarlineScreenX - targetBand.staffSpace * 2
-            && rehearsalCenterX <= globalSystemBarlineScreenX + targetBand.staffSpace * 18;
-
         const matchingEnclosure = enclosureCandidates
             .map((shapeEl) => {
                 const shapeRect = shapeEl.getBoundingClientRect();
@@ -2263,18 +2248,16 @@ function identifyAndHighlightRehearsalMarks() {
             .filter(Boolean)
             .sort((a, b) => a.area - b.area)[0] || null;
 
-        if (!matchingEnclosure && !nearBarline && !nearSystemStart) return;
+        if (!matchingEnclosure) return;
 
         textEl.classList.add('highlight-rehearsalmark');
-        if (matchingEnclosure?.el) {
-            const anchorRect = matchingEnclosure.el.getBoundingClientRect();
-            enclosureCandidates.forEach((shapeEl) => {
-                const shapeRect = shapeEl.getBoundingClientRect();
-                if (belongsToSameRehearsalEnclosureGroup(anchorRect, shapeRect)) {
-                    shapeEl.classList.add('highlight-rehearsalmark');
-                }
-            });
-        }
+        const anchorRect = matchingEnclosure.el.getBoundingClientRect();
+        enclosureCandidates.forEach((shapeEl) => {
+            const shapeRect = shapeEl.getBoundingClientRect();
+            if (belongsToSameRehearsalEnclosureGroup(anchorRect, shapeRect)) {
+                shapeEl.classList.add('highlight-rehearsalmark');
+            }
+        });
         foundCount++;
     });
 
