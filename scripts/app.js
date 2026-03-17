@@ -2319,6 +2319,21 @@ function getTimeSignatureStaffBandIndex(rect, staffBands) {
     ));
 }
 
+function getOverlappingTimeSignatureStaffBandIndices(rect, staffBands) {
+    if (!rect || !Array.isArray(staffBands) || staffBands.length === 0) return [];
+
+    return staffBands.reduce((indices, band, index) => {
+        if (
+            isEligibleTimeSignatureStaffBand(band)
+            && rect.bottom >= band.paddedTop
+            && rect.top <= band.paddedBottom
+        ) {
+            indices.push(index);
+        }
+        return indices;
+    }, []);
+}
+
 function getSvgTextScreenAnchor(el) {
     if (!el || typeof el.getScreenCTM !== 'function') return null;
 
@@ -2456,12 +2471,10 @@ function getEarliestTabMeterLeft(candidate, candidates) {
     return Math.min(...pairLefts);
 }
 
-function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallbackFontFamily = '') {
-    if (!svgRoot || !(globalSystemBarlineScreenX > 0)) return 0;
-
-    const openingMinX = globalSystemBarlineScreenX + 40;
-    const openingMaxX = globalSystemBarlineScreenX + 135;
-    const selectedClusterCount = 2;
+function collectFragmentedFourCandidates(svgRoot, staffBands, fallbackFontFamily = '') {
+    if (!svgRoot) {
+        return { horizontalCandidates: [], verticalCandidates: [] };
+    }
 
     const horizontalCandidates = Array.from(svgRoot.querySelectorAll('path')).map((el) => {
         if (
@@ -2482,7 +2495,6 @@ function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallback
 
         const rect = el.getBoundingClientRect();
         if (!(rect.width > 0 && rect.height > 0)) return null;
-        if (rect.left < openingMinX || rect.left > openingMaxX) return null;
         if (rect.width > 8 || rect.height > 4) return null;
 
         const bandIndex = getTimeSignatureStaffBandIndex(rect, staffBands);
@@ -2494,26 +2506,6 @@ function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallback
             bandIndex,
         };
     }).filter(Boolean);
-
-    if (horizontalCandidates.length < 6) return 0;
-
-    const horizontalClusters = clusterSortedXs(horizontalCandidates.map((item) => item.rect.left), 12)
-        .map((cluster) => {
-            const items = horizontalCandidates.filter((item) => (
-                item.rect.left >= cluster.minX - 1 && item.rect.left <= cluster.maxX + 1
-            ));
-            const uniqueBands = new Set(items.map((item) => item.bandIndex));
-            return {
-                ...cluster,
-                items,
-                uniqueBandCount: uniqueBands.size,
-            };
-        })
-        .filter((cluster) => cluster.uniqueBandCount >= 3)
-        .sort((a, b) => a.centerX - b.centerX)
-        .slice(0, selectedClusterCount);
-
-    if (horizontalClusters.length < selectedClusterCount) return 0;
 
     const verticalCandidates = Array.from(svgRoot.querySelectorAll('line, polyline')).map((el) => {
         if (
@@ -2528,15 +2520,88 @@ function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallback
 
         const geometry = extractSimpleLineGeometry(el);
         if (!geometry?.isVertical) return null;
-        if (geometry.left < openingMinX - 35 || geometry.left > openingMaxX - 5) return null;
-        if (geometry.height < 40 || geometry.height > 140) return null;
+
+        const bandIndex = getTimeSignatureStaffBandIndex(geometry.rect, staffBands);
+        if (bandIndex === -1) return null;
 
         return {
             el,
             rect: geometry.rect,
             left: geometry.left,
+            height: geometry.height,
+            bandIndex,
         };
     }).filter(Boolean);
+
+    return { horizontalCandidates, verticalCandidates };
+}
+
+function highlightFragmentedFourFours({
+    svgRoot,
+    staffBands,
+    fallbackFontFamily = '',
+    anchorX,
+    minOffsetX = 40,
+    maxOffsetX = 135,
+    targetBandIndex = null,
+    minimumUniqueBandCount = 3,
+    minimumVerticalClusterItems = 2,
+    selectedClusterCount = 2,
+    precomputedHorizontalCandidates = null,
+    precomputedVerticalCandidates = null,
+}) {
+    if (!svgRoot || !Number.isFinite(anchorX)) return 0;
+
+    const windowMinX = anchorX + minOffsetX;
+    const windowMaxX = anchorX + maxOffsetX;
+    const targetBand = Number.isInteger(targetBandIndex) ? staffBands[targetBandIndex] : null;
+    const targetBandHeight = targetBand ? Math.max(1, targetBand.bottom - targetBand.top) : null;
+    const minimumVerticalHeight = targetBand
+        ? Math.max(12, targetBandHeight * 0.4)
+        : 40;
+    const maximumVerticalHeight = targetBand
+        ? Math.max(40, targetBandHeight * 2.6)
+        : 140;
+
+    const horizontalSource = Array.isArray(precomputedHorizontalCandidates)
+        ? precomputedHorizontalCandidates
+        : collectFragmentedFourCandidates(svgRoot, staffBands, fallbackFontFamily).horizontalCandidates;
+    const horizontalCandidates = horizontalSource.filter((item) => (
+        item.rect.left >= windowMinX
+        && item.rect.left <= windowMaxX
+        && (!targetBand || item.bandIndex === targetBandIndex)
+    ));
+
+    if (horizontalCandidates.length < selectedClusterCount) return 0;
+
+    const horizontalClusters = clusterSortedXs(horizontalCandidates.map((item) => item.rect.left), 12)
+        .map((cluster) => {
+            const items = horizontalCandidates.filter((item) => (
+                item.rect.left >= cluster.minX - 1 && item.rect.left <= cluster.maxX + 1
+            ));
+            const uniqueBands = new Set(items.map((item) => item.bandIndex));
+            return {
+                ...cluster,
+                items,
+                uniqueBandCount: uniqueBands.size,
+            };
+        })
+        .filter((cluster) => cluster.uniqueBandCount >= minimumUniqueBandCount)
+        .sort((a, b) => a.centerX - b.centerX)
+        .slice(0, selectedClusterCount);
+
+    if (horizontalClusters.length < selectedClusterCount) return 0;
+
+    const verticalSource = Array.isArray(precomputedVerticalCandidates)
+        ? precomputedVerticalCandidates
+        : collectFragmentedFourCandidates(svgRoot, staffBands, fallbackFontFamily).verticalCandidates;
+    const verticalCandidates = verticalSource.filter((item) => (
+        item.left >= windowMinX - 35
+        && item.left <= windowMaxX - 5
+        && item.height >= minimumVerticalHeight
+        && item.height <= maximumVerticalHeight
+        && (!targetBand || item.bandIndex === targetBandIndex)
+    ));
 
     if (verticalCandidates.length === 0) return 0;
 
@@ -2545,12 +2610,13 @@ function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallback
             ...cluster,
             items: verticalCandidates.filter((item) => item.left >= cluster.minX - 1 && item.left <= cluster.maxX + 1),
         }))
-        .filter((cluster) => cluster.items.length >= 2)
+        .filter((cluster) => cluster.items.length >= minimumVerticalClusterItems)
         .sort((a, b) => a.centerX - b.centerX);
 
     if (verticalClusters.length === 0) return 0;
 
     let highlightedCount = 0;
+    const anchorXAttr = Number.isFinite(anchorX) ? String(anchorX) : '';
     horizontalClusters.forEach((horizontalCluster) => {
         const pairedVertical = verticalClusters.find((verticalCluster) => {
             const dx = horizontalCluster.centerX - verticalCluster.centerX;
@@ -2567,6 +2633,9 @@ function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallback
             if (!el.getAttribute('data-time-sig-token')) {
                 el.setAttribute('data-time-sig-token', '4');
             }
+            if (anchorXAttr) {
+                el.setAttribute('data-time-sig-anchor-x', anchorXAttr);
+            }
             if (!wasHighlighted) highlightedCount++;
         });
 
@@ -2578,6 +2647,9 @@ function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallback
             if (!el.getAttribute('data-time-sig-token')) {
                 el.setAttribute('data-time-sig-token', '4');
             }
+            if (anchorXAttr) {
+                el.setAttribute('data-time-sig-anchor-x', anchorXAttr);
+            }
             if (!wasHighlighted) highlightedCount++;
         });
     });
@@ -2585,10 +2657,94 @@ function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallback
     return highlightedCount;
 }
 
+function identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallbackFontFamily = '') {
+    if (!svgRoot || !(globalSystemBarlineScreenX > 0)) return 0;
+
+    return highlightFragmentedFourFours({
+        svgRoot,
+        staffBands,
+        fallbackFontFamily,
+        anchorX: globalSystemBarlineScreenX,
+        minOffsetX: 40,
+        maxOffsetX: 135,
+        minimumUniqueBandCount: 3,
+        minimumVerticalClusterItems: 2,
+        selectedClusterCount: 2,
+    });
+}
+
+function identifyAndHighlightLateFragmentedFours(svgRoot, staffBands, fallbackFontFamily = '') {
+    if (!svgRoot || !Array.isArray(staffBands) || staffBands.length === 0) return 0;
+
+    const eligibleBands = staffBands
+        .map((band, index) => ({ ...band, index }))
+        .filter((band) => isEligibleTimeSignatureStaffBand(band));
+    if (eligibleBands.length === 0) return 0;
+
+    const staffSpaceValues = eligibleBands
+        .map((band) => band.staffSpace)
+        .filter((value) => Number.isFinite(value) && value > 0);
+    const normalizedStaffSpace = staffSpaceValues.length > 0
+        ? staffSpaceValues[Math.floor(staffSpaceValues.length / 2)]
+        : 10;
+
+    const trustedAnchors = buildTrustedBarlineAnchors({
+        systemStartX: globalSystemBarlineScreenX,
+        staffSystems: buildStaffSystemsFromBands(eligibleBands),
+        candidateClusters: collectBarlineCandidateClusters(svgRoot, normalizedStaffSpace),
+        staffSpace: normalizedStaffSpace,
+    }).filter((anchor) => (
+        anchor.kind === 'barline'
+        && (!Number.isFinite(globalSystemBarlineScreenX) || anchor.x > globalSystemBarlineScreenX + 80)
+    ));
+
+    if (trustedAnchors.length === 0) return 0;
+
+    const fragmentedCandidates = collectFragmentedFourCandidates(svgRoot, staffBands, fallbackFontFamily);
+    let highlightedCount = 0;
+    trustedAnchors.forEach((anchor) => {
+        eligibleBands.forEach((band) => {
+            highlightedCount += highlightFragmentedFourFours({
+                svgRoot,
+                staffBands,
+                fallbackFontFamily,
+                anchorX: anchor.x,
+                minOffsetX: 18,
+                maxOffsetX: 170,
+                targetBandIndex: band.index,
+                minimumUniqueBandCount: 1,
+                minimumVerticalClusterItems: 1,
+                selectedClusterCount: 2,
+                precomputedHorizontalCandidates: fragmentedCandidates.horizontalCandidates,
+                precomputedVerticalCandidates: fragmentedCandidates.verticalCandidates,
+            });
+        });
+    });
+
+    return highlightedCount;
+}
+
+function countOpeningTimeSignatureHighlights(svgRoot) {
+    if (!svgRoot || !(globalSystemBarlineScreenX > 0)) return 0;
+
+    const openingMinX = globalSystemBarlineScreenX - 10;
+    // Keep this window tight so later early-measure meters do not suppress geometric opening recovery.
+    const openingMaxX = globalSystemBarlineScreenX + 100;
+
+    return Array.from(svgRoot.querySelectorAll('.highlight-timesig')).filter((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.left >= openingMinX && rect.left <= openingMaxX;
+    }).length;
+}
+
 const GIANT_TIME_SIGNATURE_HEIGHT_PX = 80;
 
-function isVisuallyGiantTimeSignature(rect, decoded) {
-    return Boolean(decoded?.isGiant) || Boolean(rect && rect.height > GIANT_TIME_SIGNATURE_HEIGHT_PX);
+function isVisuallyGiantTimeSignature(rect, decoded, staffBands = []) {
+    if (Boolean(decoded?.isGiant)) return true;
+    if (Boolean(rect && rect.height > GIANT_TIME_SIGNATURE_HEIGHT_PX)) return true;
+
+    const overlappingBandIndices = getOverlappingTimeSignatureStaffBandIndices(rect, staffBands);
+    return overlappingBandIndices.length > 1;
 }
 
 // 🌟 拍号雷达扫描器 (终极防御版：防孤立数字、防谱外、防远离小节线)
@@ -2661,7 +2817,7 @@ function identifyAndHighlightTimeSignatures() {
         if (globalSystemBarlineScreenX > 0 && rect.right < globalSystemBarlineScreenX - 5) {
             return; // 如果这个数字完全在小节线左边，它绝对是声部编号，杀掉！
         }
-        const isGiantTimeSig = isVisuallyGiantTimeSignature(rect, decoded);
+        const isGiantTimeSig = isVisuallyGiantTimeSignature(rect, decoded, staffBands);
 
         candidates.push({
             el,
@@ -2700,8 +2856,8 @@ function identifyAndHighlightTimeSignatures() {
                 el,
                 content: '',
                 decodedToken: decoded?.token || '',
-                requiresStackPartner: decoded?.kind === 'number' && !isVisuallyGiantTimeSignature(rect, decoded),
-                isGiantTimeSig: isVisuallyGiantTimeSignature(rect, decoded),
+                requiresStackPartner: decoded?.kind === 'number' && !isVisuallyGiantTimeSignature(rect, decoded, staffBands),
+                isGiantTimeSig: isVisuallyGiantTimeSignature(rect, decoded, staffBands),
                 isMuseScoreSemantic: true,
                 rect,
                 referencePoint: null,
@@ -2736,7 +2892,7 @@ function identifyAndHighlightTimeSignatures() {
             if (globalSystemBarlineScreenX > 0 && rect.right < globalSystemBarlineScreenX - 5) {
                 return;
             }
-            const isGiantTimeSig = isVisuallyGiantTimeSignature(rect, decoded);
+            const isGiantTimeSig = isVisuallyGiantTimeSignature(rect, decoded, staffBands);
 
             candidates.push({
                 el,
@@ -2807,12 +2963,17 @@ function identifyAndHighlightTimeSignatures() {
         if (decodedToken) {
             el.setAttribute('data-time-sig-token', decodedToken);
         }
+        if (Number.isFinite(anchorInfo?.anchorX)) {
+            el.setAttribute('data-time-sig-anchor-x', String(anchorInfo.anchorX));
+        }
         foundCount++;
     });
 
-    if (foundCount === 0) {
+    const openingHighlightCount = countOpeningTimeSignatureHighlights(svgRoot);
+    if (foundCount === 0 || openingHighlightCount === 0) {
         foundCount += identifyAndHighlightGeometricOpeningFours(svgRoot, staffBands, fallbackFontFamily);
     }
+    foundCount += identifyAndHighlightLateFragmentedFours(svgRoot, staffBands, fallbackFontFamily);
 
     debugLog(`✅ 拍号扫描：点亮 ${foundCount} 个 | 排除孤立数字 ${rejectedSolitaryCount} 个 | 排除谱外 ${rejectedOutsideStaffCount} 个 | 远离小节线 ${rejectedFarFromBarlineCount} 个。`);
 }

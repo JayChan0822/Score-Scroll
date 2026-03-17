@@ -57,11 +57,35 @@ export function createSvgAnalysisFeature({
             && items.every((item) => getStickyKeyAccidentalIdentity(item) === "Natural");
     }
 
+    function getStickyTimeAnchorX(item) {
+        return Number.isFinite(item?.timeSigAnchorX) ? item.timeSigAnchorX : null;
+    }
+
+    function getLastKnownTimeAnchorX(items) {
+        if (!Array.isArray(items)) return null;
+
+        for (let i = items.length - 1; i >= 0; i--) {
+            const anchorX = getStickyTimeAnchorX(items[i]);
+            if (anchorX !== null) return anchorX;
+        }
+
+        return null;
+    }
+
     function shouldStartNewStickyBlock(type, currentBlock, nextItem, clusterThresholdX) {
         if (!currentBlock || !nextItem) return false;
 
         const gap = nextItem.absMinX - currentBlock.maxX;
         if (gap >= clusterThresholdX) return true;
+
+        if (type === "time") {
+            const currentAnchorX = getLastKnownTimeAnchorX(currentBlock.items);
+            const nextAnchorX = getStickyTimeAnchorX(nextItem);
+            if (currentAnchorX !== null && nextAnchorX !== null && Math.abs(currentAnchorX - nextAnchorX) > 10) {
+                return true;
+            }
+            return false;
+        }
 
         if (type !== "clef") return false;
 
@@ -291,6 +315,13 @@ export function createSvgAnalysisFeature({
                 : "";
         }
 
+        function getTimeSigAnchorX(el) {
+            if (typeof el?.getAttribute !== "function") return null;
+            const rawValue = el.getAttribute("data-time-sig-anchor-x");
+            const parsedValue = rawValue === null ? NaN : Number(rawValue);
+            return Number.isFinite(parsedValue) ? parsedValue : null;
+        }
+
         function extractStrokeWidth(el) {
             const computedSW = window.getComputedStyle(el).strokeWidth;
             const attrSW = el.getAttribute("stroke-width");
@@ -374,7 +405,9 @@ export function createSvgAnalysisFeature({
                     localX1: lx1, localY1: ly1, localX2: lx2, localY2: ly2,
                     lineWidth, fillRole, strokeRole, matrix,
                     absMinX: limits.minX, absMaxX: limits.maxX, symbolType,
-                    centerY: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams(),
+                    centerY: limits.minX + (limits.maxX - limits.minX) / 2,
+                    timeSigAnchorX: getTimeSigAnchorX(el),
+                    ...getMathFlyinParams(),
                 });
             } else if (el.tagName.toLowerCase() === "polyline") {
                 const pointsStr = el.getAttribute("points");
@@ -411,7 +444,9 @@ export function createSvgAnalysisFeature({
                         localX1: ltx1, localY1: lty1, localX2: ltx2, localY2: lty2,
                         lineWidth, fillRole, strokeRole, matrix,
                         absMinX: Math.min(tx1, tx2), absMaxX: Math.max(tx1, tx2),
-                        symbolType, centerY: matrix.b * ltx1 + matrix.d * lty1 + matrix.f, ...getMathFlyinParams(),
+                        symbolType, centerY: matrix.b * ltx1 + matrix.d * lty1 + matrix.f,
+                        timeSigAnchorX: getTimeSigAnchorX(el),
+                        ...getMathFlyinParams(),
                     });
                 }
             }
@@ -454,6 +489,7 @@ export function createSvgAnalysisFeature({
                 absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams(),
+                timeSigAnchorX: getTimeSigAnchorX(el),
             });
         });
 
@@ -486,6 +522,7 @@ export function createSvgAnalysisFeature({
                 absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
                 centerY: matrix.b * cx + matrix.d * cy + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
+                timeSigAnchorX: getTimeSigAnchorX(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -528,6 +565,7 @@ export function createSvgAnalysisFeature({
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
                 timeSigToken: getTimeSigToken(el),
+                timeSigAnchorX: getTimeSigAnchorX(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -551,6 +589,7 @@ export function createSvgAnalysisFeature({
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
                 timeSigToken: getTimeSigToken(el),
+                timeSigAnchorX: getTimeSigAnchorX(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -582,6 +621,7 @@ export function createSvgAnalysisFeature({
                 matrix, absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 timeSigToken: getTimeSigToken(el),
+                timeSigAnchorX: getTimeSigAnchorX(el),
                 box,
                 ...getMathFlyinParams(),
             });

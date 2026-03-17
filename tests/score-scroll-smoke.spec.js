@@ -2032,6 +2032,75 @@ test('keeps stacked opening time signatures while rejecting short stems and isol
   expect(detectionState.openingBarlineClasses).toContain('highlight-barline');
 });
 
+test('keeps geometric opening 4/4 recognition even when a later standard time signature is already classified', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'geometric-opening-meter-with-later-timesig.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return (rect.left + rect.right) / 2;
+        })
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+      const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
+
+      const openingGeometric = Array.from(svg.querySelectorAll('.highlight-timesig'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            tag: el.tagName.toLowerCase(),
+            token: el.getAttribute('data-time-sig-token') || '',
+            left: rect.left,
+          };
+        })
+        .filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 80)
+        .sort((a, b) => a.left - b.left);
+
+      const laterStandard = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig'))
+        .map((el) => ({
+          text: (el.textContent || '').trim(),
+          token: el.getAttribute('data-time-sig-token') || '',
+          left: el.getBoundingClientRect().left,
+        }))
+        .filter((item) => item.left >= systemStartX + 130);
+
+      const display = document.getElementById('timeSigDisplay');
+      const color = display ? window.getComputedStyle(display).color : '';
+
+      return {
+        openingGeometricCount: openingGeometric.length,
+        openingTokens: openingGeometric.map((item) => item.token).join(','),
+        laterStandardTokens: laterStandard.map((item) => item.token).join(','),
+        displayText: display?.textContent?.trim() || '',
+        displayColor: color,
+      };
+    });
+
+    return {
+      openingGeometricCount: state?.openingGeometricCount || 0,
+      openingTokens: state?.openingTokens || '',
+      laterStandardTokens: state?.laterStandardTokens || '',
+      displayText: state?.displayText || '',
+      displayColor: state?.displayColor || '',
+    };
+  }, {
+    message: 'waiting for geometric opening meter to classify before a later standard time signature',
+  }).toEqual({
+    openingGeometricCount: 9,
+    openingTokens: '4,4,4,4,4,4,4,4,4',
+    laterStandardTokens: '3,4',
+    displayText: '4/4',
+    displayColor: 'rgb(255, 255, 255)',
+  });
+});
+
 test('preserves opening barlines, instrument names, and key signatures for transformed Opus SVG imports', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'green-tea-opening-anchor.svg');
 
@@ -2797,6 +2866,121 @@ test('recognizes visually giant opening Bravura time signatures before later met
   expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
 });
 
+test('recognizes opening tall stacked 4/4 digits in the local Genshin export', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '原神.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return (rect.left + rect.right) / 2;
+        })
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+      const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
+
+      const highlighted = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            text: (el.textContent || '').trim(),
+            token: el.getAttribute('data-time-sig-token') || '',
+            left: rect.left,
+          };
+        })
+        .filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 80)
+        .sort((a, b) => a.left - b.left);
+
+      const display = document.getElementById('timeSigDisplay');
+      const color = display ? window.getComputedStyle(display).color : '';
+
+      return {
+        highlighted,
+        displayText: display?.textContent?.trim() || '',
+        displayColor: color,
+      };
+    });
+
+    return {
+      highlightedCount: state?.highlighted.length || 0,
+      tokens: (state?.highlighted || []).map((item) => item.token).join(','),
+      displayText: state?.displayText || '',
+      displayColor: state?.displayColor || '',
+    };
+  }, {
+    message: 'waiting for local Genshin opening 4/4 to classify',
+  }).toEqual({
+    highlightedCount: 4,
+    tokens: '4,4,4,4',
+    displayText: '4/4',
+    displayColor: 'rgb(255, 255, 255)',
+  });
+
+  expect(state.displayText).toBe('4/4');
+  expect(state.displayColor).toBe('rgb(255, 255, 255)');
+});
+
+test('keeps local Wu Zetian opening fragmented 4/4 visible at the system start', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '武则天.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return (rect.left + rect.right) / 2;
+        })
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+      const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
+
+      const openingTimeSigs = Array.from(svg.querySelectorAll('.highlight-timesig'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            left: rect.left,
+            token: el.getAttribute('data-time-sig-token') || '',
+          };
+        })
+        .filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 260);
+
+      const display = document.getElementById('timeSigDisplay');
+      const color = display ? window.getComputedStyle(display).color : '';
+
+      return {
+        openingTimeSigCount: openingTimeSigs.length,
+        displayText: display?.textContent?.trim() || '',
+        displayColor: color,
+      };
+    });
+
+    return {
+      openingTimeSigCount: state?.openingTimeSigCount || 0,
+      displayText: state?.displayText || '',
+      displayColor: state?.displayColor || '',
+    };
+  }, {
+    message: 'waiting for local Wu Zetian opening fragmented 4/4 to remain visible',
+  }).toMatchObject({
+    displayText: '4/4',
+    displayColor: 'rgb(255, 255, 255)',
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.openingTimeSigCount).toBeGreaterThanOrEqual(48);
+});
+
 test('recognizes non-power-of-two stacked numeric time signatures in Dorico imports', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'non-power-time-signatures.svg');
   await loadFixtureIntoScore(page, fixturePath);
@@ -3259,6 +3443,101 @@ test('recognizes Wu Zetian opening percussion clefs and fragmented opening time 
   expect(state.openingTimeSigs.every((item) => item.token === '4')).toBe(true);
   expect(state.displayText).toBe('4/4');
   expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
+});
+
+test('recognizes Wu Zetian later fragmented time signatures for sticky lanes', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '武则天.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { MusicFontRegistry } = await import('/scripts/data/music-font-registry.js');
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const clefMap = {};
+    Object.values(MusicFontRegistry).forEach((fontData) => {
+      if (!fontData?.clefs) return;
+      Object.entries(fontData.clefs).forEach(([name, signatures]) => {
+        (signatures || []).forEach((signature) => {
+          if (!(signature in clefMap)) clefMap[signature] = name;
+        });
+      });
+    });
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: (sig) => clefMap[sig] || null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const pipa = result.renderQueue.find((item) => (
+      item.symbolType === 'InstName' && (item.text || '').trim() === 'Pipa'
+    )) || null;
+    if (!pipa?.laneId) return null;
+
+    const timeBlocks = (result.globalStickyLanes[pipa.laneId]?.typeBlocks?.time || []).map((block) => ({
+      minX: block.minX,
+      maxX: block.maxX,
+      stickyItemCount: block.items.filter((item) => item.isSticky).length,
+    }));
+    const openingTimeBlock = timeBlocks[0] || null;
+    const lateThreshold = openingTimeBlock ? openingTimeBlock.maxX + 20 : result.stickyMinX + 160;
+    const lateTimeBlocks = timeBlocks
+      .filter((block) => block.minX > lateThreshold)
+      .map((block) => ({
+        minX: block.minX,
+        stickyItemCount: block.stickyItemCount,
+      }));
+
+    const getAbsoluteMetrics = (el) => {
+      const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
+      const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
+      if (!box || !matrix) return null;
+      const x1 = matrix.a * box.x + matrix.c * box.y + matrix.e;
+      const x2 = matrix.a * (box.x + box.width) + matrix.c * box.y + matrix.e;
+      const x3 = matrix.a * box.x + matrix.c * (box.y + box.height) + matrix.e;
+      const x4 = matrix.a * (box.x + box.width) + matrix.c * (box.y + box.height) + matrix.e;
+      return {
+        absMinX: Math.min(x1, x2, x3, x4),
+        absMaxX: Math.max(x1, x2, x3, x4),
+        centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
+      };
+    };
+
+    const highlightedLateTimeGlyphs = Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => {
+      const metrics = getAbsoluteMetrics(el);
+      if (!metrics) return null;
+
+      return {
+        absMinX: metrics.absMinX,
+        centerY: metrics.centerY,
+        token: el.getAttribute('data-time-sig-token') || '',
+      };
+    }).filter((item) => (
+      item
+      && item.absMinX > lateThreshold
+      && Math.abs(item.centerY - pipa.centerY) <= 24
+    ));
+
+    return {
+      laneId: pipa.laneId,
+      pipaCenterY: pipa.centerY,
+      stickyMinX: result.stickyMinX,
+      timeBlocks,
+      lateThreshold,
+      lateTimeBlocks,
+      highlightedLateTimeGlyphs,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.timeBlocks.length).toBeGreaterThan(1);
+  expect(state.highlightedLateTimeGlyphs.length).toBeGreaterThan(0);
+  expect(state.lateTimeBlocks.length).toBeGreaterThan(0);
+  expect(state.lateTimeBlocks[0].stickyItemCount).toBeGreaterThan(0);
 });
 
 test('does not treat tablature fingering digits as time signatures in Shounen no Yume', async ({ page }) => {

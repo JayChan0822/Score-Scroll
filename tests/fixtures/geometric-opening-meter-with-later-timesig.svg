@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="240" viewBox="0 0 420 240">
+  <line x1="60" y1="20" x2="380" y2="20" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="30" x2="380" y2="30" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="40" x2="380" y2="40" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="50" x2="380" y2="50" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="60" x2="380" y2="60" stroke="#000" stroke-width="1" />
+
+  <line x1="60" y1="90" x2="380" y2="90" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="100" x2="380" y2="100" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="110" x2="380" y2="110" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="120" x2="380" y2="120" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="130" x2="380" y2="130" stroke="#000" stroke-width="1" />
+
+  <line x1="60" y1="160" x2="380" y2="160" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="170" x2="380" y2="170" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="180" x2="380" y2="180" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="190" x2="380" y2="190" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="200" x2="380" y2="200" stroke="#000" stroke-width="1" />
+
+  <line x1="60" y1="20" x2="60" y2="60" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="90" x2="60" y2="130" stroke="#000" stroke-width="1" />
+  <line x1="60" y1="160" x2="60" y2="200" stroke="#000" stroke-width="1" />
+
+  <line x1="92" y1="18" x2="92" y2="62" stroke="#000" stroke-width="1" />
+  <line x1="92" y1="88" x2="92" y2="132" stroke="#000" stroke-width="1" />
+  <line x1="92" y1="158" x2="92" y2="202" stroke="#000" stroke-width="1" />
+
+  <g fill="none" stroke="#000" stroke-width="1" font-family="Maestro">
+    <path d="M0 0 L6 0 L6 1 L0 1 L0 0" transform="translate(106 26)" />
+    <path d="M0 0 L6 0 L6 1 L0 1 L0 0" transform="translate(106 96)" />
+    <path d="M0 0 L6 0 L6 1 L0 1 L0 0" transform="translate(106 166)" />
+
+    <path d="M0 0 L6 0 L6 1 L0 1 L0 0" transform="translate(122 44)" />
+    <path d="M0 0 L6 0 L6 1 L0 1 L0 0" transform="translate(122 114)" />
+    <path d="M0 0 L6 0 L6 1 L0 1 L0 0" transform="translate(122 184)" />
+  </g>
+
+  <line x1="210" y1="20" x2="210" y2="60" stroke="#000" stroke-width="1" />
+  <text x="220" y="40" font-family="Times New Roman" font-size="18">3</text>
+  <text x="220" y="56" font-family="Times New Roman" font-size="18">4</text>
+</svg>
