@@ -2058,18 +2058,26 @@ function identifyAndHighlightGeometricBrackets() {
 
         if (![x1, y1, x2, y2].every(Number.isFinite)) return;
 
-        const dx = Math.abs(x1 - x2);
-        const dy = Math.abs(y1 - y2);
-        const leftX = Math.min(x1, x2);
-        const rightX = Math.max(x1, x2);
-        const topY = Math.min(y1, y2);
-        const bottomY = Math.max(y1, y2);
+        const ctm = el.getCTM();
+        const matrix = ctm
+            ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f }
+            : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+        const absX1 = matrix.a * x1 + matrix.c * y1 + matrix.e;
+        const absY1 = matrix.b * x1 + matrix.d * y1 + matrix.f;
+        const absX2 = matrix.a * x2 + matrix.c * y2 + matrix.e;
+        const absY2 = matrix.b * x2 + matrix.d * y2 + matrix.f;
+        const dx = Math.abs(absX1 - absX2);
+        const dy = Math.abs(absY1 - absY2);
+        const leftX = Math.min(absX1, absX2);
+        const rightX = Math.max(absX1, absX2);
+        const topY = Math.min(absY1, absY2);
+        const bottomY = Math.max(absY1, absY2);
 
         if (dx <= 1.5 && dy > 1) {
             segments.push({
                 element: el,
                 kind: 'vertical',
-                x: (x1 + x2) / 2,
+                x: (absX1 + absX2) / 2,
                 leftX,
                 rightX,
                 topY,
@@ -2080,7 +2088,7 @@ function identifyAndHighlightGeometricBrackets() {
             segments.push({
                 element: el,
                 kind: 'horizontal',
-                y: (y1 + y2) / 2,
+                y: (absY1 + absY2) / 2,
                 leftX,
                 rightX,
                 topY,

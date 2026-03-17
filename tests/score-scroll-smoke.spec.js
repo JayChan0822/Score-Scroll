@@ -4756,6 +4756,59 @@ test('detects nested bracket cap lines that attach to another bracket vertical',
   expect(bracketCapState.nestedBottomCapClasses).toContain('highlight-brace');
 });
 
+test('keeps Changchengyao opening bracket verticals as sticky brace items', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '长城谣.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const targetPoints = new Set([
+      '97.7338,190.147 97.7338,268.157',
+      '100.946,70.3465 100.946,268.157',
+      '104.561,67.937 104.561,270.566',
+    ]);
+    const targetElements = Array.from(svg.querySelectorAll('line, polyline')).filter((el) => {
+      const points = el.getAttribute('points');
+      return points && targetPoints.has(points.trim());
+    });
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const targetItems = result.renderQueue
+      .filter((item) => item.type === 'line' && targetElements.includes(svg.querySelector(`[data-dom-index="${item.domIndex}"]`)))
+      .map((item) => ({
+        absMinX: item.absMinX,
+        symbolType: item.symbolType,
+        isSticky: Boolean(item.isSticky),
+        laneId: item.laneId || null,
+        blockIndex: Number.isFinite(item.blockIndex) ? item.blockIndex : null,
+      }))
+      .sort((a, b) => a.absMinX - b.absMinX);
+
+    return {
+      targetItems,
+      targetClasses: targetElements.map((el) => ({
+        points: el.getAttribute('points') || '',
+        classes: el.className?.baseVal || '',
+      })),
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.targetItems).toHaveLength(3);
+  expect(state.targetItems.every((item) => item.symbolType === 'Brace')).toBe(true);
+  expect(state.targetItems.every((item) => item.isSticky)).toBe(true);
+  expect(state.targetClasses.every((item) => item.classes.includes('highlight-brace'))).toBe(true);
+});
+
 test('automatically fits score height on import, window resize, and mobile ratio change', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'auto-fit-zoom.svg');
 
