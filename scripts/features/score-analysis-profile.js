@@ -29,6 +29,22 @@ function buildSemanticSelector(tokens) {
     ]).join(", ");
 }
 
+function detectDominantMusicFont(svgRoot, fallbackFont = "Bravura") {
+    if (!svgRoot) return normalizeMusicFontFamily(fallbackFont) || fallbackFont;
+
+    const fontCounts = new Map();
+    svgRoot.querySelectorAll("[font-family]").forEach((el) => {
+        const normalizedFontFamily = normalizeMusicFontFamily(el.getAttribute("font-family") || "");
+        if (!normalizedFontFamily) return;
+        fontCounts.set(normalizedFontFamily, (fontCounts.get(normalizedFontFamily) || 0) + 1);
+    });
+
+    const rankedFonts = Array.from(fontCounts.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+    return rankedFonts[0]?.[0] || normalizeMusicFontFamily(fallbackFont) || fallbackFont;
+}
+
 export function buildScoreAnalysisProfile({ sourceType, selectedMusicFont, svgRoot }) {
     const normalizedSelectedMusicFont = normalizeMusicFontFamily(selectedMusicFont) || selectedMusicFont || "Bravura";
     const semanticAvailability = Object.fromEntries(
@@ -41,6 +57,9 @@ export function buildScoreAnalysisProfile({ sourceType, selectedMusicFont, svgRo
     return {
         sourceType,
         selectedMusicFont: normalizedSelectedMusicFont,
+        analysisMusicFont: sourceType === SCORE_SOURCE_DORICO
+            ? detectDominantMusicFont(svgRoot, normalizedSelectedMusicFont)
+            : normalizedSelectedMusicFont,
         semanticAvailability,
     };
 }

@@ -280,6 +280,80 @@ function buildSibeliusTextDomainNoteheadAccidentalSvgBuffer() {
   return Buffer.from(svg, 'utf8');
 }
 
+function buildDoricoLelandOpeningTimeSignatureSvgBuffer() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" version="1.2" baseProfile="tiny">
+      <desc>Dorico</desc>
+      <g fill="none" stroke="#000" stroke-width="1" stroke-linecap="square" stroke-linejoin="bevel">
+        <line x1="20" y1="60" x2="300" y2="60" />
+        <line x1="20" y1="70" x2="300" y2="70" />
+        <line x1="20" y1="80" x2="300" y2="80" />
+        <line x1="20" y1="90" x2="300" y2="90" />
+        <line x1="20" y1="100" x2="300" y2="100" />
+        <line x1="28" y1="58" x2="28" y2="102" />
+      </g>
+      <g transform="translate(68 58)" font-family="Leland">
+        <text x="0" y="0" font-size="28">4</text>
+      </g>
+      <g transform="translate(68 88)" font-family="Leland">
+        <text x="0" y="0" font-size="28">4</text>
+      </g>
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
+function buildFragmentedFourNearNoteheadSvgBuffer() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="340" height="160" viewBox="0 0 340 160" version="1.2" baseProfile="tiny">
+      <desc>Dorico</desc>
+      <g fill="none" stroke="#000" stroke-width="1" stroke-linecap="square" stroke-linejoin="bevel">
+        <line x1="20" y1="60" x2="320" y2="60" />
+        <line x1="20" y1="70" x2="320" y2="70" />
+        <line x1="20" y1="80" x2="320" y2="80" />
+        <line x1="20" y1="90" x2="320" y2="90" />
+        <line x1="20" y1="100" x2="320" y2="100" />
+        <line x1="28" y1="58" x2="28" y2="102" />
+        <line x1="160" y1="58" x2="160" y2="102" />
+        <line x1="164" y1="58" x2="164" y2="102" />
+        <line x1="188" y1="64" x2="188" y2="92" />
+        <line x1="210" y1="64" x2="210" y2="92" />
+      </g>
+      <g fill="#000" stroke="none" font-family="Maestro">
+        <path id="fake-fragmented-four-top" d="M 0 0 L 5 0 L 5 1 L 0 1 L 0 0" transform="translate(208 72)" />
+        <path id="fake-fragmented-four-bottom" d="M 0 0 L 5 0 L 5 1 L 0 1 L 0 0" transform="translate(230 84)" />
+      </g>
+      <g fill="#000" stroke="none">
+        <path id="blocking-shape" d="M 0 0 L 14 0 L 14 10 L 0 10 L 0 0" transform="translate(216 75)" />
+      </g>
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
+function buildSingleNumericTokenTimeSignatureSvgBuffer() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="260" height="120" viewBox="0 0 260 120">
+      <desc>Dorico</desc>
+      <g font-family="Bravura">
+        <line x1="20" y1="30" x2="240" y2="30" stroke="#000" stroke-width="1" />
+        <line x1="20" y1="40" x2="240" y2="40" stroke="#000" stroke-width="1" />
+        <line x1="20" y1="50" x2="240" y2="50" stroke="#000" stroke-width="1" />
+        <line x1="20" y1="60" x2="240" y2="60" stroke="#000" stroke-width="1" />
+        <line x1="20" y1="70" x2="240" y2="70" stroke="#000" stroke-width="1" />
+        <line x1="28" y1="28" x2="28" y2="72" stroke="#000" stroke-width="1" />
+      </g>
+      <g font-family="Academico" font-size="28">
+        <text id="lone-timesig-digit" x="48" y="50">7</text>
+      </g>
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
 function buildMuseScoreSemanticSixEightSvgBuffer() {
   const sixPath = `M24.7,-4.8 C18.6,-4.8 16.4,-3 15,-1.5 C14.7,-3.6 14.5,-5.2 14.5,-6.8 C14.5,-8.4 14.7,-9.8 15,-11.6 C15.6,-15.3 18.1,-19.9 23.5,-19.9 C26,-19.9 27.5,-19.1 28.5,-18 C26.4,-17.1 24.7,-14.4 24.7,-12.1 C24.7,-8.5 27.5,-5.7 31.1,-5.7 C34.7,-5.7 37.6,-8.5 37.6,-12.1 L37.6,-12.3 C37.6,-12.3 37.6,-12.3 37.6,-12.4 C37.6,-13.3 37.4,-14.8 37,-15.6 C35.7,-19.2 31.5,-24.5 21.5,-24.5 C12.5,-24.5 6,-15.9 4,-11.3 C3,-8.9 1.5,-4 1.5,1.6 C1.5,7.7 3.2,14.6 9.1,19.8 C14.9,24.2 18.6,24.4 22.1,24.4 C25.6,24.4 38.7,20.3 38.7,8.7 C38.7,-1.1 31,-4.8 24.7,-4.8 M21,20.2 C17.7,20.2 15,15.7 15,10.1 C15,4.5 17.7,-0.1 21,-0.1 C24.3,-0.1 27.1,4.5 27.1,10.1 C27.1,15.7 24.3,20.2 21,20.2`;
   const eightPath = `M32.4,-1.8 C35.7,-4.3 38,-7.5 38,-11.5 C38,-18.7 30.1,-24.6 20.4,-24.6 C10.7,-24.6 2.8,-18.7 2.8,-11.5 C2.8,-7.5 3.8,-3.9 8.5,-0.9 C4,1.7 1.5,5.4 1.5,10.2 C1.5,18.3 10,24.8 20.4,24.8 C30.8,24.8 39.3,18.3 39.3,10.2 C39.3,5.4 37.6,0.9 32.4,-1.8 M20.4,19.2 C14,19.2 8.5,15.7 8.5,10.1 C8.5,3.4 13.7,1.8 13.7,1.8 C20.5,4.1 30.2,7.5 30.2,13 C30.2,15.7 26.7,19.2 20.4,19.2 M26.8,-4.5 C20,-6.7 12.5,-10 12.5,-14.5 C12.5,-18.4 16.1,-20 20.4,-20 C26.6,-20 30.8,-17.1 30.8,-12.5 C30.8,-7.7 28.6,-5.4 26.8,-4.5`;
@@ -2586,6 +2660,58 @@ test('prefers MuseScore semantic candidates over generic path guessing', async (
   });
 });
 
+test('infers the active Dorico analysis font from the imported SVG instead of the UI default', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'dorico-leland-opening-timesig.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildDoricoLelandOpeningTimeSignatureSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const texts = Array.from(document.querySelectorAll('#svg-sandbox svg text'));
+    return {
+      top: texts[0]?.className?.baseVal || '',
+      bottom: texts[1]?.className?.baseVal || '',
+    };
+  }), {
+    message: 'waiting for Leland Dorico opening time signature to classify under the default UI font',
+  }).toEqual({
+    top: expect.stringContaining('highlight-timesig'),
+    bottom: expect.stringContaining('highlight-timesig'),
+  });
+});
+
+test('does not classify fragmented-four shapes as late time signatures when another filled glyph already occupies their note area', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'fragmented-four-near-notehead.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildFragmentedFourNearNoteheadSvgBuffer(),
+  });
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const falseTimeGlyphs = Array.from(svg.querySelectorAll('path.highlight-timesig')).map((el) => ({
+      id: el.id || '',
+      token: el.getAttribute('data-time-sig-token') || '',
+    })).filter((item) => (
+      item.id === 'fake-fragmented-four-top' || item.id === 'fake-fragmented-four-bottom'
+    ));
+
+    return {
+      falseTimeGlyphs,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.falseTimeGlyphs).toEqual([]);
+});
+
 test('treats MuseScore InstrumentName paths as opening sticky instrument labels', async ({ page }) => {
   await page.goto('/index.html');
   await preserveImportedSvgDuringSmoke(page);
@@ -3808,59 +3934,45 @@ test('recognizes opening tall stacked 4/4 digits in the local Genshin export', a
   expect(state.displayColor).toBe('rgb(255, 255, 255)');
 });
 
-test('keeps local Wu Zetian opening fragmented 4/4 visible at the system start', async ({ page }) => {
+test('does not classify local Wu Zetian opening fragmented 4/4 geometry as a time signature', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, '..', '武则天.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  let state = null;
-  await expect.poll(async () => {
-    state = await page.evaluate(() => {
-      const svg = document.querySelector('#svg-sandbox svg');
-      if (!svg) return null;
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
 
-      const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline'))
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          return (rect.left + rect.right) / 2;
-        })
-        .filter(Number.isFinite)
-        .sort((a, b) => a - b);
-      const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
+    const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline'))
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return (rect.left + rect.right) / 2;
+      })
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
 
-      const openingTimeSigs = Array.from(svg.querySelectorAll('.highlight-timesig'))
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          return {
-            left: rect.left,
-            token: el.getAttribute('data-time-sig-token') || '',
-          };
-        })
-        .filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 260);
+    const openingTimeSigs = Array.from(svg.querySelectorAll('.highlight-timesig'))
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          left: rect.left,
+          token: el.getAttribute('data-time-sig-token') || '',
+        };
+      })
+      .filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 260);
 
-      const display = document.getElementById('timeSigDisplay');
-      const color = display ? window.getComputedStyle(display).color : '';
-
-      return {
-        openingTimeSigCount: openingTimeSigs.length,
-        displayText: display?.textContent?.trim() || '',
-        displayColor: color,
-      };
-    });
+    const display = document.getElementById('timeSigDisplay');
+    const color = display ? window.getComputedStyle(display).color : '';
 
     return {
-      openingTimeSigCount: state?.openingTimeSigCount || 0,
-      displayText: state?.displayText || '',
-      displayColor: state?.displayColor || '',
+      openingTimeSigCount: openingTimeSigs.length,
+      displayText: display?.textContent?.trim() || '',
+      displayColor: color,
     };
-  }, {
-    message: 'waiting for local Wu Zetian opening fragmented 4/4 to remain visible',
-  }).toMatchObject({
-    displayText: '4/4',
-    displayColor: 'rgb(255, 255, 255)',
   });
 
   expect(state).not.toBeNull();
-  expect(state.openingTimeSigCount).toBeGreaterThanOrEqual(30);
+  expect(state.openingTimeSigCount).toBe(0);
 });
 
 test('recognizes non-power-of-two stacked numeric time signatures in Dorico imports', async ({ page }) => {
@@ -4261,8 +4373,9 @@ test('classifies Wu Zetian mid-score naturals and flats with the shared symbol g
   expect(state.targetedNaturals.every((item) => !item.classes.includes('highlight-keysig'))).toBe(true);
 });
 
-test('recognizes Wu Zetian opening percussion clefs and fragmented opening time signatures', async ({ page }) => {
+test('recognizes Wu Zetian opening percussion clefs without classifying fragmented opening time signatures', async ({ page }) => {
   const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20241227_武则天/Scores/04 - Full Score - Concert Pitch - 武则天 - 001.svg';
+  test.skip(!fs.existsSync(fixturePath), 'local Wu Zetian opening percussion fixture is unavailable on this machine');
   await loadFixtureIntoScore(page, fixturePath);
 
   let state = null;
@@ -4311,8 +4424,8 @@ test('recognizes Wu Zetian opening percussion clefs and fragmented opening time 
     return Boolean(
       state &&
       state.openingPercussionClefs.length === 7 &&
-      state.openingTimeSigs.length > 0 &&
-      state.displayText === '4/4'
+      state.displayText === '4/4' &&
+      state.displayColor === 'rgb(255, 42, 95)'
     );
   }, {
     message: 'waiting for Wu Zetian opening percussion symbols to be classified',
@@ -4321,13 +4434,12 @@ test('recognizes Wu Zetian opening percussion clefs and fragmented opening time 
   expect(state).not.toBeNull();
   expect(state.openingPercussionClefs).toHaveLength(7);
   expect(state.openingPercussionClefs.every((item) => item.classes.includes('highlight-clef'))).toBe(true);
-  expect(state.openingTimeSigs.length).toBeGreaterThan(0);
-  expect(state.openingTimeSigs.every((item) => item.token === '4')).toBe(true);
+  expect(state.openingTimeSigs).toEqual([]);
   expect(state.displayText).toBe('4/4');
-  expect(state.displayColor).not.toBe('rgb(255, 42, 95)');
+  expect(state.displayColor).toBe('rgb(255, 42, 95)');
 });
 
-test('recognizes Wu Zetian later fragmented time signatures for sticky lanes', async ({ page }) => {
+test('does not classify Wu Zetian later fragmented time signatures into sticky lanes', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, '..', '武则天.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
@@ -4416,10 +4528,65 @@ test('recognizes Wu Zetian later fragmented time signatures for sticky lanes', a
   });
 
   expect(state).not.toBeNull();
-  expect(state.timeBlocks.length).toBeGreaterThan(1);
-  expect(state.highlightedLateTimeGlyphs.length).toBeGreaterThan(0);
-  expect(state.lateTimeBlocks.length).toBeGreaterThan(0);
-  expect(state.lateTimeBlocks[0].stickyItemCount).toBeGreaterThan(0);
+  expect(state.timeBlocks).toEqual([]);
+  expect(state.highlightedLateTimeGlyphs).toEqual([]);
+  expect(state.lateTimeBlocks).toEqual([]);
+});
+
+test('does not infer a timeline time signature from a single numeric token', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'single-numeric-token-timesig.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildSingleNumericTokenTimeSignatureSvgBuffer(),
+  });
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const { createTimelineFeature } = await import('/scripts/features/timeline.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const timelineFeature = createTimelineFeature({
+      dom: {},
+      alertMessage: () => {},
+      getCurrentBpm: () => 120,
+      getGlobalMidiPpq: () => 480,
+      getGlobalMidiTempos: () => [],
+      getIsMidiLoaded: () => false,
+      getSvgTags: () => [],
+      getTotalDuration: () => 0,
+      setMapData: () => {},
+      setMidiDurationSec: () => {},
+      resetPlaybackTimelineState: () => {},
+      setButtonTextByState: () => {},
+      syncTransforms: () => {},
+      tryAlignAudioAndScore: undefined,
+      updateProgressUI: () => {},
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const extracted = timelineFeature.extractTimeSignatures(result.renderQueue);
+    const ensured = timelineFeature.ensureTimeSignatures(extracted);
+
+    return {
+      loneClass: document.getElementById('lone-timesig-digit')?.className?.baseVal || '',
+      extracted,
+      ensured,
+      displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+      displayColor: getComputedStyle(document.getElementById('timeSigDisplay')).color,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.loneClass).not.toContain('highlight-timesig');
+  expect(state.extracted).toEqual([]);
+  expect(state.ensured).toEqual([{ x: -Infinity, num: 4, den: 4 }]);
 });
 
 test('does not classify Wu Zetian pipa boxed noteheads as fragmented time signatures', async ({ page }) => {
@@ -4471,6 +4638,7 @@ test('does not classify Wu Zetian pipa boxed noteheads as fragmented time signat
   expect(state).not.toBeNull();
   expect(state.falseTimeGlyphs).toEqual([]);
 });
+
 
 test('does not classify Wu Zetian guzheng gliss markers as accidentals', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, '..', '武则天.svg');
