@@ -2369,7 +2369,7 @@ function hasStackedTimeSignaturePartner(candidate, candidates) {
         const dx = Math.abs(referencePoint.x - otherReferencePoint.x);
         const dy = Math.abs(referencePoint.y - otherReferencePoint.y);
         const maxAlignedXGap = Math.max(8, Math.min(rect.width, other.rect.width) * 0.6);
-        const minStackGap = Math.max(2, Math.min(rect.height, other.rect.height) * 0.08);
+        const minStackGap = Math.max(8, Math.min(rect.height, other.rect.height) * 0.75);
         const maxStackGap = Math.max(32, Math.max(rect.height, other.rect.height) * 3.5);
 
         return dx <= maxAlignedXGap && dy >= minStackGap && dy <= maxStackGap;
@@ -2438,18 +2438,27 @@ function getTimeSignatureCandidateReferencePoint(candidate) {
     return null;
 }
 
-function getTimeSignatureAnchorInfo(rect, verticalLineXs, svgRoot, staffKind = 'standard') {
+function getTimeSignatureAnchorInfo(rect, anchorCandidates, svgRoot, staffKind = 'standard') {
     if (!rect || !svgRoot) return null;
 
     const minDx = staffKind === 'tablature' ? -10 : -30;
     const maxDx = staffKind === 'tablature' ? 90 : 200;
 
     let bestAnchor = null;
-    verticalLineXs.forEach((barX) => {
-        const dx = rect.left - barX;
+    (Array.isArray(anchorCandidates) ? anchorCandidates : []).forEach((anchorCandidate) => {
+        const anchorX = Number.isFinite(anchorCandidate?.x)
+            ? anchorCandidate.x
+            : (Number.isFinite(anchorCandidate) ? anchorCandidate : NaN);
+        if (!Number.isFinite(anchorX)) return;
+
+        const dx = rect.left - anchorX;
         if (dx < minDx || dx > maxDx) return;
         if (!bestAnchor || Math.abs(dx) < Math.abs(bestAnchor.dx)) {
-            bestAnchor = { anchorX: barX, dx, source: 'barline' };
+            bestAnchor = {
+                anchorX,
+                dx,
+                source: anchorCandidate?.kind || 'barline',
+            };
         }
     });
 
@@ -2487,7 +2496,7 @@ function getStackedTimeSignaturePartner(candidate, candidates) {
         const dx = Math.abs(referencePoint.x - otherReferencePoint.x);
         const dy = Math.abs(referencePoint.y - otherReferencePoint.y);
         const maxAlignedXGap = Math.max(8, Math.min(rect.width, other.rect.width) * 0.6);
-        const minStackGap = Math.max(2, Math.min(rect.height, other.rect.height) * 0.08);
+        const minStackGap = Math.max(8, Math.min(rect.height, other.rect.height) * 0.75);
         const maxStackGap = Math.max(32, Math.max(rect.height, other.rect.height) * 3.5);
 
         if (!(dx <= maxAlignedXGap && dy >= minStackGap && dy <= maxStackGap)) return;
@@ -2812,7 +2821,16 @@ function isVisuallyGiantTimeSignature(rect, decoded, staffBands = []) {
     if (Boolean(rect && rect.height > GIANT_TIME_SIGNATURE_HEIGHT_PX)) return true;
 
     const overlappingBandIndices = getOverlappingTimeSignatureStaffBandIndices(rect, staffBands);
-    return overlappingBandIndices.length > 1;
+    if (overlappingBandIndices.length <= 1) return false;
+
+    const overlappingBands = overlappingBandIndices
+        .map((index) => staffBands[index])
+        .filter(Boolean);
+    const minimumCrossStaffHeight = overlappingBands.length > 0
+        ? Math.max(24, Math.max(...overlappingBands.map((band) => band.staffSpace || 0)) * 3.5)
+        : 24;
+
+    return rect.height >= minimumCrossStaffHeight;
 }
 
 // 🌟 拍号雷达扫描器 (终极防御版：防孤立数字、防谱外、防远离小节线)
@@ -2823,7 +2841,6 @@ function identifyAndHighlightTimeSignatures() {
     const fallbackFontFamily = document.getElementById('musicFontSelect')?.value || '';
 
     const horizontalSegments = [];
-    const verticalLineXs = [];
 
     // --- 1. 收集五线谱和垂直小节线坐标 ---
     svgRoot.querySelectorAll('polyline, line').forEach(el => {
@@ -2849,8 +2866,6 @@ function identifyAndHighlightTimeSignatures() {
                 centerY: (lineRect.top + lineRect.bottom) / 2,
                 length: Math.abs(x1 - x2),
             });
-        } else if (Math.abs(x1 - x2) <= 1.5 && Math.abs(y1 - y2) > 10) {
-            verticalLineXs.push((lineRect.left + lineRect.right) / 2);
         }
     });
 
@@ -2867,6 +2882,20 @@ function identifyAndHighlightTimeSignatures() {
         svgRoot,
         buildTimeSignatureStaffBandsFromLineYs(staffLineYs),
     );
+    const eligibleStaffBands = staffBands.filter(isEligibleTimeSignatureStaffBand);
+    const staffSpaceValues = eligibleStaffBands
+        .map((band) => band.staffSpace)
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .sort((a, b) => a - b);
+    const normalizedStaffSpace = staffSpaceValues.length > 0
+        ? staffSpaceValues[Math.floor(staffSpaceValues.length / 2)]
+        : 10;
+    const trustedTimeSignatureAnchors = buildTrustedBarlineAnchors({
+        systemStartX: globalSystemBarlineScreenX,
+        staffSystems: buildStaffSystemsFromBands(eligibleStaffBands),
+        candidateClusters: collectBarlineCandidateClusters(svgRoot, normalizedStaffSpace),
+        staffSpace: normalizedStaffSpace,
+    });
     const textElements = Array.from(svgRoot.querySelectorAll('text, tspan'));
 
     // 🌟 第一步：收集所有可能成为拍号的候选人
@@ -2985,7 +3014,7 @@ function identifyAndHighlightTimeSignatures() {
         candidate.staffKind = bandIndex === -1 ? null : (staffBands[bandIndex]?.staffKind || 'standard');
         candidate.anchorInfo = bandIndex === -1
             ? null
-            : getTimeSignatureAnchorInfo(candidate.rect, verticalLineXs, svgRoot, candidate.staffKind || 'standard');
+            : getTimeSignatureAnchorInfo(candidate.rect, trustedTimeSignatureAnchors, svgRoot, candidate.staffKind || 'standard');
     });
 
     // 🌟 第二步：对候选人进行严格的交叉审查

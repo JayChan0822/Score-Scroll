@@ -219,6 +219,69 @@ export function createSvgAnalysisFeature({
         }
     }
 
+    function splitDenseGlobalLanesByOpeningClefs(lanes) {
+        if (!Array.isArray(lanes) || lanes.length === 0) return lanes;
+
+        return lanes.flatMap((lane, laneIndex) => {
+            const openingClefs = (Array.isArray(lane.items) ? lane.items : [])
+                .filter((item) => item.symbolType === "Clef" && Number.isFinite(item.centerY) && Number.isFinite(item.absMinX))
+                .sort((a, b) => a.absMinX - b.absMinX || a.centerY - b.centerY);
+
+            if (openingClefs.length <= 1) return [lane];
+
+            const minClefX = openingClefs[0].absMinX;
+            const openingMaxX = minClefX + Math.max(80, (lane.staffSpace || 0) * 8);
+            const openingClusters = [];
+            const centerTolerance = Math.max(6, (lane.staffSpace || 0) * 1.2);
+
+            openingClefs
+                .filter((item) => item.absMinX <= openingMaxX)
+                .sort((a, b) => a.centerY - b.centerY)
+                .forEach((item) => {
+                    const lastCluster = openingClusters[openingClusters.length - 1];
+                    if (!lastCluster || Math.abs(item.centerY - lastCluster.centerY) > centerTolerance) {
+                        openingClusters.push({ centerY: item.centerY, count: 1 });
+                        return;
+                    }
+
+                    lastCluster.centerY = ((lastCluster.centerY * lastCluster.count) + item.centerY) / (lastCluster.count + 1);
+                    lastCluster.count += 1;
+                });
+
+            if (openingClusters.length <= 1) return [lane];
+
+            const splitLanes = openingClusters.map((cluster, index) => {
+                const previousCenter = openingClusters[index - 1]?.centerY;
+                const nextCenter = openingClusters[index + 1]?.centerY;
+                return {
+                    ...lane,
+                    laneId: `${lane.laneId}-split-${laneIndex}-${index}`,
+                    anchorY: cluster.centerY,
+                    bandTop: Number.isFinite(previousCenter) ? (previousCenter + cluster.centerY) / 2 : lane.bandTop,
+                    bandBottom: Number.isFinite(nextCenter) ? (cluster.centerY + nextCenter) / 2 : lane.bandBottom,
+                    items: [],
+                };
+            });
+
+            lane.items.forEach((item) => {
+                let targetLane = splitLanes.find((candidate) => item.centerY >= candidate.bandTop && item.centerY <= candidate.bandBottom) || null;
+                if (!targetLane) {
+                    let minDiff = Infinity;
+                    splitLanes.forEach((candidate) => {
+                        const diff = Math.abs(candidate.anchorY - item.centerY);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            targetLane = candidate;
+                        }
+                    });
+                }
+                if (targetLane) targetLane.items.push(item);
+            });
+
+            return splitLanes.filter((candidate) => candidate.items.length > 0);
+        });
+    }
+
     function registerSharedGiantTimeStickyGroups(renderQueue, stickyMinX, openingThresholdX) {
         const giantTimeItems = renderQueue
             .filter((item) => item.isSticky && item.stickyType === "time" && item.timeSigIsGiant)
@@ -480,6 +543,153 @@ export function createSvgAnalysisFeature({
             });
 
             return mergedRows;
+        }
+
+        function getMedian(values) {
+            if (!Array.isArray(values) || values.length === 0) return 0;
+            const sortedValues = values.slice().sort((a, b) => a - b);
+            return sortedValues[Math.floor(sortedValues.length / 2)] ?? 0;
+        }
+
+        function dedupeBridgeLinesByY(items, tolerance = 2) {
+            if (!Array.isArray(items) || items.length === 0) return [];
+
+            const sortedItems = items
+                .filter((item) => Number.isFinite(item?.y) && Number.isFinite(item?.minX) && Number.isFinite(item?.maxX))
+                .sort((a, b) => (a.y - b.y) || (a.minX - b.minX) || (a.maxX - b.maxX));
+
+            const deduped = [];
+            sortedItems.forEach((item) => {
+                const lastItem = deduped[deduped.length - 1];
+                if (!lastItem || Math.abs(item.y - lastItem.y) > tolerance) {
+                    deduped.push({ ...item });
+                    return;
+                }
+
+                const lastSpan = lastItem.maxX - lastItem.minX;
+                const nextSpan = item.maxX - item.minX;
+                if (nextSpan > lastSpan) {
+                    deduped[deduped.length - 1] = { ...item };
+                }
+            });
+
+            return deduped;
+        }
+
+        function clusterBridgeLineEnvelopes(items, tolerance) {
+            if (!Array.isArray(items) || items.length === 0) return [];
+
+            const sortedItems = items
+                .filter((item) => Number.isFinite(item?.minX) && Number.isFinite(item?.maxX) && Number.isFinite(item?.y))
+                .sort((a, b) => (a.minX - b.minX) || (a.maxX - b.maxX) || (a.y - b.y));
+
+            const clusters = [];
+            sortedItems.forEach((item) => {
+                let matchedCluster = null;
+                for (let i = 0; i < clusters.length; i++) {
+                    const cluster = clusters[i];
+                    if (
+                        Math.abs(item.minX - cluster.medianMinX) <= tolerance
+                        && Math.abs(item.maxX - cluster.medianMaxX) <= tolerance
+                    ) {
+                        matchedCluster = cluster;
+                        break;
+                    }
+                }
+
+                if (!matchedCluster) {
+                    matchedCluster = {
+                        items: [],
+                        minXs: [],
+                        maxXs: [],
+                        medianMinX: item.minX,
+                        medianMaxX: item.maxX,
+                    };
+                    clusters.push(matchedCluster);
+                }
+
+                matchedCluster.items.push(item);
+                matchedCluster.minXs.push(item.minX);
+                matchedCluster.maxXs.push(item.maxX);
+                matchedCluster.medianMinX = getMedian(matchedCluster.minXs);
+                matchedCluster.medianMaxX = getMedian(matchedCluster.maxXs);
+            });
+
+            return clusters
+                .filter((cluster) => cluster.items.length > 0)
+                .sort((a, b) => {
+                    const sizeDelta = b.items.length - a.items.length;
+                    if (sizeDelta !== 0) return sizeDelta;
+                    return a.medianMinX - b.medianMinX;
+                })
+                .map((cluster) => cluster.items.slice().sort((a, b) => (a.y - b.y) || (a.minX - b.minX)));
+        }
+
+        function extractValidatedStaffLines(items) {
+            const deduped = dedupeBridgeLinesByY(items, 2);
+            if (deduped.length < 5) {
+                return {
+                    bridgeLines: deduped,
+                    staffLines: [],
+                };
+            }
+
+            const validStaffLines = [];
+            for (let i = 0; i <= deduped.length - 5; i++) {
+                const fiveLines = deduped.slice(i, i + 5);
+                const gaps = [
+                    fiveLines[1].y - fiveLines[0].y,
+                    fiveLines[2].y - fiveLines[1].y,
+                    fiveLines[3].y - fiveLines[2].y,
+                    fiveLines[4].y - fiveLines[3].y,
+                ];
+                const sortedGaps = gaps.slice().sort((a, b) => a - b);
+                const staffSpace = sortedGaps[Math.floor(sortedGaps.length / 2)] || 0;
+                if (!(staffSpace > 0.5)) continue;
+                if (Math.max(...gaps.map((gap) => Math.abs(gap - staffSpace))) <= Math.max(1.25, staffSpace * 0.22)) {
+                    validStaffLines.push(...fiveLines);
+                }
+            }
+
+            const finalCleanStaffLines = [];
+            validStaffLines
+                .slice()
+                .sort((a, b) => a.y - b.y)
+                .forEach((item) => {
+                    if (
+                        finalCleanStaffLines.length === 0
+                        || Math.abs(item.y - finalCleanStaffLines[finalCleanStaffLines.length - 1].y) > 1
+                    ) {
+                        finalCleanStaffLines.push(item);
+                    }
+                });
+
+            return {
+                bridgeLines: deduped,
+                staffLines: finalCleanStaffLines,
+            };
+        }
+
+        function selectDominantEnvelopeBridgeLines(items, maxBridgeSpan) {
+            if (!Array.isArray(items) || items.length === 0) return [];
+
+            const fullSpanCandidates = items.filter((item) => (
+                (item.maxX - item.minX) >= maxBridgeSpan * 0.9
+            ));
+
+            const dominantEnvelopeSource = fullSpanCandidates.length > 0 ? fullSpanCandidates : items;
+            const dominantMinX = getMedian(dominantEnvelopeSource.map((item) => item.minX));
+            const dominantMaxX = getMedian(dominantEnvelopeSource.map((item) => item.maxX));
+            const envelopeTolerance = Math.max(6, maxBridgeSpan * 0.01);
+
+            const envelopeMatches = items.filter((item) => (
+                Math.abs(item.minX - dominantMinX) <= envelopeTolerance
+                && Math.abs(item.maxX - dominantMaxX) <= envelopeTolerance
+            ));
+
+            return envelopeMatches.length > 0
+                ? envelopeMatches
+                : (fullSpanCandidates.length > 0 ? fullSpanCandidates : items);
         }
 
         svgRoot.querySelectorAll("line, polyline").forEach(el => {
@@ -766,57 +976,33 @@ export function createSvgAnalysisFeature({
         
         if (rawHorizontalBridgeLines.length > 0) {
             const mergedBridgeLines = mergeHorizontalBridgeLineRows(rawHorizontalBridgeLines);
-
             const maxBridgeSpan = Math.max(...mergedBridgeLines.map((item) => item.maxX - item.minX), 0);
-            const fullSpanCandidates = mergedBridgeLines.filter((item) => (
-                (item.maxX - item.minX) >= maxBridgeSpan * 0.9
-            ));
-
-            const dominantEnvelopeSource = fullSpanCandidates.length > 0 ? fullSpanCandidates : mergedBridgeLines;
-            const sortedMinXs = dominantEnvelopeSource.map((item) => item.minX).sort((a, b) => a - b);
-            const sortedMaxXs = dominantEnvelopeSource.map((item) => item.maxX).sort((a, b) => a - b);
-            const dominantMinX = sortedMinXs[Math.floor(sortedMinXs.length / 2)] ?? 0;
-            const dominantMaxX = sortedMaxXs[Math.floor(sortedMaxXs.length / 2)] ?? 0;
             const envelopeTolerance = Math.max(6, maxBridgeSpan * 0.01);
+            const envelopeClusters = clusterBridgeLineEnvelopes(mergedBridgeLines, envelopeTolerance);
+            const validatedBridgeLines = [];
+            const validatedStaffLines = [];
 
-            globalAbsoluteBridgeLineYs = mergedBridgeLines.filter((item) => (
-                Math.abs(item.minX - dominantMinX) <= envelopeTolerance &&
-                Math.abs(item.maxX - dominantMaxX) <= envelopeTolerance
-            ));
+            envelopeClusters.forEach((clusterItems) => {
+                const validation = extractValidatedStaffLines(clusterItems);
+                if (validation.staffLines.length === 0) return;
 
-            if (globalAbsoluteBridgeLineYs.length === 0) {
-                globalAbsoluteBridgeLineYs = fullSpanCandidates.length > 0 ? fullSpanCandidates : mergedBridgeLines;
-            }
-
-            const deduped = [];
-            globalAbsoluteBridgeLineYs.forEach(item => {
-                if (deduped.length === 0 || Math.abs(item.y - deduped[deduped.length - 1].y) > 2) {
-                    deduped.push(item);
-                }
+                validatedBridgeLines.push(...validation.bridgeLines);
+                validatedStaffLines.push(...validation.staffLines);
             });
-            const validStaffLines = [];
-            for (let i = 0; i <= deduped.length - 5; i++) {
-                const fiveLines = deduped.slice(i, i + 5);
-                const gaps = [
-                    fiveLines[1].y - fiveLines[0].y,
-                    fiveLines[2].y - fiveLines[1].y,
-                    fiveLines[3].y - fiveLines[2].y,
-                    fiveLines[4].y - fiveLines[3].y,
-                ];
-                const sortedGaps = gaps.slice().sort((a, b) => a - b);
-                const staffSpace = sortedGaps[Math.floor(sortedGaps.length / 2)] || 0;
-                if (!(staffSpace > 0.5)) continue;
-                if (Math.max(...gaps.map(gap => Math.abs(gap - staffSpace))) <= Math.max(1.25, staffSpace * 0.22)) {
-                    validStaffLines.push(...fiveLines);
-                }
+
+            if (validatedBridgeLines.length > 0) {
+                globalAbsoluteBridgeLineYs = validatedBridgeLines
+                    .slice()
+                    .sort((a, b) => (a.y - b.y) || (a.minX - b.minX) || (a.maxX - b.maxX));
+                globalAbsoluteStaffLineYs = validatedStaffLines
+                    .slice()
+                    .sort((a, b) => (a.y - b.y) || (a.minX - b.minX) || (a.maxX - b.maxX));
+            } else {
+                globalAbsoluteBridgeLineYs = selectDominantEnvelopeBridgeLines(mergedBridgeLines, maxBridgeSpan);
+                const fallbackValidation = extractValidatedStaffLines(globalAbsoluteBridgeLineYs);
+                globalAbsoluteBridgeLineYs = fallbackValidation.bridgeLines;
+                globalAbsoluteStaffLineYs = fallbackValidation.staffLines;
             }
-            const finalCleanStaffLines = [];
-            validStaffLines.forEach(item => {
-                if (finalCleanStaffLines.length === 0 || Math.abs(item.y - finalCleanStaffLines[finalCleanStaffLines.length - 1].y) > 1) {
-                    finalCleanStaffLines.push(item);
-                }
-            });
-            globalAbsoluteStaffLineYs = finalCleanStaffLines;
         }
 
         const initialBarlines = renderQueue.filter(item => item.symbolType === "Barline");
@@ -902,6 +1088,14 @@ export function createSvgAnalysisFeature({
                     });
                     if (targetLane && minDiff < 200) targetLane.items.push(item);
                 });
+            }
+        }
+
+        if (globalLanes.length > 0) {
+            const splitLanes = splitDenseGlobalLanesByOpeningClefs(globalLanes);
+            if (Array.isArray(splitLanes) && splitLanes.length > 0) {
+                globalLanes.length = 0;
+                globalLanes.push(...splitLanes);
             }
         }
 

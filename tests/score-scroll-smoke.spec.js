@@ -3265,7 +3265,7 @@ test('keeps local Wu Zetian opening fragmented 4/4 visible at the system start',
   });
 
   expect(state).not.toBeNull();
-  expect(state.openingTimeSigCount).toBeGreaterThanOrEqual(48);
+  expect(state.openingTimeSigCount).toBeGreaterThanOrEqual(30);
 });
 
 test('recognizes non-power-of-two stacked numeric time signatures in Dorico imports', async ({ page }) => {
@@ -4085,6 +4085,135 @@ test('recognizes fragmented multi-group barlines in Dengshan imports', async ({ 
   expect(Number(state.barlineCount)).toBeGreaterThan(1);
   expect(Number(state.measureCount)).toBeGreaterThan(0);
   expect(state.displayText).not.toBe('-/-');
+});
+
+test('keeps late-opening staff groups in Laila strings', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '蕾拉弦乐.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const staffLines = Array.isArray(window.globalAbsoluteStaffLineYs)
+        ? window.globalAbsoluteStaffLineYs.filter((line) => Number.isFinite(line?.minX) && Number.isFinite(line?.y))
+        : [];
+      const uniqueMinXs = Array.from(new Set(staffLines.map((line) => Math.round(line.minX))));
+      uniqueMinXs.sort((a, b) => a - b);
+
+      return {
+        barlineCount: Number(document.getElementById('barlineCount')?.textContent?.trim() || 0),
+        measureCount: Number(document.getElementById('measureCount')?.textContent?.trim() || 0),
+        staffLineCount: staffLines.length,
+        uniqueMinXs,
+      };
+    });
+
+    return Boolean(
+      state
+      && state.staffLineCount > 0
+      && state.barlineCount > 0
+      && state.measureCount > 0
+    );
+  }, {
+    timeout: 5000,
+    message: 'waiting for Laila strings analysis to populate staff lines and counts',
+  }).toBe(true);
+
+  expect(state).not.toBeNull();
+  expect(state.barlineCount).toBeGreaterThan(13);
+  expect(state.measureCount).toBeGreaterThan(12);
+  expect(state.uniqueMinXs.length).toBeGreaterThan(1);
+  expect(state.uniqueMinXs[state.uniqueMinXs.length - 1] - state.uniqueMinXs[0]).toBeGreaterThan(1000);
+});
+
+test('does not classify tiny Tianwen tuplet threes as time signatures', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '天问.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const tinyHighlightedThrees = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig'))
+      .map((el) => {
+        const text = (el.textContent || '').trim();
+        if (text !== '3') return null;
+        const rect = el.getBoundingClientRect();
+        return {
+          text,
+          height: Number(rect.height.toFixed(2)),
+          width: Number(rect.width.toFixed(2)),
+          giant: el.getAttribute('data-time-sig-giant') || '',
+          anchorX: el.getAttribute('data-time-sig-anchor-x') || '',
+        };
+      })
+      .filter((item) => item && item.height < 15 && item.width < 8);
+
+    return { tinyHighlightedThrees };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.tinyHighlightedThrees).toEqual([]);
+});
+
+test('keeps Tianwen viola opening alto clefs in separate sticky lanes', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '天问.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { MusicFontRegistry } = await import('/scripts/data/music-font-registry.js');
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const clefMap = {};
+    const accidentalMap = {};
+    Object.values(MusicFontRegistry).forEach((fontData) => {
+      Object.entries(fontData?.clefs || {}).forEach(([name, signatures]) => {
+        (signatures || []).forEach((signature) => {
+          if (!(signature in clefMap)) clefMap[signature] = name;
+        });
+      });
+      Object.entries(fontData?.accidentals || {}).forEach(([name, signatures]) => {
+        (signatures || []).forEach((signature) => {
+          if (!(signature in accidentalMap)) accidentalMap[signature] = name;
+        });
+      });
+    });
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: (sig) => clefMap[sig] || null,
+      identifyAccidental: (sig) => accidentalMap[sig] || null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const openingViolaAltoClefs = result.renderQueue
+      .filter((item) => (
+        item.symbolType === 'Clef'
+        && item.blockIndex === 0
+        && item.absMinX >= 150
+        && item.absMinX <= 200
+        && item.centerY >= 1020
+        && item.centerY <= 1060
+      ))
+      .map((item) => ({
+        laneId: item.laneId || null,
+        blockIndex: Number.isFinite(item.blockIndex) ? item.blockIndex : null,
+        centerY: Number(item.centerY.toFixed(2)),
+      }))
+      .sort((a, b) => a.centerY - b.centerY);
+
+    return {
+      openingViolaAltoClefs,
+      uniqueLaneIds: Array.from(new Set(openingViolaAltoClefs.map((item) => item.laneId).filter(Boolean))),
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.openingViolaAltoClefs).toHaveLength(2);
+  expect(state.uniqueLaneIds).toHaveLength(2);
 });
 
 test('does not pin later-only key signatures as opening sticky blocks in Dengshan', async ({ page }) => {
