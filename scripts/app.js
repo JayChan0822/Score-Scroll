@@ -2366,16 +2366,24 @@ function identifyAndHighlightInstrumentNames() {
     if (!svgRoot) return;
     if (!(globalSystemBarlineScreenX > 0)) return;
 
-    const textElements = svgRoot.querySelectorAll('text');
+    const useMuseScoreSemanticClasses = isMuseScoreSvg(svgRoot);
+    const candidateElements = new Set(svgRoot.querySelectorAll('text'));
+    if (useMuseScoreSemanticClasses) {
+        svgRoot.querySelectorAll('.InstrumentName').forEach((el) => candidateElements.add(el));
+    }
     let foundCount = 0;
 
-    textElements.forEach(el => {
+    candidateElements.forEach(el => {
         if (el.classList.contains('highlight-rehearsalmark')) return;
-        const content = (el.textContent || '').replace(/\s+/g, ' ').trim();
-        if (!content) return;
-        if (content.includes('@')) return;
-        if (PRIVATE_USE_GLYPH_REGEX.test(content)) return;
-        if (TIME_SIGNATURE_GLYPH_REGEX.test(content)) return;
+        const isMuseScoreSemanticInstrumentName = useMuseScoreSemanticClasses && el.classList.contains('InstrumentName');
+
+        if (!isMuseScoreSemanticInstrumentName) {
+            const content = (el.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!content) return;
+            if (content.includes('@')) return;
+            if (PRIVATE_USE_GLYPH_REGEX.test(content)) return;
+            if (TIME_SIGNATURE_GLYPH_REGEX.test(content)) return;
+        }
 
         const textRect = el.getBoundingClientRect();
         if (!(textRect.width > 0)) return;
