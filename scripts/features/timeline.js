@@ -216,6 +216,9 @@ export function createTimelineFeature({
             if (parsedNumbers.length >= 2) {
                 num = parsedNumbers[0];
                 den = parsedNumbers[1];
+            } else if (parsedNumbers.length === 1) {
+                num = parsedNumbers[0];
+                den = 4;
             } else {
                 return;
             }

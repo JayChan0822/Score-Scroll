@@ -32,7 +32,6 @@
  * @property {HTMLButtonElement | null} playBtn
  * @property {HTMLInputElement | null} playlineRatioSlider
  * @property {HTMLElement | null} playlineRatioVal
- * @property {HTMLElement | null} scoreSourceType
  * @property {HTMLInputElement | null} stickyLockRatioSlider
  * @property {HTMLElement | null} stickyLockRatioVal
  * @property {HTMLInputElement | null} progressSlider
@@ -101,7 +100,6 @@ export function getDomRefs(doc = document) {
         playBtn: byId(doc, "playBtn"),
         playlineRatioSlider: byId(doc, "playlineRatioSlider"),
         playlineRatioVal: byId(doc, "playlineRatioVal"),
-        scoreSourceType: byId(doc, "scoreSourceType"),
         stickyLockRatioSlider: byId(doc, "stickyLockRatioSlider"),
         stickyLockRatioVal: byId(doc, "stickyLockRatioVal"),
         progressSlider: byId(doc, "progressSlider"),
