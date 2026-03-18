@@ -2428,7 +2428,7 @@ test('keeps stacked opening time signatures while rejecting short stems and isol
   expect(detectionState.openingBarlineClasses).toContain('highlight-barline');
 });
 
-test('keeps geometric opening 4/4 recognition even when a later standard time signature is already classified', async ({ page }) => {
+test('rejects geometric opening 4/4 while keeping a later standard time signature classified', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'geometric-opening-meter-with-later-timesig.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
@@ -2489,10 +2489,10 @@ test('keeps geometric opening 4/4 recognition even when a later standard time si
   }, {
     message: 'waiting for geometric opening meter to classify before a later standard time signature',
   }).toEqual({
-    openingGeometricCount: 9,
-    openingTokens: '4,4,4,4,4,4,4,4,4',
+    openingGeometricCount: 0,
+    openingTokens: '',
     laterStandardTokens: '3,4',
-    displayText: '4/4',
+    displayText: '3/4',
     displayColor: 'rgb(255, 255, 255)',
   });
 });
