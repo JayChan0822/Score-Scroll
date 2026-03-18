@@ -2657,13 +2657,20 @@ function highlightFragmentedFourFours({
                 item.rect.left >= cluster.minX - 1 && item.rect.left <= cluster.maxX + 1
             ));
             const uniqueBands = new Set(items.map((item) => item.bandIndex));
+            const hasDuplicateBandMembers = items.some((item, index) => (
+                items.findIndex((other) => other.bandIndex === item.bandIndex) !== index
+            ));
             return {
                 ...cluster,
                 items,
                 uniqueBandCount: uniqueBands.size,
+                hasDuplicateBandMembers,
             };
         })
-        .filter((cluster) => cluster.uniqueBandCount >= minimumUniqueBandCount)
+        .filter((cluster) => (
+            cluster.uniqueBandCount >= minimumUniqueBandCount
+            && !cluster.hasDuplicateBandMembers
+        ))
         .sort((a, b) => a.centerX - b.centerX)
         .slice(0, selectedClusterCount);
 
@@ -3352,6 +3359,7 @@ function identifyAndHighlightAccidentals() {
         if (!identifyAnyKnownNotehead(sig)) return;
         const rect = path.getBoundingClientRect();
         noteheads.push({
+            signature: sig,
             left: rect.left,
             right: rect.right,
             centerY: rect.top + rect.height / 2,
@@ -3365,6 +3373,7 @@ function identifyAndHighlightAccidentals() {
         if (!identifyAnyKnownNotehead(char)) return;
         const rect = textEl.getBoundingClientRect();
         noteheads.push({
+            signature: char,
             left: rect.left,
             right: rect.right,
             centerY: rect.top + rect.height / 2,
@@ -3425,11 +3434,61 @@ function identifyAndHighlightAccidentals() {
     const keySignatureIds = new Set(classification.keySignatureIds);
     const accidentalIds = new Set(classification.accidentalIds);
 
+    function isLikelyMaestroNaturalSlideMarker(candidate) {
+        if (!candidate || !Array.isArray(candidate.elements) || candidate.elements.length !== 1) return false;
+
+        const [primaryElement] = candidate.elements;
+        if (!(primaryElement instanceof SVGPathElement)) return false;
+
+        const signature = simplifySvgPathSignature(primaryElement.getAttribute('d') || '');
+        if (signature !== 'MLLLLMLLLLLLLL') return false;
+
+        const fontFamily = getInheritedSvgFontFamily(primaryElement, '');
+        if (!/maestro/i.test(fontFamily)) return false;
+
+        const sameBandNotes = noteheads.filter((notehead) => (
+            notehead.bandIndex === candidate.bandIndex
+            && Number.isFinite(notehead.left)
+            && Number.isFinite(notehead.right)
+            && Number.isFinite(notehead.centerY)
+        ));
+
+        const rightNeighbor = sameBandNotes
+            .filter((notehead) => (
+                notehead.signature === 'MCCCCMCCCCCC'
+                && notehead.left >= candidate.right - 0.5
+                && notehead.left <= candidate.right + 2
+                && Math.abs(notehead.centerY - candidate.centerY) <= 0.5
+            ))
+            .sort((a, b) => (a.left - candidate.right) - (b.left - candidate.right))[0];
+        if (!rightNeighbor) return false;
+
+        const leftNeighbor = sameBandNotes
+            .filter((notehead) => (
+                notehead.right <= candidate.left
+                && candidate.left - notehead.right >= 6
+                && candidate.left - notehead.right <= 24
+                && Math.abs(notehead.centerY - candidate.centerY) <= 4
+            ))
+            .sort((a, b) => (candidate.left - a.right) - (candidate.left - b.right))[0];
+
+        return Boolean(leftNeighbor);
+    }
+
     accidentalCandidates.forEach((candidate) => {
         const shouldBecomeAccidental = accidentalIds.has(candidate.id);
         const shouldStayKeySignature = keySignatureIds.has(candidate.id);
 
         if (!shouldBecomeAccidental && !shouldStayKeySignature) return;
+
+        if (shouldBecomeAccidental && isLikelyMaestroNaturalSlideMarker(candidate)) {
+            candidate.elements.forEach((el) => {
+                el.classList.remove('highlight-keysig');
+                el.classList.remove('highlight-accidental');
+                el.removeAttribute('data-accidental-cluster-id');
+            });
+            return;
+        }
 
         candidate.elements.forEach((el) => {
             if (shouldBecomeAccidental) {

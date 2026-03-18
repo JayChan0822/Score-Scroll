@@ -3827,6 +3827,118 @@ test('recognizes Wu Zetian later fragmented time signatures for sticky lanes', a
   expect(state.lateTimeBlocks[0].stickyItemCount).toBeGreaterThan(0);
 });
 
+test('does not classify Wu Zetian pipa boxed noteheads as fragmented time signatures', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '武则天.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const getAbsoluteMetrics = (el) => {
+      const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
+      const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
+      if (!box || !matrix) return null;
+
+      const x1 = matrix.a * box.x + matrix.c * box.y + matrix.e;
+      const x2 = matrix.a * (box.x + box.width) + matrix.c * box.y + matrix.e;
+      const x3 = matrix.a * box.x + matrix.c * (box.y + box.height) + matrix.e;
+      const x4 = matrix.a * (box.x + box.width) + matrix.c * (box.y + box.height) + matrix.e;
+
+      return {
+        absMinX: Math.min(x1, x2, x3, x4),
+        absMaxX: Math.max(x1, x2, x3, x4),
+        centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
+      };
+    };
+
+    const falseTimeGlyphs = Array.from(svg.querySelectorAll('path.highlight-timesig')).map((el) => {
+      const metrics = getAbsoluteMetrics(el);
+      if (!metrics) return null;
+
+      return {
+        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+        absMinX: metrics.absMinX,
+        centerY: metrics.centerY,
+      };
+    }).filter((item) => (
+      item
+      && item.signature === 'MLLLL'
+      && item.absMinX >= 294
+      && item.absMinX <= 299
+      && item.centerY >= 710
+      && item.centerY <= 718
+    ));
+
+    return { falseTimeGlyphs };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.falseTimeGlyphs).toEqual([]);
+});
+
+test('does not classify Wu Zetian guzheng gliss markers as accidentals', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '武则天.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const getAbsoluteMetrics = (el) => {
+        const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
+        const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
+        if (!box || !matrix) return null;
+
+        const x1 = matrix.a * box.x + matrix.c * box.y + matrix.e;
+        const x2 = matrix.a * (box.x + box.width) + matrix.c * box.y + matrix.e;
+        const x3 = matrix.a * box.x + matrix.c * (box.y + box.height) + matrix.e;
+        const x4 = matrix.a * (box.x + box.width) + matrix.c * (box.y + box.height) + matrix.e;
+
+        return {
+          absMinX: Math.min(x1, x2, x3, x4),
+          absMaxX: Math.max(x1, x2, x3, x4),
+          centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
+        };
+      };
+
+      const allAccidentals = Array.from(svg.querySelectorAll('path.highlight-accidental')).map((el) => {
+        const metrics = getAbsoluteMetrics(el);
+        if (!metrics) return null;
+
+        return {
+          signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+          absMinX: metrics.absMinX,
+          centerY: metrics.centerY,
+        };
+      }).filter(Boolean);
+
+      const falseAccidentals = allAccidentals.filter((item) => (
+        item.signature === 'MLLLLMLLLLLLLL'
+        && item.absMinX >= 940
+        && item.absMinX <= 944
+        && item.centerY >= 764
+        && item.centerY <= 766
+      ));
+
+      return {
+        allAccidentals,
+        falseAccidentals,
+      };
+    });
+
+    return Boolean(state && state.allAccidentals.length >= 10);
+  }, {
+    timeout: 5000,
+    message: 'waiting for Wu Zetian accidental classification to settle',
+  }).toBe(true);
+
+  expect(state).not.toBeNull();
+  expect(state.falseAccidentals).toEqual([]);
+});
+
 test('does not treat tablature fingering digits as time signatures in Shounen no Yume', async ({ page }) => {
   const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250826_少年的梦/Scores/02 - Score Rolling - 少年の夢 - 001.svg';
   await loadFixtureIntoScore(page, fixturePath);
