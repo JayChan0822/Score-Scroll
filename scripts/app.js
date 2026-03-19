@@ -27,13 +27,13 @@ import {
     buildTrustedBarlineAnchors,
     classifyAccidentalGroups,
 } from "./features/symbol-graph.mjs";
-import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260319-reh-vertical-clearance-1";
+import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260319-reh-bottom-lane-1";
 import {
     calculateRehearsalMarkStickyYOffset,
     resolveRehearsalMarkTargetExtraY,
     calculateStickySystemDelta,
     getStickyBlockDisplayWidth,
-} from "./features/sticky-layout.mjs?v=20260319-reh-fade-freeze-1";
+} from "./features/sticky-layout.mjs?v=20260319-reh-bottom-lane-1";
 import {
     clearInjectedSvgLocalFontFaces,
     registerImportedSvgTextFonts,
@@ -56,6 +56,8 @@ const PREVIEW_FOCUS_MODE_CLASS = "preview-focus-mode";
 const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
 const SIBELIUS_MID_CLEF_STICKY_SCALE = 1.35;
 const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.25;
+const REHEARSAL_STICKY_PADDING_ABOVE = 8;
+const REHEARSAL_STICKY_PADDING_BELOW = 12;
 const SIBELIUS_SOURCE_REGEX = /\b(?:Opus(?:\s+Special)?\s+Std|Opus\s+Text\s+Std|Helsinki|Inkpen2)\b/i;
 const controlStackEl = document.querySelector(".control-stack");
 const stageWrapEl = document.querySelector(".stage-wrap");
@@ -769,8 +771,23 @@ function renderCanvas(currentX, options = {}) {
     }
 
     const systemActiveWidths = { clef: 0, key: 0 };
+    const bottomLaneIdBySystem = {};
+    const bottomLaneMetricBySystem = {};
 
     let maxStickyRightScreenX = 0; let shouldShowMask = false;
+
+    for (const laneId in globalStickyLanes) {
+        const laneMeta = globalStickyLanes[laneId] || {};
+        const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
+        const laneMetric = Number.isFinite(laneMeta.bandBottom)
+            ? laneMeta.bandBottom
+            : (Number.isFinite(laneMeta.anchorY) ? laneMeta.anchorY : -Infinity);
+
+        if (!(systemIndex in bottomLaneMetricBySystem) || laneMetric > bottomLaneMetricBySystem[systemIndex]) {
+            bottomLaneMetricBySystem[systemIndex] = laneMetric;
+            bottomLaneIdBySystem[systemIndex] = laneId;
+        }
+    }
 
     for (const groupId in globalStickySharedGroups) {
         sharedActiveIdx[groupId] = -1;
@@ -836,16 +853,22 @@ function renderCanvas(currentX, options = {}) {
     const sysDeltaKey = calcSystemDelta('key');
 
     for (const laneId in globalStickyLanes) {
-        const { typeBlocks, baseWidths } = globalStickyLanes[laneId];
+        const laneMeta = globalStickyLanes[laneId] || {};
+        const { typeBlocks, baseWidths } = laneMeta;
         const openingClefBlock = typeBlocks?.clef?.[0] || null;
         const activeRehearsalBlock = activeIdx[laneId].reh >= 0
             ? (typeBlocks?.reh?.[activeIdx[laneId].reh] || null)
             : null;
+        const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
+        const isBottomLane = bottomLaneIdBySystem[systemIndex] === laneId;
         laneOffsets[laneId].rehY = calculateRehearsalMarkStickyYOffset({
             hasOpeningClefAnchor: (baseWidths?.clef || 0) > 0,
+            placement: isBottomLane ? "below" : "above",
+            rehearsalMinY: activeRehearsalBlock?.minY,
             rehearsalMaxY: activeRehearsalBlock?.maxY,
             clefMinY: openingClefBlock?.minY,
-            padding: 4,
+            openingMaxY: laneMeta.openingEnvelopeMaxY,
+            padding: isBottomLane ? REHEARSAL_STICKY_PADDING_BELOW : REHEARSAL_STICKY_PADDING_ABOVE,
         });
         laneOffsets[laneId].clef = sysDeltaClef;
         laneOffsets[laneId].key = sysDeltaKey;

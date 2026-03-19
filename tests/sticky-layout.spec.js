@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { test, expect } = require('@playwright/test');
@@ -100,6 +101,34 @@ test('rehearsal marks align to a shared sticky height above the opening clef', a
   })).toBe(0);
 });
 
+test('bottom-lane rehearsal marks align to a shared sticky height below the opening symbols', async () => {
+  const { calculateRehearsalMarkStickyYOffset } = await importStickyLayout();
+
+  expect(calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor: true,
+    placement: 'below',
+    rehearsalMinY: 32,
+    openingMaxY: 42,
+    padding: 4,
+  })).toBeCloseTo(14, 5);
+
+  expect(calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor: true,
+    placement: 'below',
+    rehearsalMinY: 46,
+    openingMaxY: 42,
+    padding: 4,
+  })).toBe(0);
+
+  expect(calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor: true,
+    placement: 'below',
+    rehearsalMinY: 56,
+    openingMaxY: 42,
+    padding: 4,
+  })).toBeCloseTo(-10, 5);
+});
+
 test('rehearsal-mark y targets freeze replaced marks and keep future marks at origin until activation', async () => {
   const { resolveRehearsalMarkTargetExtraY } = await importStickyLayout();
 
@@ -123,6 +152,14 @@ test('rehearsal-mark y targets freeze replaced marks and keep future marks at or
     targetExtraY: -10,
     currentExtraY: 6,
   })).toBe(0);
+});
+
+test('app separates rehearsal sticky padding for above and below placements', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).toContain('const REHEARSAL_STICKY_PADDING_ABOVE');
+  expect(appSource).toContain('const REHEARSAL_STICKY_PADDING_BELOW');
+  expect(appSource).toContain('padding: isBottomLane ? REHEARSAL_STICKY_PADDING_BELOW : REHEARSAL_STICKY_PADDING_ABOVE');
 });
 
 test('late-only key signatures can lock to an opening fallback column', async () => {

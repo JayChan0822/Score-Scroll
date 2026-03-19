@@ -2,7 +2,7 @@ import { debugLog } from "../utils/debug.js";
 import {
     calculateStickyBlockLockDistance,
     getStickyBlockDisplayWidth,
-} from "./sticky-layout.mjs?v=20260319-reh-fade-freeze-1";
+} from "./sticky-layout.mjs?v=20260319-reh-bottom-lane-1";
 
 export function createSvgAnalysisFeature({
     getFallbackSystemInternalX,
@@ -1312,7 +1312,20 @@ export function createSvgAnalysisFeature({
                     }
                 }
             });
-            globalStickyLanes[lane.laneId] = { typeBlocks, baseWidths };
+            const openingSymbolBlocks = ["clef", "key", "time", "bar", "brace"]
+                .map((type) => typeBlocks[type]?.[0] || null)
+                .filter((block) => block && block.minX <= stickyMinX + stickyOpeningThresholdX);
+            const openingEnvelopeMaxY = openingSymbolBlocks.length > 0
+                ? Math.max(...openingSymbolBlocks.map((block) => block.maxY))
+                : null;
+            globalStickyLanes[lane.laneId] = {
+                typeBlocks,
+                baseWidths,
+                systemIndex: Number.isFinite(lane.systemIndex) ? lane.systemIndex : 0,
+                anchorY: lane.anchorY,
+                bandBottom: lane.bandBottom,
+                openingEnvelopeMaxY,
+            };
 
             ["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {
                 if (!typeBlocks[type]) return;
