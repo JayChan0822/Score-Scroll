@@ -178,6 +178,7 @@ function buildSibeliusTextGatedClefSvgBuffer() {
         <line x1="28" y1="38" x2="28" y2="82" stroke="#000" stroke-width="1" />
       </g>
       <text id="sibelius-symbol-font-clef" x="42" y="72" font-family="Opus Std" font-size="32"></text>
+      <text id="sibelius-known-music-font-clef" x="82" y="72" font-family="Bravura" font-size="32"></text>
       <text id="sibelius-text-font-clef" x="118" y="72" font-family="Opus Text Std" font-size="32"></text>
       <text id="sibelius-symbol-font-flat" x="86" y="68" font-family="Opus Std" font-size="30"></text>
       <text id="sibelius-text-font-flat" x="150" y="68" font-family="Opus Text Std" font-size="30"></text>
@@ -2081,6 +2082,186 @@ test('uses separate sticky mid-clef scale and offset presets for Dorico Sibelius
   expect(svgAnalysisSource).toContain('sourceType,');
 });
 
+test('applies source-typed mid-clef offsets to text glyph clefs', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const host = document.createElement('div');
+    host.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="220" height="140" viewBox="0 0 220 140">
+        <line x1="0" y1="40" x2="220" y2="40" stroke="#000" />
+        <line x1="0" y1="50" x2="220" y2="50" stroke="#000" />
+        <line x1="0" y1="60" x2="220" y2="60" stroke="#000" />
+        <line x1="0" y1="70" x2="220" y2="70" stroke="#000" />
+        <line x1="0" y1="80" x2="220" y2="80" stroke="#000" />
+        <text class="highlight-clef" x="28" y="62" font-family="Opus Std" font-size="22">O</text>
+        <text class="highlight-clef" x="132" y="62" font-family="Opus Std" font-size="22">B</text>
+      </svg>
+    `;
+
+    const svg = host.querySelector('svg');
+    document.body.appendChild(svg);
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: (sig) => {
+        if (sig === 'O') return 'Treble Clef (高音谱号)';
+        if (sig === 'B') return 'Bass Clef (低音谱号)';
+        return null;
+      },
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg, {
+      sourceType: 'Sibelius',
+    });
+    svg.remove();
+
+    const textMidClef = result.renderQueue.find((item) => (
+      item.type === 'text'
+      && item.symbolType === 'Clef'
+      && item.isMidClef
+      && item.text === 'B'
+    ));
+
+    return {
+      hasTextMidClef: Boolean(textMidClef),
+      midClefOffsetY: textMidClef?.midClefOffsetY ?? null,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.hasTextMidClef).toBe(true);
+  expect(Math.abs(state.midClefOffsetY)).toBeGreaterThan(0);
+});
+
+test('falls back to MuseScore semantic clef subtype hints when signature recognition misses', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const host = document.createElement('div');
+    host.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">
+        <line x1="0" y1="40" x2="240" y2="40" stroke="#000" />
+        <line x1="0" y1="50" x2="240" y2="50" stroke="#000" />
+        <line x1="0" y1="60" x2="240" y2="60" stroke="#000" />
+        <line x1="0" y1="70" x2="240" y2="70" stroke="#000" />
+        <line x1="0" y1="80" x2="240" y2="80" stroke="#000" />
+        <path id="opening-clef" class="highlight-clef" d="M 30 50 C 32 40 38 40 40 50 C 42 60 38 60 30 50 Z" />
+        <path id="bass-clef-mid" class="highlight-clef Clef bass" d="M 140 50 L 148 50 L 148 72 C 145 70 142 64 140 60 Z" />
+      </svg>
+    `;
+
+    const svg = host.querySelector('svg');
+    document.body.appendChild(svg);
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg, {
+      sourceType: 'MuseScore',
+    });
+    svg.remove();
+
+    const midClef = result.renderQueue.find((item) => (
+      item.symbolType === 'Clef'
+      && item.isMidClef
+      && item.sourceElementId === 'bass-clef-mid'
+    ));
+
+    return {
+      hasMidClef: Boolean(midClef),
+      midClefOffsetY: midClef?.midClefOffsetY ?? null,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.hasMidClef).toBe(true);
+  expect(state.midClefOffsetY).toBeGreaterThan(0);
+});
+
+test('falls back to MuseScore clef path-code patterns from Musescore Type.svg when metadata is absent', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const buildPathDataFromSimplifiedSignature = (signature) => {
+      let x = 0;
+      let y = 0;
+      let path = '';
+      for (const command of signature) {
+        if (command === 'M') {
+          path += `${path ? ' ' : ''}M ${x} ${y}`;
+        } else if (command === 'L') {
+          x += 8;
+          y += 4;
+          path += ` L ${x} ${y}`;
+        } else if (command === 'C') {
+          const x1 = x + 3;
+          const y1 = y - 6;
+          const x2 = x + 9;
+          const y2 = y + 6;
+          x += 12;
+          y += 1;
+          path += ` C ${x1} ${y1} ${x2} ${y2} ${x} ${y}`;
+        } else if (command === 'Z') {
+          path += ' Z';
+        }
+      }
+      return path;
+    };
+
+    const museScoreBassSig = 'MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCMCCCCMCCCC';
+    const host = document.createElement('div');
+    host.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">
+        <line x1="0" y1="40" x2="240" y2="40" stroke="#000" />
+        <line x1="0" y1="50" x2="240" y2="50" stroke="#000" />
+        <line x1="0" y1="60" x2="240" y2="60" stroke="#000" />
+        <line x1="0" y1="70" x2="240" y2="70" stroke="#000" />
+        <line x1="0" y1="80" x2="240" y2="80" stroke="#000" />
+        <path class="highlight-clef" d="M 30 50 C 32 40 38 40 40 50 C 42 60 38 60 30 50 Z" />
+        <path class="highlight-clef Clef" d="${buildPathDataFromSimplifiedSignature(museScoreBassSig)}" transform="translate(132 58) scale(0.22)" />
+      </svg>
+    `;
+
+    const svg = host.querySelector('svg');
+    document.body.appendChild(svg);
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg, {
+      sourceType: 'MuseScore',
+    });
+    svg.remove();
+
+    const midClef = result.renderQueue.find((item) => (
+      item.symbolType === 'Clef'
+      && item.isMidClef
+      && item.type === 'path'
+      && item.originalD === buildPathDataFromSimplifiedSignature(museScoreBassSig)
+    ));
+
+    return {
+      hasMidClef: Boolean(midClef),
+      midClefOffsetY: midClef?.midClefOffsetY ?? null,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.hasMidClef).toBe(true);
+  expect(state.midClefOffsetY).toBeGreaterThan(0);
+});
+
 test('fills Light-theme MP4 export frames with the active background color', async ({ page }) => {
   await page.goto('/index.html');
   await preserveImportedSvgDuringSmoke(page);
@@ -2631,7 +2812,7 @@ test('shows the detected score source type in the sources card', async ({ page }
   }).toBe('Unknown');
 });
 
-test('restricts Dorico symbol-path analysis to the active detected music font', async ({ page }) => {
+test('accepts Dorico clef paths from known music fonts beyond the dominant analysis font', async ({ page }) => {
   await page.goto('/index.html');
   await preserveImportedSvgDuringSmoke(page);
   await page.setInputFiles('#svgInput', {
@@ -2644,10 +2825,10 @@ test('restricts Dorico symbol-path analysis to the active detected music font', 
     active: await getClassNameBySvgElementId(page, 'dorico-active-clef'),
     foreign: await getClassNameBySvgElementId(page, 'dorico-foreign-clef'),
   }), {
-    message: 'waiting for Dorico clef gating to settle',
+    message: 'waiting for Dorico cross-font clef matching to settle',
   }).toEqual({
     active: expect.stringContaining('highlight-clef'),
-    foreign: expect.not.stringContaining('highlight-clef'),
+    foreign: expect.stringContaining('highlight-clef'),
   });
 });
 
@@ -2778,7 +2959,7 @@ test('treats MuseScore InstrumentName paths as opening sticky instrument labels'
   });
 });
 
-test('restricts Sibelius symbol analysis to music-symbol fonts before fallback', async ({ page }) => {
+test('accepts Sibelius clefs from symbol fonts and known music fonts while rejecting text-domain fonts', async ({ page }) => {
   await page.goto('/index.html');
   await preserveImportedSvgDuringSmoke(page);
   await page.setInputFiles('#svgInput', {
@@ -2789,16 +2970,18 @@ test('restricts Sibelius symbol analysis to music-symbol fonts before fallback',
 
   await expect.poll(async () => ({
     symbolFont: await getClassNameBySvgElementId(page, 'sibelius-symbol-font-clef'),
+    knownMusicFont: await getClassNameBySvgElementId(page, 'sibelius-known-music-font-clef'),
     textFont: await getClassNameBySvgElementId(page, 'sibelius-text-font-clef'),
   }), {
-    message: 'waiting for Sibelius text-font gating to settle',
+    message: 'waiting for Sibelius clef font gating to settle',
   }).toEqual({
     symbolFont: expect.stringContaining('highlight-clef'),
+    knownMusicFont: expect.stringContaining('highlight-clef'),
     textFont: expect.not.stringContaining('highlight-clef'),
   });
 });
 
-test('restricts Dorico time-signature and key-signature path analysis to the active detected music font', async ({ page }) => {
+test('restricts Dorico key-signature paths to the active music font while allowing known-font time signatures', async ({ page }) => {
   await page.goto('/index.html');
   await preserveImportedSvgDuringSmoke(page);
   await page.setInputFiles('#svgInput', {
@@ -2813,12 +2996,12 @@ test('restricts Dorico time-signature and key-signature path analysis to the act
     activeTimeSig: await getClassNameBySvgElementId(page, 'dorico-active-timesig'),
     foreignTimeSig: await getClassNameBySvgElementId(page, 'dorico-foreign-timesig'),
   }), {
-    message: 'waiting for Dorico key-signature and time-signature gating to settle',
+    message: 'waiting for Dorico key-signature gating and cross-font time signatures to settle',
   }).toEqual({
     activeKeySig: expect.stringContaining('highlight-accidental'),
     foreignKeySig: expect.not.stringMatching(/highlight-(?:keysig|accidental)/),
     activeTimeSig: expect.stringContaining('highlight-timesig'),
-    foreignTimeSig: expect.not.stringContaining('highlight-timesig'),
+    foreignTimeSig: expect.stringContaining('highlight-timesig'),
   });
 });
 
@@ -3945,45 +4128,69 @@ test('recognizes opening tall stacked 4/4 digits in the local Genshin export', a
   expect(state.displayColor).toBe('rgb(255, 255, 255)');
 });
 
-test('does not classify local Wu Zetian opening fragmented 4/4 geometry as a time signature', async ({ page }) => {
+test('recognizes Wu Zetian opening fragmented Bravura 4/4 glyphs as time signatures', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, '..', '武则天.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const svg = document.querySelector('#svg-sandbox svg');
-    if (!svg) return null;
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
 
-    const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline'))
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        return (rect.left + rect.right) / 2;
-      })
-      .filter(Number.isFinite)
-      .sort((a, b) => a - b);
-    const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
+      const openingBarlineXs = Array.from(svg.querySelectorAll('.highlight-barline'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return (rect.left + rect.right) / 2;
+        })
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+      const systemStartX = openingBarlineXs[openingBarlineXs.length - 1] || 0;
 
-    const openingTimeSigs = Array.from(svg.querySelectorAll('.highlight-timesig'))
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        return {
-          left: rect.left,
-          token: el.getAttribute('data-time-sig-token') || '',
-        };
-      })
-      .filter((item) => item.left >= systemStartX - 10 && item.left <= systemStartX + 260);
+      const openingTimeSigs = Array.from(svg.querySelectorAll('text.highlight-timesig, tspan.highlight-timesig'))
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            height: rect.height,
+            left: rect.left,
+            text: (el.textContent || '').trim(),
+            token: el.getAttribute('data-time-sig-token') || '',
+          };
+        })
+        .filter((item) => (
+          item.left >= systemStartX - 10
+          && item.left <= systemStartX + 260
+          && item.height >= 40
+        ))
+        .sort((a, b) => a.left - b.left);
 
-    const display = document.getElementById('timeSigDisplay');
-    const color = display ? window.getComputedStyle(display).color : '';
+      const display = document.getElementById('timeSigDisplay');
+      const color = display ? window.getComputedStyle(display).color : '';
+
+      return {
+        openingTimeSigs,
+        displayText: display?.textContent?.trim() || '',
+        displayColor: color,
+      };
+    });
 
     return {
-      openingTimeSigCount: openingTimeSigs.length,
-      displayText: display?.textContent?.trim() || '',
-      displayColor: color,
+      openingTimeSigCount: state?.openingTimeSigs.length || 0,
+      firstToken: state?.openingTimeSigs[0]?.token || '',
+      displayText: state?.displayText || '',
+      displayColor: state?.displayColor || '',
     };
+  }, {
+    message: 'waiting for Wu Zetian opening Bravura time signatures to classify',
+  }).toEqual({
+    openingTimeSigCount: 8,
+    firstToken: '4',
+    displayText: '4/4',
+    displayColor: 'rgb(255, 255, 255)',
   });
 
   expect(state).not.toBeNull();
-  expect(state.openingTimeSigCount).toBe(0);
+  expect(state.openingTimeSigs.map((item) => item.token)).toEqual(['4', '4', '4', '4', '4', '4', '4', '4']);
 });
 
 test('recognizes non-power-of-two stacked numeric time signatures in Dorico imports', async ({ page }) => {

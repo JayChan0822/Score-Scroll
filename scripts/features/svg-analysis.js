@@ -17,13 +17,13 @@ export function createSvgAnalysisFeature({
             AltoTenor: 0,
         },
         Sibelius: {
-            Bass: 0.24,
-            Treble: -0.24,
-            AltoTenor: 0,
+            Bass: -0.24,
+            Treble: -0.3,
+            AltoTenor: -0.2,
         },
         MuseScore: {
-            Bass: 0.18,
-            Treble: -0.18,
+            Bass: 5,
+            Treble: -0.3,
             AltoTenor: 0,
         },
     };
@@ -36,6 +36,50 @@ export function createSvgAnalysisFeature({
         if (specificType.includes("Treble")) return staffSpace * (sourceOffsets.Treble || 0);
         if (specificType.includes("Alto/Tenor")) return staffSpace * (sourceOffsets.AltoTenor || 0);
         return 0;
+    }
+
+    function getMidClefSpecificType(item) {
+        if (!item) return null;
+
+        if (item.type === "path" && item.originalD) {
+            const sigStr = item.originalD.replace(/[^a-zA-Z]/g, "").toUpperCase();
+            const pathType = identifyClefOrBrace(sigStr, item.originalD);
+            if (pathType) return pathType;
+
+            if (item.sourceTypeHint === "MuseScore" && item.symbolType === "Clef") {
+                if (sigStr === "MCCCCCCCCCCCCCCCCCCCCCCCCCCCCCMCCCCMCCCC") {
+                    return "Bass Clef (低音谱号)";
+                }
+                if (sigStr.startsWith("MCLCLCLCLMCCCCCCCCCCCCCCCCCCLCCLCCL")) {
+                    return "Alto/Tenor Clef (中/次中音谱号)";
+                }
+                if (sigStr.startsWith("MCCCMCCCCCCCCCCCLMCCCCCMCCCC")) {
+                    return "Treble Clef (高音谱号)";
+                }
+            }
+        }
+
+        if (item.type === "text" && item.text) {
+            const textType = identifyClefOrBrace((item.text || "").trim(), null);
+            if (textType) return textType;
+        }
+
+        if (item.sourceTypeHint === "MuseScore" && item.symbolType === "Clef") {
+            const hintText = [
+                item.sourceElementId || "",
+                item.sourceClassName || "",
+                item.sourceAriaLabel || "",
+                item.sourceDataClef || "",
+                item.sourceDataSubtype || "",
+                item.text || "",
+            ].join(" ").toLowerCase();
+
+            if (/\b(?:bass|f-?clef)\b/.test(hintText)) return "Bass Clef (低音谱号)";
+            if (/\b(?:treble|g-?clef)\b/.test(hintText)) return "Treble Clef (高音谱号)";
+            if (/\b(?:alto|tenor|c-?clef)\b/.test(hintText)) return "Alto/Tenor Clef (中/次中音谱号)";
+        }
+
+        return null;
     }
 
     function getStickyClefIdentity(item) {
@@ -494,6 +538,17 @@ export function createSvgAnalysisFeature({
             return { minX: Math.min(x1, x2, x3, x4), maxX: Math.max(x1, x2, x3, x4) };
         }
 
+        function getSourceMetadata(el) {
+            return {
+                sourceTypeHint: sourceType,
+                sourceElementId: el.getAttribute("id") || "",
+                sourceClassName: el.getAttribute("class") || "",
+                sourceAriaLabel: el.getAttribute("aria-label") || "",
+                sourceDataClef: el.getAttribute("data-clef") || "",
+                sourceDataSubtype: el.getAttribute("data-subtype") || "",
+            };
+        }
+
         function getSymbolType(el) {
             if (el.classList.contains("highlight-instname")) return "InstName";
             if (el.classList.contains("highlight-rehearsalmark")) return "RehearsalMark";
@@ -915,6 +970,7 @@ export function createSvgAnalysisFeature({
                 timeSigToken: getTimeSigToken(el),
                 timeSigAnchorX: getTimeSigAnchorX(el),
                 timeSigIsGiant: getTimeSigIsGiant(el),
+                ...getSourceMetadata(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -940,6 +996,7 @@ export function createSvgAnalysisFeature({
                 timeSigToken: getTimeSigToken(el),
                 timeSigAnchorX: getTimeSigAnchorX(el),
                 timeSigIsGiant: getTimeSigIsGiant(el),
+                ...getSourceMetadata(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -974,6 +1031,7 @@ export function createSvgAnalysisFeature({
                 timeSigAnchorX: getTimeSigAnchorX(el),
                 timeSigIsGiant: getTimeSigIsGiant(el),
                 box,
+                ...getSourceMetadata(el),
                 ...getMathFlyinParams(),
             });
         });
@@ -1249,9 +1307,8 @@ export function createSvgAnalysisFeature({
                         item.isMidClef = isMidClef;
                         item.midClefOffsetY = 0;
                         item.staffSpace = currentStaffSpace;
-                        if (isMidClef && item.type === "path" && item.originalD) {
-                            const sigStr = item.originalD.replace(/[^a-zA-Z]/g, "").toUpperCase();
-                            const specificType = identifyClefOrBrace(sigStr, item.originalD);
+                        if (isMidClef) {
+                            const specificType = getMidClefSpecificType(item);
                             item.midClefOffsetY = getMidClefOffsetY({
                                 sourceType,
                                 specificType,

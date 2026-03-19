@@ -13,6 +13,7 @@ import {
     getScoreElementFontInfo,
     hasSemanticCandidates,
     isSibeliusSymbolFontFamily,
+    isSibeliusTextDomainFontFamily,
     SCORE_SOURCE_DORICO,
     SCORE_SOURCE_MUSESCORE,
     SCORE_SOURCE_SIBELIUS,
@@ -39,7 +40,6 @@ import {
     decodeTimeSignaturePath,
     decodeTimeSignatureText,
     getInheritedSvgFontFamily,
-    resolveMusicFontFamilyForPathSignature,
     simplifySvgPathSignature,
 } from "./features/time-signature-decoder.js?v=20260317-glyph-font-fallback-1";
 import { createTimelineFeature } from "./features/timeline.js";
@@ -52,7 +52,7 @@ const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
 const PLAYBACK_TAIL_BUFFER_SEC = 2;
 const PREVIEW_FOCUS_MODE_CLASS = "preview-focus-mode";
 const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
-const SIBELIUS_MID_CLEF_STICKY_SCALE = 1.3;
+const SIBELIUS_MID_CLEF_STICKY_SCALE = 1.35;
 const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.25;
 const SIBELIUS_SOURCE_REGEX = /\b(?:Opus(?:\s+Special)?\s+Std|Opus\s+Text\s+Std|Helsinki|Inkpen2)\b/i;
 const controlStackEl = document.querySelector(".control-stack");
@@ -1875,17 +1875,20 @@ function identifyAndHighlightClefs() {
         const d = path.getAttribute('d');
         if (!d) return;
         const sig = d.replace(/[^a-zA-Z]/g, '').toUpperCase();
-        if (currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO && !activeSignatureMap.clefs[sig]) return;
         const symbolType = identifyClefOrBrace(sig, d);
-        if (symbolType) {
-            if (symbolType.includes('Brace')) {
-                path.classList.add('highlight-brace');
-            } else {
-                path.classList.add('highlight-clef');
-                mainClefElements.push(path); // 记录主谱号
-            }
-            foundCount++;
+        if (!symbolType) return;
+        if (
+            currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO
+            && symbolType.includes('Brace')
+            && !activeSignatureMap.clefs[sig]
+        ) return;
+        if (symbolType.includes('Brace')) {
+            path.classList.add('highlight-brace');
+        } else {
+            path.classList.add('highlight-clef');
+            mainClefElements.push(path); // 记录主谱号
         }
+        foundCount++;
     });
 
     // --- 2. 文本 Text 谱号扫描 (兼容 Sibelius) ---
@@ -1893,24 +1896,28 @@ function identifyAndHighlightClefs() {
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_MUSESCORE && hasMuseScoreSemanticClefs) return;
         const char = (textEl.textContent || '').trim();
         if (!char) return;
+        const fontInfo = getScoreElementFontInfo(textEl);
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO) {
-            const { normalizedFontFamily } = getScoreElementFontInfo(textEl);
-            if (!normalizedFontFamily || normalizedFontFamily !== getAnalysisMusicFont()) return;
+            if (!fontInfo.normalizedFontFamily) return;
         }
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_SIBELIUS) {
-            const { rawFontFamily } = getScoreElementFontInfo(textEl);
-            if (!isSibeliusSymbolFontFamily(rawFontFamily)) return;
+            if (isSibeliusTextDomainFontFamily(fontInfo.rawFontFamily)) return;
+            if (!isSibeliusSymbolFontFamily(fontInfo.rawFontFamily) && !fontInfo.normalizedFontFamily) return;
         }
         const symbolType = identifyClefOrBrace(char, null);
-        if (symbolType) {
-            if (symbolType.includes('Brace')) {
-                textEl.classList.add('highlight-brace');
-            } else {
-                textEl.classList.add('highlight-clef');
-                mainClefElements.push(textEl); // 记录主谱号
-            }
-            foundCount++;
+        if (!symbolType) return;
+        if (
+            currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO
+            && symbolType.includes('Brace')
+            && fontInfo.normalizedFontFamily !== getAnalysisMusicFont()
+        ) return;
+        if (symbolType.includes('Brace')) {
+            textEl.classList.add('highlight-brace');
+        } else {
+            textEl.classList.add('highlight-clef');
+            mainClefElements.push(textEl); // 记录主谱号
         }
+        foundCount++;
     });
 
     // --- 3. 🌟 新增：八度修饰符“空间收养”逻辑 ---
@@ -2814,7 +2821,11 @@ function identifyAndHighlightTimeSignatures() {
         if (!content) return;
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO) {
             const { normalizedFontFamily } = getScoreElementFontInfo(el);
-            if (!normalizedFontFamily || normalizedFontFamily !== getAnalysisMusicFont()) return;
+            // Dorico exports can mix valid time-signature glyphs across music fonts
+            // (for example, Leland score symbols with Bravura giant meters).
+            // Keep the text candidate limited to recognized music fonts, but do not
+            // require it to match the dominant analysis font here.
+            if (!normalizedFontFamily) return;
         }
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_SIBELIUS) {
             const { rawFontFamily } = getScoreElementFontInfo(el);
@@ -2893,15 +2904,6 @@ function identifyAndHighlightTimeSignatures() {
             if (!signature) return;
 
             const explicitFontFamily = getInheritedSvgFontFamily(el);
-            if (currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO) {
-                const resolvedFontFamily = resolveMusicFontFamilyForPathSignature({
-                    signature,
-                    category: 'timeSignatures',
-                    explicitFontFamily,
-                    preferredFontFamily: fallbackFontFamily,
-                });
-                if (resolvedFontFamily !== getAnalysisMusicFont()) return;
-            }
             const decoded = decodeTimeSignaturePath(signature, explicitFontFamily, {
                 preferredFontFamily: fallbackFontFamily,
             });
@@ -3841,7 +3843,18 @@ function initScoreMapping(svgRoot) {
 
     // --- C. 筛选垂直线，并应用“符干护卫” ---
     const barlineCandidates = [];
+    const isEligibleBarlinePathCandidate = (el) => {
+        if (!el || String(el.tagName || '').toLowerCase() !== 'path') return true;
+
+        const d = el.getAttribute('d') || '';
+        // 真正的小节线 path 只需要直线/矩形指令；带曲线的字形 path（休止符、变音记号等）
+        // 会在多声部同拍对齐时伪装成“碎片化小节线”。
+        return !/[CcSsQqTtAa]/.test(d);
+    };
+
     svgRoot.querySelectorAll('line, polyline, rect, path').forEach(el => {
+        if (!isEligibleBarlinePathCandidate(el)) return;
+
         let isVertical = false;
         let x = 0, yTop = 0, yBottom = 0, height = 0;
         try {
