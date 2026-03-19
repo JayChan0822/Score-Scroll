@@ -4117,7 +4117,7 @@ test('keeps knockout masks attached to every instrument-group bracket in 乐器�
 });
 
 test('keeps the M01 Strings Ensemble instrument-group bracket knockout attached to its shared sticky group', async ({ page }) => {
-  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+  const fixturePath = path.resolve(__dirname, '..', 'M01.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
   const state = await page.evaluate(async () => {
@@ -4161,17 +4161,17 @@ test('keeps the M01 Strings Ensemble instrument-group bracket knockout attached 
 });
 
 test('keeps the opening M01 key signatures visible after they pin', async ({ page }) => {
-  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+  const fixturePath = path.resolve(__dirname, '..', 'M01.svg');
 
-  await page.goto('/index.html');
-  await preserveImportedSvgDuringSmoke(page);
+  await loadFixtureIntoScore(page, fixturePath);
+  await expect.poll(async () => page.evaluate(() => (
+    document.querySelectorAll('#svg-sandbox svg .highlight-keysig').length
+  ))).toBeGreaterThan(0);
 
   const toggleHighlightBtn = page.locator('#toggleHighlightBtn');
   if ((await toggleHighlightBtn.textContent())?.includes('Show Glow')) {
     await toggleHighlightBtn.click();
   }
-
-  await page.setInputFiles('#svgInput', fixturePath);
 
   const state = await page.evaluate(async () => {
     const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
@@ -4187,15 +4187,13 @@ test('keeps the opening M01 key signatures visible after they pin', async ({ pag
       identifyClefOrBrace: () => null,
     });
     const result = svgAnalysisFeature.buildRenderQueue(svg);
-    const targetLane = result.globalStickyLanes['lane-0'] || null;
-    const targetBlock = targetLane?.typeBlocks?.key?.[0] || null;
-    if (!targetBlock) return null;
 
     const total = Number(progressSlider.max) || 0;
     const targetTime = total * 0.4;
     progressSlider.value = String(targetTime);
     progressSlider.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise((resolve) => setTimeout(resolve, 700));
 
     const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
     const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
@@ -4206,15 +4204,48 @@ test('keeps the opening M01 key signatures visible after they pin', async ({ pag
     const stickyLockScreenX = viewportWidth * stickyLockRatio;
     const worldDistanceLeft = playlineScreenX / zoom;
     const stickyLockOffset = stickyLockScreenX / zoom;
-    const lockDistance = Number.isFinite(targetBlock.lockDistance) ? targetBlock.lockDistance : 0;
-    const layerMaxX = worldDistanceLeft + result.stickyMinX - stickyLockOffset + lockDistance;
     const currentX = Number(window.__lastRenderX) || 0;
-    const centerX = ((targetBlock.minX || 0) + (targetBlock.maxX || 0)) / 2;
-    const centerY = ((targetBlock.minY || 0) + (targetBlock.maxY || 0)) / 2;
-    const cssX = (centerX - layerMaxX) * zoom + playlineScreenX;
-    const cssY = (centerY - (Number(window.globalScoreTrueCenterY) || 0)) * zoom + (viewportHeight / 2);
-    const cssWidth = Math.max(20, ((targetBlock.maxX || 0) - (targetBlock.minX || 0)) * zoom + 20);
-    const cssHeight = Math.max(24, ((targetBlock.maxY || 0) - (targetBlock.minY || 0)) * zoom + 12);
+    const scoreCenterY = Number(window.globalScoreTrueCenterY) || 0;
+    const runtimeLaneOffsets = window.__lastStickyLaneOffsets || {};
+    const openingKeyBlocks = Object.entries(result.globalStickyLanes)
+      .map(([laneId, laneMeta]) => ({
+        laneId,
+        block: laneMeta?.typeBlocks?.key?.[0] || null,
+        baseKeyWidth: laneMeta?.baseWidths?.key || 0,
+      }))
+      .filter((entry) => entry.block && entry.baseKeyWidth > 0)
+      .map(({ laneId, block }) => {
+        const lockDistance = Number.isFinite(block.lockDistance) ? block.lockDistance : 0;
+        const layerMaxX = worldDistanceLeft + result.stickyMinX - stickyLockOffset + lockDistance;
+        const pinShiftX = currentX >= layerMaxX ? (currentX - layerMaxX) : 0;
+        const extraX = Number(runtimeLaneOffsets[laneId]?.clef) || 0;
+        const worldMinX = (block.minX || 0) + pinShiftX + extraX;
+        const worldMaxX = (block.maxX || 0) + pinShiftX + extraX;
+        const cssLeft = (worldMinX - currentX) * zoom + playlineScreenX;
+        const cssRight = (worldMaxX - currentX) * zoom + playlineScreenX;
+        const cssTop = (((block.minY || 0) - scoreCenterY) * zoom) + (viewportHeight / 2);
+        const cssBottom = (((block.maxY || 0) - scoreCenterY) * zoom) + (viewportHeight / 2);
+        return {
+          laneId,
+          lockDistance,
+          layerMaxX,
+          cssLeft,
+          cssRight,
+          cssTop,
+          cssBottom,
+          centerX: ((worldMinX + worldMaxX) / 2),
+          centerY: (((block.minY || 0) + (block.maxY || 0)) / 2),
+        };
+      })
+      .filter((entry) => entry.cssRight >= 0 && entry.cssLeft <= viewportWidth && entry.cssBottom >= 0 && entry.cssTop <= viewportHeight)
+      .sort((a, b) => a.cssTop - b.cssTop || a.cssLeft - b.cssLeft);
+    const targetBlock = openingKeyBlocks[0] || null;
+    if (!targetBlock) return null;
+
+    const cssX = (targetBlock.cssLeft + targetBlock.cssRight) / 2;
+    const cssY = (targetBlock.cssTop + targetBlock.cssBottom) / 2;
+    const cssWidth = Math.max(20, (targetBlock.cssRight - targetBlock.cssLeft) + 20);
+    const cssHeight = Math.max(24, (targetBlock.cssBottom - targetBlock.cssTop) + 12);
 
     const ctx = canvas.getContext('2d');
     const canvasRect = canvas.getBoundingClientRect();
@@ -4242,20 +4273,156 @@ test('keeps the opening M01 key signatures visible after they pin', async ({ pag
 
     return {
       currentX,
-      layerMaxX,
+      layerMaxX: targetBlock.layerMaxX,
       redPixelCount,
       cssX,
       cssY,
+      laneId: targetBlock.laneId,
+      keyBlockMeta: (window.__lastStickyKeyBlockMeta || [])
+        .filter((item) => item.laneId === targetBlock.laneId)
+        .slice(0, 4),
     };
   });
 
   expect(state).not.toBeNull();
+  expect(state.keyBlockMeta[0]?.clearsKeySignature).toBe(false);
+  expect(state.keyBlockMeta[0]?.stickyItemCount).toBeGreaterThan(0);
   expect(state.currentX).toBeGreaterThan(state.layerMaxX);
   expect(state.redPixelCount).toBeGreaterThan(0);
 });
 
+test('keeps all opening M01 key-signature items visible near the end of the score', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', 'M01.svg');
+
+  await loadFixtureIntoScore(page, fixturePath);
+  await expect.poll(async () => page.evaluate(() => (
+    document.querySelectorAll('#svg-sandbox svg .highlight-keysig').length
+  ))).toBeGreaterThan(0);
+
+  const toggleHighlightBtn = page.locator('#toggleHighlightBtn');
+  if ((await toggleHighlightBtn.textContent())?.includes('Show Glow')) {
+    await toggleHighlightBtn.click();
+  }
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    const progressSlider = document.getElementById('progressSlider');
+    const viewport = document.getElementById('viewport');
+    const canvas = document.getElementById('scoreCanvas') || document.querySelector('canvas');
+    if (!svg || !progressSlider || !viewport || !(canvas instanceof HTMLCanvasElement)) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg, {
+      sourceType: document.body.dataset.scoreSourceType || 'Unknown',
+    });
+
+    const total = Number(progressSlider.max) || 0;
+    const targetTime = total * 0.9;
+    progressSlider.value = String(targetTime);
+    progressSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
+    const playlineScreenX = viewportWidth * playlineRatio;
+    const stickyLockScreenX = viewportWidth * stickyLockRatio;
+    const worldDistanceLeft = playlineScreenX / zoom;
+    const stickyLockOffset = stickyLockScreenX / zoom;
+    const maxStickySmoothXInitial = worldDistanceLeft + result.stickyMinX - stickyLockOffset;
+    const currentX = Number(window.__lastRenderX) || 0;
+    const scoreCenterY = Number(window.globalScoreTrueCenterY) || 0;
+    const runtimeLaneOffsets = window.__lastStickyLaneOffsets || {};
+
+    const ctx = canvas.getContext('2d');
+    const canvasRect = canvas.getBoundingClientRect();
+    if (!ctx || canvasRect.width <= 0 || canvasRect.height <= 0) return null;
+    const scaleX = canvas.width / canvasRect.width;
+    const scaleY = canvas.height / canvasRect.height;
+
+    const openingKeyBlocks = Object.entries(result.globalStickyLanes)
+      .map(([laneId, laneMeta]) => ({
+        laneId,
+        block: laneMeta?.typeBlocks?.key?.[0] || null,
+        keyBlockCount: (laneMeta?.typeBlocks?.key || []).length,
+        baseKeyWidth: laneMeta?.baseWidths?.key || 0,
+      }))
+      .filter((entry) => entry.block && entry.baseKeyWidth > 0);
+
+    const sampledItems = openingKeyBlocks.flatMap(({ laneId, block, keyBlockCount }) => {
+      return (block.items || [])
+        .filter((item) => item && item.isSticky)
+        .map((item) => {
+          const lockDistance = Number.isFinite(item.lockDistance) ? item.lockDistance : 0;
+          const layerMaxX = maxStickySmoothXInitial + lockDistance;
+          const pinShiftX = currentX >= layerMaxX ? (currentX - layerMaxX) : 0;
+          const extraX = Number(runtimeLaneOffsets[laneId]?.clef) || 0;
+          const worldLeft = (item.absMinX || 0) + pinShiftX + extraX;
+          const worldRight = (item.absMaxX || 0) + pinShiftX + extraX;
+          const cssLeft = (worldLeft - currentX) * zoom + playlineScreenX;
+          const cssRight = (worldRight - currentX) * zoom + playlineScreenX;
+          const cssTop = (((item.absMinY || 0) - scoreCenterY) * zoom) + (viewportHeight / 2);
+          const cssBottom = (((item.absMaxY || 0) - scoreCenterY) * zoom) + (viewportHeight / 2);
+          const isVisible = cssRight >= 0 && cssLeft <= viewportWidth && cssBottom >= 0 && cssTop <= viewportHeight;
+          const padX = 4;
+          const padY = 4;
+          const left = Math.max(0, Math.floor((cssLeft - padX) * scaleX));
+          const top = Math.max(0, Math.floor((cssTop - padY) * scaleY));
+          const right = Math.min(canvas.width, Math.ceil((cssRight + padX) * scaleX));
+          const bottom = Math.min(canvas.height, Math.ceil((cssBottom + padY) * scaleY));
+          const width = Math.max(1, right - left);
+          const height = Math.max(1, bottom - top);
+          const imageData = ctx.getImageData(left, top, width, height).data;
+          let redPixelCount = 0;
+          for (let index = 0; index < imageData.length; index += 4) {
+            const r = imageData[index];
+            const g = imageData[index + 1];
+            const b = imageData[index + 2];
+            const a = imageData[index + 3];
+            if (r >= 180 && g <= 110 && b <= 130 && a >= 80) {
+              redPixelCount++;
+            }
+          }
+
+          return {
+            laneId,
+            keyBlockCount,
+            lockDistance,
+            layerMaxX,
+            currentX,
+            redPixelCount,
+            cssLeft,
+            cssRight,
+            cssTop,
+            cssBottom,
+            isVisible,
+            symbolType: item.symbolType || null,
+            text: item.text || null,
+            type: item.type,
+          };
+        });
+    });
+
+    return {
+      sampledItems: sampledItems.filter((item) => item.isVisible),
+      missingItems: sampledItems.filter((item) => item.isVisible && item.currentX > item.layerMaxX && item.redPixelCount === 0),
+    };
+  });
+  expect(state).not.toBeNull();
+  expect(state.sampledItems.length).toBeGreaterThan(0);
+  expect(state.missingItems).toEqual([]);
+});
+
 test('does not leave mid-system key-signature highlights in M01 after accidental reclassification', async ({ page }) => {
-  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+  const fixturePath = path.resolve(__dirname, '..', 'M01.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
   const state = await page.evaluate(() => {
@@ -4285,7 +4452,7 @@ test('does not leave mid-system key-signature highlights in M01 after accidental
 });
 
 test('keeps M01 timeline barline mapping stable after notehead-based stem filtering', async ({ page }) => {
-  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+  const fixturePath = path.resolve(__dirname, '..', 'M01.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
   const state = await page.evaluate(() => ({

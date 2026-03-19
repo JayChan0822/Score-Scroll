@@ -129,6 +129,16 @@ export function createSvgAnalysisFeature({
             && items.every((item) => getStickyKeyAccidentalIdentity(item) === "Natural");
     }
 
+    function shouldClearNaturalOnlyKeySignatureBlock({
+        type,
+        items,
+        isOpeningBlock = false,
+    }) {
+        if (type !== "key") return false;
+        if (!isNaturalOnlyKeySignatureBlock(items)) return false;
+        return isOpeningBlock !== true;
+    }
+
     function getStickyTimeAnchorX(item) {
         return Number.isFinite(item?.timeSigAnchorX) ? item.timeSigAnchorX : null;
     }
@@ -599,7 +609,10 @@ export function createSvgAnalysisFeature({
         currentBlock.width = currentBlock.maxX - currentBlock.minX;
         blocks.push(currentBlock);
         blocks.forEach((block) => {
-            const clearsKeySignature = type === "key" && isNaturalOnlyKeySignatureBlock(block.items);
+            const clearsKeySignature = shouldClearNaturalOnlyKeySignatureBlock({
+                type,
+                items: block.items,
+            });
             block.clearsKeySignature = clearsKeySignature;
             block.stickyWidth = getStickyBlockDisplayWidth({
                 type,
@@ -1688,8 +1701,16 @@ export function createSvgAnalysisFeature({
                 }
                 currentBlock.width = currentBlock.maxX - currentBlock.minX;
                 blocks.push(currentBlock);
-                blocks.forEach((block) => {
-                    const clearsKeySignature = type === "key" && isNaturalOnlyKeySignatureBlock(block.items);
+                blocks.forEach((block, index) => {
+                    const isOpeningBlock = type === "key"
+                        && index === 0
+                        && Number.isFinite(block.minX)
+                        && block.minX <= stickyMinX + stickyOpeningThresholdX;
+                    const clearsKeySignature = shouldClearNaturalOnlyKeySignatureBlock({
+                        type,
+                        items: block.items,
+                        isOpeningBlock,
+                    });
                     block.clearsKeySignature = clearsKeySignature;
                     block.stickyWidth = getStickyBlockDisplayWidth({
                         type,

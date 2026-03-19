@@ -845,14 +845,25 @@ function renderCanvas(currentX, options = {}) {
     const activeIdx = {}; const activeWidth = {}; const laneOffsets = {};
     const sharedActiveIdx = {};
 
-    const systemBaseWidths = { clef: 0, key: 0 };
+    const systemBaseWidthsBySystem = {};
+    const systemActiveWidthsBySystem = {};
+    const ensureSystemWidthEntry = (widthMap, systemIndex) => {
+        const normalizedSystemIndex = Number.isFinite(systemIndex) ? systemIndex : 0;
+        if (!widthMap[normalizedSystemIndex]) {
+            widthMap[normalizedSystemIndex] = { clef: 0, key: 0 };
+        }
+        return widthMap[normalizedSystemIndex];
+    };
+
     for (const laneId in globalStickyLanes) {
-        const bw = globalStickyLanes[laneId].baseWidths;
+        const laneMeta = globalStickyLanes[laneId] || {};
+        const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
+        const systemBaseWidths = ensureSystemWidthEntry(systemBaseWidthsBySystem, systemIndex);
+        const bw = laneMeta.baseWidths;
         if (bw && bw.clef > systemBaseWidths.clef) systemBaseWidths.clef = bw.clef;
         if (bw && bw.key > systemBaseWidths.key) systemBaseWidths.key = bw.key;
     }
 
-    const systemActiveWidths = { clef: 0, key: 0 };
     const bottomLaneIdBySystem = {};
     const bottomLaneMetricBySystem = {};
 
@@ -888,7 +899,8 @@ function renderCanvas(currentX, options = {}) {
         activeIdx[laneId] = { inst: -1, reh: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };
         activeWidth[laneId] = { inst: 0, reh: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
         laneOffsets[laneId] = { rehY: 0, clef: 0, key: 0 };
-        const { typeBlocks, baseWidths } = globalStickyLanes[laneId];
+        const laneMeta = globalStickyLanes[laneId] || {};
+        const { typeBlocks, baseWidths } = laneMeta;
 
         ['inst', 'reh', 'clef', 'key', 'time', 'bar', 'brace'].forEach(type => {
             if (!typeBlocks[type]) return;
@@ -917,11 +929,16 @@ function renderCanvas(currentX, options = {}) {
 
         ['clef', 'key'].forEach(type => {
             const currentW = activeIdx[laneId][type] >= 0 ? activeWidth[laneId][type] : (baseWidths[type] || 0);
+            const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
+            const systemActiveWidths = ensureSystemWidthEntry(systemActiveWidthsBySystem, systemIndex);
             if (currentW > systemActiveWidths[type]) systemActiveWidths[type] = currentW;
         });
     }
 
-    const calcSystemDelta = (type) => {
+    const calcSystemDelta = (type, systemIndex) => {
+        const normalizedSystemIndex = Number.isFinite(systemIndex) ? systemIndex : 0;
+        const systemBaseWidths = ensureSystemWidthEntry(systemBaseWidthsBySystem, normalizedSystemIndex);
+        const systemActiveWidths = ensureSystemWidthEntry(systemActiveWidthsBySystem, normalizedSystemIndex);
         const b = systemBaseWidths[type] || 0;
         const currentW = systemActiveWidths[type] || 0;
         return calculateStickySystemDelta({
@@ -930,9 +947,6 @@ function renderCanvas(currentX, options = {}) {
             currentWidth: currentW,
         });
     };
-
-    const sysDeltaClef = calcSystemDelta('clef');
-    const sysDeltaKey = calcSystemDelta('key');
 
     for (const laneId in globalStickyLanes) {
         const laneMeta = globalStickyLanes[laneId] || {};
@@ -943,6 +957,8 @@ function renderCanvas(currentX, options = {}) {
             : null;
         const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
         const isBottomLane = bottomLaneIdBySystem[systemIndex] === laneId;
+        const sysDeltaClef = calcSystemDelta('clef', systemIndex);
+        const sysDeltaKey = calcSystemDelta('key', systemIndex);
         laneOffsets[laneId].rehY = calculateRehearsalMarkStickyYOffset({
             hasOpeningClefAnchor: (baseWidths?.clef || 0) > 0,
             placement: isBottomLane ? "below" : "above",
@@ -955,6 +971,21 @@ function renderCanvas(currentX, options = {}) {
         laneOffsets[laneId].clef = sysDeltaClef;
         laneOffsets[laneId].key = sysDeltaKey;
     }
+
+    window.__lastStickyLaneOffsets = laneOffsets;
+    window.__lastStickyKeyBlockMeta = Object.entries(globalStickyLanes).flatMap(([laneId, laneMeta]) => (
+        (laneMeta?.typeBlocks?.key || []).map((block, index) => ({
+            laneId,
+            index,
+            clearsKeySignature: block?.clearsKeySignature === true,
+            stickyWidth: block?.stickyWidth,
+            width: block?.width,
+            itemCount: Array.isArray(block?.items) ? block.items.length : 0,
+            stickyItemCount: Array.isArray(block?.items) ? block.items.filter((item) => item?.isSticky).length : 0,
+            minX: block?.minX,
+            maxX: block?.maxX,
+        }))
+    ));
 
     const normalDrawList = []; const stickyDrawList = [];
     let stickyNeedsFollowupFrame = false;
@@ -1085,7 +1116,6 @@ function renderCanvas(currentX, options = {}) {
 
         if (item.isSticky) stickyDrawList.push(drawCmd); else normalDrawList.push(drawCmd);
     }
-
     const executeDrawList = (list) => {
         for (let i = 0; i < list.length; i++) {
             const { item, drawColor, isPureBg, alpha, tx, ty, scale } = list[i];
