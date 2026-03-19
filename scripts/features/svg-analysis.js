@@ -22,8 +22,8 @@ export function createSvgAnalysisFeature({
             AltoTenor: -0.2,
         },
         MuseScore: {
-            Bass: 5,
-            Treble: -0.3,
+            Bass: 0.2,
+            Treble: -0.2,
             AltoTenor: 0,
         },
     };
