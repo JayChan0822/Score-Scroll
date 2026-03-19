@@ -4216,6 +4216,184 @@ test('debug M01 opening key signature sticky state', async ({ page }) => {
   expect(state).not.toBeNull();
 });
 
+test('keeps the opening M01 key signatures visible after they pin', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+
+  const toggleHighlightBtn = page.locator('#toggleHighlightBtn');
+  if ((await toggleHighlightBtn.textContent())?.includes('Show Glow')) {
+    await toggleHighlightBtn.click();
+  }
+
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    const progressSlider = document.getElementById('progressSlider');
+    const viewport = document.getElementById('viewport');
+    const canvas = document.getElementById('scoreCanvas') || document.querySelector('canvas');
+    if (!svg || !progressSlider || !viewport || !(canvas instanceof HTMLCanvasElement)) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const targetKeyItem = result.renderQueue.find((item) => (
+      item.symbolType === 'KeySig'
+      && item.laneId === 'lane-0'
+      && Number.isFinite(item.absMinX)
+      && item.absMinX <= result.stickyMinX + 220
+    )) || null;
+    if (!targetKeyItem) return null;
+
+    const total = Number(progressSlider.max) || 0;
+    const targetTime = total * 0.4;
+    progressSlider.value = String(targetTime);
+    progressSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
+    const playlineScreenX = viewportWidth * playlineRatio;
+    const stickyLockScreenX = viewportWidth * stickyLockRatio;
+    const worldDistanceLeft = playlineScreenX / zoom;
+    const stickyLockOffset = stickyLockScreenX / zoom;
+    const lockDistance = Number.isFinite(targetKeyItem.lockDistance) ? targetKeyItem.lockDistance : 0;
+    const layerMaxX = worldDistanceLeft + result.stickyMinX - stickyLockOffset + lockDistance;
+    const currentX = Number(window.__lastRenderX) || 0;
+    const centerX = Number.isFinite(targetKeyItem.centerX)
+      ? targetKeyItem.centerX
+      : ((targetKeyItem.absMinX + targetKeyItem.absMaxX) / 2);
+    const centerY = ((targetKeyItem.absMinY || 0) + (targetKeyItem.absMaxY || 0)) / 2;
+    const cssX = (centerX - layerMaxX) * zoom + playlineScreenX;
+    const cssY = (centerY - (Number(window.globalScoreTrueCenterY) || 0)) * zoom + (viewportHeight / 2);
+    const cssWidth = Math.max(8, ((targetKeyItem.absMaxX || 0) - (targetKeyItem.absMinX || 0)) * zoom + 6);
+    const cssHeight = Math.max(16, ((targetKeyItem.absMaxY || 0) - (targetKeyItem.absMinY || 0)) * zoom + 6);
+
+    const ctx = canvas.getContext('2d');
+    const canvasRect = canvas.getBoundingClientRect();
+    if (!ctx || canvasRect.width <= 0 || canvasRect.height <= 0) return null;
+    const scaleX = canvas.width / canvasRect.width;
+    const scaleY = canvas.height / canvasRect.height;
+    const left = Math.max(0, Math.floor((cssX - cssWidth / 2) * scaleX));
+    const top = Math.max(0, Math.floor((cssY - cssHeight / 2) * scaleY));
+    const right = Math.min(canvas.width, Math.ceil((cssX + cssWidth / 2) * scaleX));
+    const bottom = Math.min(canvas.height, Math.ceil((cssY + cssHeight / 2) * scaleY));
+    const width = Math.max(1, right - left);
+    const height = Math.max(1, bottom - top);
+    const imageData = ctx.getImageData(left, top, width, height).data;
+
+    let redPixelCount = 0;
+    for (let index = 0; index < imageData.length; index += 4) {
+      const r = imageData[index];
+      const g = imageData[index + 1];
+      const b = imageData[index + 2];
+      const a = imageData[index + 3];
+      if (r >= 180 && g <= 110 && b <= 130 && a >= 80) {
+        redPixelCount++;
+      }
+    }
+
+    return {
+      currentX,
+      layerMaxX,
+      redPixelCount,
+      cssX,
+      cssY,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.currentX).toBeGreaterThan(state.layerMaxX);
+  expect(state.redPixelCount).toBeGreaterThan(0);
+});
+
+test('debug M01 lane-0 key sticky activation state', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const { calculateStickySystemDelta } = await import('/scripts/features/sticky-layout.mjs');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const lane = result.globalStickyLanes['lane-0'] || null;
+    if (!lane) return null;
+
+    const progressSlider = document.getElementById('progressSlider');
+    const viewport = document.getElementById('viewport');
+    if (!progressSlider || !viewport) return null;
+    const total = Number(progressSlider.max) || 0;
+    const targetTime = total * 0.4;
+    progressSlider.value = String(targetTime);
+    progressSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const viewportWidth = viewport.clientWidth;
+    const playlineScreenX = viewportWidth * playlineRatio;
+    const stickyLockScreenX = viewportWidth * stickyLockRatio;
+    const worldDistanceLeft = playlineScreenX / zoom;
+    const stickyLockOffset = stickyLockScreenX / zoom;
+    const maxStickySmoothXInitial = worldDistanceLeft + result.stickyMinX - stickyLockOffset;
+    const currentX = Number(window.__lastRenderX) || 0;
+
+    const keyBlocks = (lane.typeBlocks.key || []).map((block, index) => ({
+      index,
+      minX: block.minX,
+      lockDistance: block.lockDistance,
+      layerMaxX: maxStickySmoothXInitial + (Number.isFinite(block.lockDistance) ? block.lockDistance : 0),
+      width: block.width,
+    }));
+    const clefBlocks = (lane.typeBlocks.clef || []).map((block, index) => ({
+      index,
+      minX: block.minX,
+      lockDistance: block.lockDistance,
+      layerMaxX: maxStickySmoothXInitial + (Number.isFinite(block.lockDistance) ? block.lockDistance : 0),
+      width: block.width,
+      stickyWidth: block.stickyWidth,
+    }));
+    const activeClefBlocks = clefBlocks.filter((block) => currentX >= block.layerMaxX);
+    const activeClefWidth = activeClefBlocks.length > 0
+      ? activeClefBlocks[activeClefBlocks.length - 1].stickyWidth
+      : (lane.baseWidths?.clef || 0);
+    const systemDeltaClef = calculateStickySystemDelta({
+      type: 'clef',
+      baseWidth: lane.baseWidths?.clef || 0,
+      currentWidth: activeClefWidth,
+    });
+
+    return {
+      stickyMinX: result.stickyMinX,
+      currentX,
+      laneBaseWidths: lane.baseWidths,
+      keyBlocks,
+      clefBlocks,
+      systemDeltaClef,
+    };
+  });
+
+  console.log(JSON.stringify(state, null, 2));
+  expect(state).not.toBeNull();
+});
+
 test('Dorico instrument group shared stickies include the bracket cap segments', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
   await loadFixtureIntoScore(page, fixturePath);
