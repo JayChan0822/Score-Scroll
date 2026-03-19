@@ -68,6 +68,7 @@
  * @property {boolean} showPlayline
  * @property {boolean} showScanGlow
  * @property {number} startTime
+ * @property {string} currentScoreSourceType
  * @property {number} stickyLockRatio
  * @property {number} stickyMinX
  * @property {SvgTag[]} svgTags
@@ -114,6 +115,7 @@ export function createInitialState() {
         showPlayline: true,
         showScanGlow: true,
         startTime: 0,
+        currentScoreSourceType: "Unknown",
         stickyLockRatio: 0.5,
         stickyMinX: 0,
         svgTags: [],
