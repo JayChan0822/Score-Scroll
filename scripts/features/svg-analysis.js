@@ -425,6 +425,413 @@ export function createSvgAnalysisFeature({
         return sharedGroupsById;
     }
 
+    function getAxisGap(minA, maxA, minB, maxB) {
+        if (!Number.isFinite(minA) || !Number.isFinite(maxA) || !Number.isFinite(minB) || !Number.isFinite(maxB)) {
+            return Infinity;
+        }
+        if (maxA < minB) return minB - maxA;
+        if (maxB < minA) return minA - maxB;
+        return 0;
+    }
+
+    function getItemSpanWidth(item) {
+        if (!item) return 0;
+        return Math.max(0, (item.absMaxX || 0) - (item.absMinX || 0));
+    }
+
+    function getItemSpanHeight(item) {
+        if (!item) return 0;
+        return Math.max(0, (item.absMaxY || 0) - (item.absMinY || 0));
+    }
+
+    function isLikelyVerticalBraceStemItem(item) {
+        const width = getItemSpanWidth(item);
+        const height = getItemSpanHeight(item);
+        return height >= 18 && height >= Math.max(width * 3, 18);
+    }
+
+    function isBraceStemEndpointAttachment(item, stemItem) {
+        if (!item || !stemItem || item === stemItem) return false;
+        if (isLikelyVerticalBraceStemItem(item)) return false;
+
+        const attachmentYTolerance = 8;
+        const attachmentXTolerance = 8;
+        const topYGap = getAxisGap(
+            item.absMinY,
+            item.absMaxY,
+            stemItem.absMinY - attachmentYTolerance,
+            stemItem.absMinY + attachmentYTolerance,
+        );
+        const bottomYGap = getAxisGap(
+            item.absMinY,
+            item.absMaxY,
+            stemItem.absMaxY - attachmentYTolerance,
+            stemItem.absMaxY + attachmentYTolerance,
+        );
+        if (Math.min(topYGap, bottomYGap) > attachmentYTolerance) return false;
+
+        const xGap = getAxisGap(
+            item.absMinX,
+            item.absMaxX,
+            stemItem.absMinX - attachmentXTolerance,
+            stemItem.absMaxX + attachmentXTolerance,
+        );
+        return xGap <= attachmentXTolerance;
+    }
+
+    function areBraceItemsNeighboring(leftItem, rightItem) {
+        if (!leftItem || !rightItem || leftItem === rightItem) return false;
+
+        const connectionTolerance = 4;
+        const xGap = getAxisGap(
+            leftItem.absMinX,
+            leftItem.absMaxX,
+            rightItem.absMinX - connectionTolerance,
+            rightItem.absMaxX + connectionTolerance,
+        );
+        const yGap = getAxisGap(
+            leftItem.absMinY,
+            leftItem.absMaxY,
+            rightItem.absMinY - connectionTolerance,
+            rightItem.absMaxY + connectionTolerance,
+        );
+
+        return xGap <= connectionTolerance && yGap <= connectionTolerance;
+    }
+
+    function areBraceItemsConnected(leftItem, rightItem) {
+        if (!leftItem || !rightItem || leftItem === rightItem) return false;
+
+        const leftIsStem = isLikelyVerticalBraceStemItem(leftItem);
+        const rightIsStem = isLikelyVerticalBraceStemItem(rightItem);
+
+        if (leftIsStem) return false;
+        if (rightIsStem) return isBraceStemEndpointAttachment(leftItem, rightItem);
+        return areBraceItemsNeighboring(leftItem, rightItem);
+    }
+
+    function buildOpeningBraceStemGroups(items) {
+        if (!Array.isArray(items) || items.length === 0) return [];
+
+        const indexedItems = items.map((item, index) => ({ item, index }));
+        const claimedItemIndices = new Set();
+        const stemEntries = indexedItems
+            .filter(({ item }) => isLikelyVerticalBraceStemItem(item))
+            .sort((left, right) => {
+                const leftSpan = getItemSpanHeight(left.item);
+                const rightSpan = getItemSpanHeight(right.item);
+                if (Math.abs(leftSpan - rightSpan) > 0.5) return leftSpan - rightSpan;
+                return left.item.absMinX - right.item.absMinX;
+            });
+
+        const groups = [];
+
+        stemEntries.forEach(({ item: stemItem, index: stemIndex }) => {
+            if (claimedItemIndices.has(stemIndex)) return;
+
+            claimedItemIndices.add(stemIndex);
+            const groupItems = [stemItem];
+            const pendingItems = [stemItem];
+
+            while (pendingItems.length > 0) {
+                const anchorItem = pendingItems.pop();
+                indexedItems.forEach(({ item, index }) => {
+                    if (claimedItemIndices.has(index)) return;
+                    const canAttachShortStemSegment = isLikelyVerticalBraceStemItem(item)
+                        && getItemSpanHeight(item) < getItemSpanHeight(stemItem) * 0.6
+                        && areBraceItemsNeighboring(item, anchorItem);
+                    if (!canAttachShortStemSegment && !areBraceItemsConnected(item, anchorItem)) return;
+                    claimedItemIndices.add(index);
+                    groupItems.push(item);
+                    pendingItems.push(item);
+                });
+            }
+
+            groups.push({
+                stemItem,
+                items: groupItems,
+                minX: Math.min(...groupItems.map((candidate) => candidate.absMinX)),
+                maxX: Math.max(...groupItems.map((candidate) => candidate.absMaxX)),
+                minY: stemItem.absMinY,
+                maxY: stemItem.absMaxY,
+                spanY: getItemSpanHeight(stemItem),
+            });
+        });
+
+        return groups.sort((a, b) => a.minX - b.minX || a.minY - b.minY);
+    }
+
+    function buildStickyBlocksForType(items, type, clusterThresholdX) {
+        if (!Array.isArray(items) || items.length === 0) return [];
+
+        const sortedItems = items
+            .slice()
+            .sort((a, b) => a.absMinX - b.absMinX);
+        let currentBlock = {
+            minX: sortedItems[0].absMinX,
+            maxX: sortedItems[0].absMaxX,
+            minY: Number.isFinite(sortedItems[0].absMinY) ? sortedItems[0].absMinY : sortedItems[0].centerY,
+            maxY: Number.isFinite(sortedItems[0].absMaxY) ? sortedItems[0].absMaxY : sortedItems[0].centerY,
+            items: [sortedItems[0]],
+        };
+        const blocks = [];
+
+        for (let i = 1; i < sortedItems.length; i++) {
+            const item = sortedItems[i];
+            if (!shouldStartNewStickyBlock(type, currentBlock, item, clusterThresholdX)) {
+                currentBlock.items.push(item);
+                if (item.absMaxX > currentBlock.maxX) currentBlock.maxX = item.absMaxX;
+                if (Number.isFinite(item.absMinY) && item.absMinY < currentBlock.minY) currentBlock.minY = item.absMinY;
+                if (Number.isFinite(item.absMaxY) && item.absMaxY > currentBlock.maxY) currentBlock.maxY = item.absMaxY;
+            } else {
+                currentBlock.width = currentBlock.maxX - currentBlock.minX;
+                blocks.push(currentBlock);
+                currentBlock = {
+                    minX: item.absMinX,
+                    maxX: item.absMaxX,
+                    minY: Number.isFinite(item.absMinY) ? item.absMinY : item.centerY,
+                    maxY: Number.isFinite(item.absMaxY) ? item.absMaxY : item.centerY,
+                    items: [item],
+                };
+            }
+        }
+
+        currentBlock.width = currentBlock.maxX - currentBlock.minX;
+        blocks.push(currentBlock);
+        blocks.forEach((block) => {
+            const clearsKeySignature = type === "key" && isNaturalOnlyKeySignatureBlock(block.items);
+            block.clearsKeySignature = clearsKeySignature;
+            block.stickyWidth = getStickyBlockDisplayWidth({
+                type,
+                blockWidth: block.width,
+                clearsKeySignature,
+            });
+        });
+
+        return blocks;
+    }
+
+    function refreshBraceLaneBlocksAfterSharedInstrumentGroups(globalStickyLanes, stickyMinX, openingThresholdX, clusterThresholdX) {
+        if (!globalStickyLanes || typeof globalStickyLanes !== "object") return;
+
+        const recalculateOpeningEnvelopeMaxY = (laneMeta) => {
+            const openingSymbolBlocks = ["clef", "key", "time", "bar", "brace"]
+                .map((type) => laneMeta.typeBlocks?.[type]?.[0] || null)
+                .filter((block) => block && block.minX <= stickyMinX + openingThresholdX);
+            laneMeta.openingEnvelopeMaxY = openingSymbolBlocks.length > 0
+                ? Math.max(...openingSymbolBlocks.map((block) => block.maxY))
+                : null;
+        };
+
+        Object.entries(globalStickyLanes).forEach(([laneId, laneMeta]) => {
+            const existingBraceBlocks = laneMeta?.typeBlocks?.brace;
+            if (!Array.isArray(existingBraceBlocks) || existingBraceBlocks.length === 0) return;
+
+            const braceItems = existingBraceBlocks
+                .flatMap((block) => block.items || [])
+                .filter((item) => item && item.stickyType === "brace" && !item.sharedStickyGroupId);
+
+            if (braceItems.length === 0) {
+                delete laneMeta.typeBlocks.brace;
+                if (laneMeta.baseWidths) laneMeta.baseWidths.brace = 0;
+                recalculateOpeningEnvelopeMaxY(laneMeta);
+                return;
+            }
+
+            const rebuiltBraceBlocks = buildStickyBlocksForType(braceItems, "brace", clusterThresholdX);
+            const firstBlock = rebuiltBraceBlocks[0];
+            rebuiltBraceBlocks.forEach((block, index) => {
+                const lockDistance = calculateStickyBlockLockDistance({
+                    type: "brace",
+                    blockMinX: block.minX,
+                    firstBlockMinX: firstBlock.minX,
+                    openingThresholdX,
+                    stickyMinX,
+                });
+                block.lockDistance = lockDistance;
+                block.items.forEach((item) => {
+                    item.isSticky = true;
+                    item.stickyType = "brace";
+                    item.laneId = laneId;
+                    item.systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
+                    item.blockIndex = index;
+                    item.lockDistance = lockDistance;
+                    item.blockMinX = block.minX;
+                    item.blockMinY = block.minY;
+                    item.blockMaxY = block.maxY;
+                    item.blockCenterY = block.items[0].centerY;
+                    item.isMidClef = false;
+                    item.midClefOffsetY = 0;
+                });
+            });
+
+            laneMeta.typeBlocks.brace = rebuiltBraceBlocks;
+            if (laneMeta.baseWidths) {
+                laneMeta.baseWidths.brace = firstBlock.minX <= stickyMinX + openingThresholdX
+                    ? (Number.isFinite(firstBlock.stickyWidth) ? firstBlock.stickyWidth : firstBlock.width)
+                    : 0;
+            }
+            recalculateOpeningEnvelopeMaxY(laneMeta);
+        });
+    }
+
+    function registerSharedInstrumentGroupStickyGroups(renderQueue, stickyMinX, openingThresholdX) {
+        const labelItems = renderQueue
+            .filter((item) => item.symbolType === "InstGroupLabel" && item.type === "text")
+            .sort((a, b) => a.centerY - b.centerY || a.absMinX - b.absMinX);
+
+        if (labelItems.length === 0) return {};
+
+        const openingMaxX = Number.isFinite(stickyMinX) ? stickyMinX + openingThresholdX : Infinity;
+        const braceCandidates = renderQueue.filter((item) => (
+            item.symbolType === "Brace"
+            && item.absMinX <= openingMaxX
+        ));
+        const braceStemGroups = buildOpeningBraceStemGroups(braceCandidates);
+        const usedStemGroupIndices = new Set();
+        const sharedGroupsById = {};
+
+        labelItems.forEach((labelItem, index) => {
+            const labelAnchorX = Number.isFinite(labelItem.absMaxX) ? labelItem.absMaxX : labelItem.absMinX;
+            const labelCenterY = Number.isFinite(labelItem.centerY)
+                ? labelItem.centerY
+                : ((labelItem.absMinY + labelItem.absMaxY) / 2);
+            const labelSpanHeight = getItemSpanHeight(labelItem);
+            const nearbyKnockoutMaskItems = renderQueue.filter((item) => {
+                if (item.symbolType) return false;
+                if (item.fillRole !== "bg") return false;
+                if (!["rect", "path"].includes(item.type)) return false;
+                const width = getItemSpanWidth(item);
+                const height = getItemSpanHeight(item);
+                if (width <= 0 || height <= 0) return false;
+                if (width > 24 || height > Math.max(96, labelSpanHeight + 16)) return false;
+                return labelCenterY >= item.absMinY - 12 && labelCenterY <= item.absMaxY + 12;
+            });
+
+            const stemGroupMatch = braceStemGroups
+                .map((group, groupIndex) => ({ group, groupIndex }))
+                .filter(({ groupIndex }) => !usedStemGroupIndices.has(groupIndex))
+                .filter(({ group }) => labelCenterY >= group.minY - 2 && labelCenterY <= group.maxY + 2)
+                .sort((left, right) => {
+                    const leftKnockoutGap = nearbyKnockoutMaskItems.length > 0
+                        ? Math.min(...nearbyKnockoutMaskItems.map((item) => getAxisGap(
+                            item.absMinX,
+                            item.absMaxX,
+                            left.group.minX - 6,
+                            left.group.maxX + 6,
+                        )))
+                        : Infinity;
+                    const rightKnockoutGap = nearbyKnockoutMaskItems.length > 0
+                        ? Math.min(...nearbyKnockoutMaskItems.map((item) => getAxisGap(
+                            item.absMinX,
+                            item.absMaxX,
+                            right.group.minX - 6,
+                            right.group.maxX + 6,
+                        )))
+                        : Infinity;
+                    const leftHasKnockoutAlignment = leftKnockoutGap <= 6;
+                    const rightHasKnockoutAlignment = rightKnockoutGap <= 6;
+                    if (leftHasKnockoutAlignment !== rightHasKnockoutAlignment) {
+                        return leftHasKnockoutAlignment ? -1 : 1;
+                    }
+                    if (Math.abs(leftKnockoutGap - rightKnockoutGap) > 0.5) {
+                        return leftKnockoutGap - rightKnockoutGap;
+                    }
+
+                    const leftSpan = left.group.spanY;
+                    const rightSpan = right.group.spanY;
+                    if (Math.abs(leftSpan - rightSpan) > 0.5) return leftSpan - rightSpan;
+
+                    const leftXGap = Math.abs(left.group.minX - labelAnchorX);
+                    const rightXGap = Math.abs(right.group.minX - labelAnchorX);
+                    return leftXGap - rightXGap;
+                })[0] || null;
+
+            if (!stemGroupMatch) return;
+
+            const attachedStemGroups = [stemGroupMatch];
+            const attachedStemGroupIndices = new Set([stemGroupMatch.groupIndex]);
+            const pendingStemGroups = [stemGroupMatch];
+
+            while (pendingStemGroups.length > 0) {
+                const anchorStemGroup = pendingStemGroups.pop();
+                braceStemGroups
+                    .map((group, groupIndex) => ({ group, groupIndex }))
+                    .filter(({ groupIndex }) => !usedStemGroupIndices.has(groupIndex) && !attachedStemGroupIndices.has(groupIndex))
+                    .filter(({ group }) => group.spanY < stemGroupMatch.group.spanY * 0.6)
+                    .filter(({ group }) => {
+                        const xGap = getAxisGap(
+                            group.minX,
+                            group.maxX,
+                            anchorStemGroup.group.minX - 10,
+                            anchorStemGroup.group.maxX + 10,
+                        );
+                        if (xGap > 10) return false;
+
+                        const topGap = getAxisGap(
+                            group.minY,
+                            group.maxY,
+                            anchorStemGroup.group.minY - 12,
+                            anchorStemGroup.group.minY + 12,
+                        );
+                        const bottomGap = getAxisGap(
+                            group.minY,
+                            group.maxY,
+                            anchorStemGroup.group.maxY - 12,
+                            anchorStemGroup.group.maxY + 12,
+                        );
+                        return Math.min(topGap, bottomGap) <= 12;
+                    })
+                    .forEach((entry) => {
+                        attachedStemGroupIndices.add(entry.groupIndex);
+                        attachedStemGroups.push(entry);
+                        pendingStemGroups.push(entry);
+                    });
+            }
+
+            attachedStemGroupIndices.forEach((groupIndex) => {
+                usedStemGroupIndices.add(groupIndex);
+            });
+            const braceGroupItems = attachedStemGroups.flatMap(({ group }) => group.items);
+            const braceGroupMinX = Math.min(...braceGroupItems.map((item) => item.absMinX));
+            const braceGroupMaxX = Math.max(...braceGroupItems.map((item) => item.absMaxX));
+            const knockoutMaskItems = nearbyKnockoutMaskItems.filter((item) => (
+                getAxisGap(
+                    item.absMinX,
+                    item.absMaxX,
+                    braceGroupMinX - 6,
+                    braceGroupMaxX + 6,
+                ) <= 6
+            ));
+            const blockItems = [
+                labelItem,
+                ...braceGroupItems,
+                ...knockoutMaskItems,
+            ].filter((item, itemIndex, allItems) => allItems.indexOf(item) === itemIndex);
+            const groupId = `inst-group-${index}`;
+
+            blockItems.forEach((item) => {
+                item.isSticky = true;
+                item.stickyType = "instGroup";
+                item.sharedStickyGroupId = groupId;
+                item.sharedBlockIndex = 0;
+                item.sharedLockDistance = 0;
+            });
+
+            sharedGroupsById[groupId] = {
+                type: "instGroup",
+                blocks: [{
+                    minX: Math.min(...blockItems.map((item) => item.absMinX)),
+                    maxX: Math.max(...blockItems.map((item) => item.absMaxX)),
+                    items: blockItems,
+                    lockDistance: 0,
+                }],
+            };
+        });
+
+        return sharedGroupsById;
+    }
+
     function preprocessSvgColors(svgNode) {
         const isBgColor = (colorValue) => {
             if (!colorValue) return false;
@@ -558,6 +965,7 @@ export function createSvgAnalysisFeature({
         }
 
         function getSymbolType(el) {
+            if (el.classList.contains("highlight-instgroup-label")) return "InstGroupLabel";
             if (el.classList.contains("highlight-instname")) return "InstName";
             if (el.classList.contains("highlight-rehearsalmark")) return "RehearsalMark";
             if (el.classList.contains("highlight-clef")) return "Clef";
@@ -1377,10 +1785,20 @@ export function createSvgAnalysisFeature({
             });
         });
 
+        const instrumentGroupSharedGroups = registerSharedInstrumentGroupStickyGroups(renderQueue, stickyMinX, stickyOpeningThresholdX);
         Object.assign(
             globalStickySharedGroups,
+            instrumentGroupSharedGroups,
             registerSharedGiantTimeStickyGroups(renderQueue, stickyMinX, stickyOpeningThresholdX),
         );
+        if (Object.keys(instrumentGroupSharedGroups).length > 0) {
+            refreshBraceLaneBlocksAfterSharedInstrumentGroups(
+                globalStickyLanes,
+                stickyMinX,
+                stickyOpeningThresholdX,
+                clusterThresholdX,
+            );
+        }
 
         renderQueue.sort((a, b) => (a.domIndex || 0) - (b.domIndex || 0));
         debugLog(`📦 内存数据库构建：已提取强分离指令 ${renderQueue.length} 条！`);

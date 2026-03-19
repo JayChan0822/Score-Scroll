@@ -90,3 +90,42 @@
     border-color: #ff2a5f;
     color: #fff;
 }
+
+.custom-ratio-modal-content {
+    max-width: 420px;
+}
+
+.custom-ratio-description {
+    color: var(--text-muted);
+    font-size: 12px;
+    letter-spacing: 0.8px;
+    line-height: 1.6;
+    margin: -8px 0 0;
+    text-align: center;
+}
+
+.custom-ratio-field {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.custom-ratio-label {
+    color: var(--text-main);
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.custom-ratio-input {
+    min-height: 44px;
+    text-align: center;
+    width: 100%;
+}
+
+.custom-ratio-error {
+    color: #ff7d9b;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    margin: -8px 0 0;
+    min-height: 18px;
+}

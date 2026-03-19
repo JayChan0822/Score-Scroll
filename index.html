@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="./styles/main.css">
     <script>
         (() => {
-            const APP_MODULE_VERSION = '20260319-reh-sticky-padding-split-1';
+            const APP_MODULE_VERSION = '20260319-custom-export-ratio-1';
 
             const loadAppModule = () => {
                 const appScript = document.createElement('script');
@@ -220,6 +220,7 @@
                                 <option value="9:16">9:16 (竖屏)</option>
                                 <option value="4:3">4:3</option>
                                 <option value="3:4">3:4</option>
+                                <option value="custom">自定义比例</option>
                             </select>
                         </div>
 
@@ -307,6 +308,21 @@
             <div class="export-modal-footer">
                 <span id="exportProgressText">0.0%</span>
                 <button id="cancelExportBtn" class="cancel-btn">🛑 CANCEL</button>
+            </div>
+        </div>
+    </div>
+    <div id="customRatioModal" class="export-modal custom-ratio-modal">
+        <div class="export-modal-content custom-ratio-modal-content">
+            <h3>自定义比例</h3>
+            <p class="custom-ratio-description">输入长宽比，例如 3:2 或 21:9</p>
+            <div class="custom-ratio-field">
+                <label for="customRatioInput" class="custom-ratio-label">长宽比</label>
+                <input id="customRatioInput" class="control-number custom-ratio-input" type="text" inputmode="decimal" placeholder="例如 3:2" autocomplete="off">
+            </div>
+            <p id="customRatioError" class="custom-ratio-error" aria-live="polite"></p>
+            <div class="btn-group btn-group-end">
+                <button id="customRatioCancelBtn" class="button-compact" type="button">取消</button>
+                <button id="customRatioConfirmBtn" class="button-accent" type="button">确认</button>
             </div>
         </div>
     </div>

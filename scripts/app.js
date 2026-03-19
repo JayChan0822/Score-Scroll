@@ -2,11 +2,16 @@ import {
     PRIVATE_USE_GLYPH_REGEX,
     TIME_SIGNATURE_GLYPH_REGEX,
 } from "./core/constants.js";
-import { getDomRefs } from "./core/dom.js?v=20260313-preview-focus-mode-1";
+import { getDomRefs } from "./core/dom.js?v=20260319-custom-export-ratio-1";
 import { createInitialState } from "./core/state.js?v=20260313-sticky-lock-light-export-1";
 import { MusicFontRegistry } from "./data/music-font-registry.js";
 import { createAudioFeature } from "./features/audio.js";
-import { computeSharedExportDimensions, createExportVideoFeature } from "./features/export-video.js?v=20260313-equal-height-preview-1";
+import {
+    computeSharedExportDimensions,
+    createExportVideoFeature,
+    normalizeAspectRatioValue,
+    resolveAspectRatioValue,
+} from "./features/export-video.js?v=20260319-custom-export-ratio-1";
 import { parseMidiData } from "./features/midi.js";
 import {
     buildScoreAnalysisProfile,
@@ -45,12 +50,14 @@ import {
     simplifySvgPathSignature,
 } from "./features/time-signature-decoder.js?v=20260317-glyph-font-fallback-1";
 import { createTimelineFeature } from "./features/timeline.js";
-import { bindUiEvents } from "./features/ui-events.js?v=20260313-sticky-lock-light-export-1";
+import { bindUiEvents } from "./features/ui-events.js?v=20260319-custom-export-ratio-1";
 import { debugLog } from "./utils/debug.js";
 import { formatSeconds } from "./utils/format.js";
 import { clamp } from "./utils/math.js";
 
 const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
+const CUSTOM_EXPORT_RATIO_OPTION_VALUE = "custom";
+const DEFAULT_EXPORT_RATIO = "16:9";
 const PLAYBACK_TAIL_BUFFER_SEC = 2;
 const PREVIEW_FOCUS_MODE_CLASS = "preview-focus-mode";
 const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
@@ -120,6 +127,11 @@ const {
     bpmVal,
     canvas: initialCanvas,
     cancelExportBtn,
+    customRatioCancelBtn,
+    customRatioConfirmBtn,
+    customRatioError,
+    customRatioInput,
+    customRatioModal,
     delaySlider,
     delayVal,
     distSlider,
@@ -176,6 +188,11 @@ const dom = {
     bpmVal,
     cancelExportBtn,
     canvas,
+    customRatioCancelBtn,
+    customRatioConfirmBtn,
+    customRatioError,
+    customRatioInput,
+    customRatioModal,
     delaySlider,
     delayVal,
     distSlider,
@@ -306,6 +323,7 @@ const exportFeature = createExportVideoFeature({
     getCanvas: () => canvas,
     getCancelVideoExport: () => cancelVideoExport,
     getCtx: () => ctx,
+    getEffectiveExportRatio,
     getGlobalAudioFile: () => globalAudioFile,
     getGlobalScoreHeight: () => globalScoreHeight,
     getGlobalZoom: () => globalZoom,
@@ -342,6 +360,9 @@ const exportFeature = createExportVideoFeature({
         smoothX = nextX;
     },
 });
+
+let customExportRatio = "";
+let lastNonCustomExportRatio = resolveAspectRatioValue(exportRatioSelect?.value, DEFAULT_EXPORT_RATIO);
 
 function updateZoomUI() {
     zoomValDisplay.innerText = Math.round(globalZoom * 100) + '%';
@@ -385,6 +406,67 @@ function schedulePreviewFocusLayoutSync() {
     });
 }
 
+function getCustomRatioOption() {
+    return /** @type {HTMLOptionElement | null} */ (dom.exportRatioSelect?.querySelector(`option[value="${CUSTOM_EXPORT_RATIO_OPTION_VALUE}"]`) || null);
+}
+
+function updateCustomRatioOptionLabel() {
+    const customOption = getCustomRatioOption();
+    if (!customOption) return;
+    customOption.textContent = customExportRatio ? `自定义 (${customExportRatio})` : "自定义比例";
+}
+
+function setCustomRatioError(message = "") {
+    if (dom.customRatioError) {
+        dom.customRatioError.textContent = message;
+    }
+}
+
+function getEffectiveExportRatio(selectedRatio = dom.exportRatioSelect?.value || DEFAULT_EXPORT_RATIO) {
+    const fallbackRatio = resolveAspectRatioValue(lastNonCustomExportRatio, DEFAULT_EXPORT_RATIO);
+    if (selectedRatio === CUSTOM_EXPORT_RATIO_OPTION_VALUE) {
+        return resolveAspectRatioValue(customExportRatio, fallbackRatio);
+    }
+    return resolveAspectRatioValue(selectedRatio, fallbackRatio);
+}
+
+function syncExportRatioSelectionState(selectedRatio = dom.exportRatioSelect?.value || DEFAULT_EXPORT_RATIO) {
+    if (selectedRatio !== CUSTOM_EXPORT_RATIO_OPTION_VALUE) {
+        lastNonCustomExportRatio = resolveAspectRatioValue(selectedRatio, DEFAULT_EXPORT_RATIO);
+    }
+    updateCustomRatioOptionLabel();
+}
+
+function isCustomRatioModalOpen() {
+    return Boolean(dom.customRatioModal?.classList.contains("show"));
+}
+
+function openCustomRatioModal() {
+    if (!dom.customRatioModal || !dom.customRatioInput) return;
+
+    dom.customRatioModal.style.display = "flex";
+    void dom.customRatioModal.offsetWidth;
+    dom.customRatioModal.classList.add("show");
+    dom.customRatioInput.value = customExportRatio || (lastNonCustomExportRatio === "auto" ? DEFAULT_EXPORT_RATIO : lastNonCustomExportRatio);
+    setCustomRatioError("");
+    requestAnimationFrame(() => {
+        dom.customRatioInput?.focus();
+        dom.customRatioInput?.select();
+    });
+}
+
+function closeCustomRatioModal() {
+    if (!dom.customRatioModal) return;
+    dom.customRatioModal.classList.remove("show");
+    dom.customRatioModal.style.display = "none";
+    setCustomRatioError("");
+}
+
+function applyExportRatioPreviewSync() {
+    syncViewportSizingMode();
+    resizeCanvas();
+}
+
 function togglePreviewFocusMode() {
     document.body.classList.toggle(PREVIEW_FOCUS_MODE_CLASS);
     syncPreviewFocusButtonState();
@@ -408,7 +490,7 @@ function fitScoreToViewportHeight() {
     }
 }
 
-function syncViewportSizingMode(ratio = exportRatioSelect ? exportRatioSelect.value : "auto") {
+function syncViewportSizingMode(ratio = getEffectiveExportRatio()) {
     if (!viewportEl) return;
 
     viewportEl.style.width = "100%";
@@ -466,7 +548,7 @@ function syncDesktopPreviewFrame() {
         0;
     if (!Number.isFinite(stageAvailableWidth) || stageAvailableWidth <= 0) return false;
 
-    const selectedRatio = exportRatioSelect?.value || "auto";
+    const selectedRatio = getEffectiveExportRatio();
     let desiredPreviewWidth = stageAvailableWidth;
 
     if (selectedRatio === "auto") {
@@ -512,7 +594,7 @@ function syncMobileExportPreviewHeight() {
     if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return false;
 
     const { targetHeight } = computeSharedExportDimensions({
-        aspectRatio: exportRatioSelect?.value || "auto",
+        aspectRatio: getEffectiveExportRatio(),
         baseRes: getSelectedExportBaseResolution(),
         globalScoreHeight,
         globalZoom,
@@ -969,7 +1051,7 @@ function renderCanvas(currentX, options = {}) {
         let drawColor = isPureBg ? bgColor : noteColor;
 
         if (showHighlights && item.symbolType) {
-            if (['Clef', 'Brace', 'TimeSig', 'KeySig', 'Barline', 'InstName', 'RehearsalMark', 'TrueBarline'].includes(item.symbolType)) {
+            if (['Clef', 'Brace', 'TimeSig', 'KeySig', 'Barline', 'InstName', 'InstGroupLabel', 'RehearsalMark', 'TrueBarline'].includes(item.symbolType)) {
                 drawColor = '#ff2a5f';
             }
         }
@@ -1494,7 +1576,7 @@ function detectScoreSourceType(svgRoot, svgText = "") {
         return SCORE_SOURCE_MUSESCORE;
     }
 
-    if (/\bDorico\b/i.test(descText)) return SCORE_SOURCE_DORICO;
+    if (/\bDorico\d*\b/i.test(descText)) return SCORE_SOURCE_DORICO;
 
     if (SIBELIUS_SOURCE_REGEX.test(svgText)) return SCORE_SOURCE_SIBELIUS;
 
@@ -1600,6 +1682,7 @@ async function processSvgContent(svgContent) {
     if (typeof identifyAndHighlightClefs === 'function') identifyAndHighlightClefs();
     if (typeof identifyAndHighlightInitialBarlines === 'function') identifyAndHighlightInitialBarlines();
     if (typeof identifyAndHighlightGeometricBrackets === 'function') identifyAndHighlightGeometricBrackets();
+    if (typeof identifyAndHighlightInstrumentGroupLabels === 'function') identifyAndHighlightInstrumentGroupLabels();
     if (typeof identifyAndHighlightRehearsalMarks === 'function') identifyAndHighlightRehearsalMarks();
     if (typeof identifyAndHighlightInstrumentNames === 'function') identifyAndHighlightInstrumentNames();
     if (typeof identifyAndHighlightKeySignatures === 'function') identifyAndHighlightKeySignatures();
@@ -2202,6 +2285,13 @@ function identifyAndHighlightGeometricBrackets() {
     if (!svgRoot) return;
     if (!(globalSystemInternalX > 0)) return;
 
+    const getAxisGap = (minA, maxA, minB, maxB) => {
+        if (![minA, maxA, minB, maxB].every(Number.isFinite)) return Infinity;
+        if (maxA < minB) return minB - maxA;
+        if (maxB < minA) return minA - maxB;
+        return 0;
+    };
+
     if (isMuseScoreSvg(svgRoot)) {
         const semanticBracketPaths = Array.from(svgRoot.querySelectorAll('path')).filter((el) =>
             hasSvgClass(el, 'Bracket') || hasSvgClass(el, 'Brace')
@@ -2330,6 +2420,19 @@ function identifyAndHighlightGeometricBrackets() {
             if (seg.length > bracketBandWidth + connectionTolerance) return false;
             if (seg.y < independentMinY - connectionTolerance || seg.y > independentMaxY + connectionTolerance) return false;
 
+            const touchesBracketStemEndpoint = independentBracketVerticals.some((vertical) => {
+                const touchesVerticalX = (
+                    Math.abs(seg.leftX - vertical.x) <= connectionTolerance
+                    || Math.abs(seg.rightX - vertical.x) <= connectionTolerance
+                );
+                if (!touchesVerticalX) return false;
+
+                return (
+                    Math.abs(seg.y - vertical.topY) <= connectionTolerance
+                    || Math.abs(seg.y - vertical.bottomY) <= connectionTolerance
+                );
+            });
+
             const touchedAnchors = bracketAnchorXs.filter((anchorX, index) =>
                 bracketAnchorXs.findIndex(candidate => Math.abs(candidate - anchorX) <= 0.01) === index &&
                 (
@@ -2338,12 +2441,53 @@ function identifyAndHighlightGeometricBrackets() {
                 )
             );
 
-            return touchedAnchors.length >= 2;
+            return touchedAnchors.length >= 2 || touchesBracketStemEndpoint;
         });
+        const independentConnectedBracePaths = currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO
+            ? Array.from(svgRoot.querySelectorAll('path')).filter((path) => {
+                if (path.classList.contains('highlight-clef') || path.classList.contains('highlight-brace')) return false;
+
+                const d = path.getAttribute('d');
+                if (!d) return false;
+
+                const symbolType = identifyClefOrBrace(simplifySvgPathSignature(d), d);
+                if (!symbolType || !symbolType.includes('Brace')) return false;
+
+                const rect = path.getBoundingClientRect();
+                if (!(rect.width > 0) || !(rect.height > 0)) return false;
+                if (rect.width > bracketBandWidth + (connectionTolerance * 2)) return false;
+                if (rect.height > Math.max(12, staffSpace * 2.5)) return false;
+                if (rect.bottom < independentMinY - (connectionTolerance * 2) || rect.top > independentMaxY + (connectionTolerance * 2)) return false;
+
+                return independentBracketVerticals.some((vertical) => {
+                    const xGap = getAxisGap(
+                        rect.left,
+                        rect.right,
+                        vertical.x - (connectionTolerance * 2),
+                        vertical.x + (connectionTolerance * 2),
+                    );
+                    const topGap = getAxisGap(
+                        rect.top,
+                        rect.bottom,
+                        vertical.topY - (connectionTolerance * 2),
+                        vertical.topY + (connectionTolerance * 2),
+                    );
+                    const bottomGap = getAxisGap(
+                        rect.top,
+                        rect.bottom,
+                        vertical.bottomY - (connectionTolerance * 2),
+                        vertical.bottomY + (connectionTolerance * 2),
+                    );
+
+                    return xGap <= connectionTolerance * 2 && Math.min(topGap, bottomGap) <= connectionTolerance * 2;
+                });
+            })
+            : [];
 
         const independentElements = [
             ...independentBracketVerticals.map(vertical => vertical.element),
             ...independentConnectedHorizontals.map(horizontal => horizontal.element),
+            ...independentConnectedBracePaths,
         ].filter((el, index, allElements) => allElements.indexOf(el) === index);
 
         independentElements.forEach((el) => {
@@ -2419,7 +2563,7 @@ function identifyAndHighlightGeometricBrackets() {
 
         const clusterElements = [
             ...cluster.verticals.map(vertical => vertical.element),
-            ...connectedHorizontals.map(horizontal => horizontal.element)
+            ...connectedHorizontals.map(horizontal => horizontal.element),
         ].filter((el, index, allElements) => allElements.indexOf(el) === index);
 
         clusterElements.forEach((el) => {
@@ -2435,6 +2579,197 @@ function identifyAndHighlightGeometricBrackets() {
     }
 }
 
+function getNearestTransformMatrix(el) {
+    if (!el || typeof el.closest !== 'function') return null;
+
+    const transformNode = el.closest('[transform]');
+    const transformValue = transformNode?.getAttribute('transform') || '';
+    const matrixMatch = transformValue.match(/matrix\(([^)]+)\)/i);
+    if (!matrixMatch) return null;
+
+    const values = matrixMatch[1]
+        .split(/[,\s]+/)
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+    if (values.length < 4) return null;
+
+    return {
+        a: values[0],
+        b: values[1],
+        c: values[2],
+        d: values[3],
+    };
+}
+
+function isNearQuarterTurnTextMatrix(el) {
+    const explicitMatrix = getNearestTransformMatrix(el);
+    const matrix = explicitMatrix || el?.getCTM?.() || null;
+    if (!matrix) return false;
+
+    return Math.abs(matrix.a) <= 0.05
+        && Math.abs(matrix.d) <= 0.05
+        && Math.abs(matrix.b) >= 0.05
+        && Math.abs(matrix.c) >= 0.05;
+}
+
+function isLikelyVerticalBraceStemRect(rect) {
+    if (!rect) return false;
+    const width = Math.max(0, rect.width);
+    const height = Math.max(0, rect.height);
+    return height >= 18 && height >= Math.max(width * 3, 18);
+}
+
+function getRectAxisGap(minA, maxA, minB, maxB) {
+    if (![minA, maxA, minB, maxB].every(Number.isFinite)) return Infinity;
+    if (maxA < minB) return minB - maxA;
+    if (maxB < minA) return minA - maxB;
+    return 0;
+}
+
+function findMatchingOpeningBraceStemRect(labelRect, braceStemRects) {
+    if (!labelRect || !Array.isArray(braceStemRects) || braceStemRects.length === 0) return null;
+
+    const labelCenterY = labelRect.top + labelRect.height / 2;
+
+    return braceStemRects
+        .filter(({ rect }) => rect.left >= labelRect.right - 2)
+        .filter(({ rect }) => labelCenterY >= rect.top - 2 && labelCenterY <= rect.bottom + 2)
+        .sort((left, right) => {
+            const leftSpan = left.rect.height;
+            const rightSpan = right.rect.height;
+            if (Math.abs(leftSpan - rightSpan) > 0.5) return leftSpan - rightSpan;
+
+            const leftXGap = Math.abs(left.rect.left - labelRect.right);
+            const rightXGap = Math.abs(right.rect.left - labelRect.right);
+            return leftXGap - rightXGap;
+        })[0] || null;
+}
+
+function findAndHighlightRectilinearInstrumentGroupBracket(svgRoot, labelRect) {
+    if (!svgRoot || !labelRect || !(globalSystemBarlineScreenX > 0)) return null;
+
+    const labelCenterY = labelRect.top + labelRect.height / 2;
+    const endpointTolerance = 8;
+    const pathEntries = Array.from(svgRoot.querySelectorAll('path'))
+        .filter((path) => !path.classList.contains('highlight-clef'))
+        .map((el) => ({ el, rect: el.getBoundingClientRect() }))
+        .filter(({ rect }) => (
+            rect.width > 0
+            && rect.height > 0
+            && rect.right >= labelRect.left - 20
+            && rect.right <= globalSystemBarlineScreenX + 20
+        ));
+
+    const stemEntry = pathEntries
+        .filter(({ el }) => !el.classList.contains('highlight-brace'))
+        .filter(({ rect }) => isLikelyVerticalBraceStemRect(rect))
+        .filter(({ rect }) => labelCenterY >= rect.top - 4 && labelCenterY <= rect.bottom + 4)
+        .sort((left, right) => {
+            const leftXGap = Math.abs(left.rect.left - labelRect.right);
+            const rightXGap = Math.abs(right.rect.left - labelRect.right);
+            if (Math.abs(leftXGap - rightXGap) > 0.5) return leftXGap - rightXGap;
+
+            const leftSpan = left.rect.height;
+            const rightSpan = right.rect.height;
+            return leftSpan - rightSpan;
+        })[0] || null;
+
+    if (!stemEntry) return null;
+
+    const capEntries = pathEntries
+        .filter(({ el }) => el !== stemEntry.el && !el.classList.contains('highlight-brace'))
+        .filter(({ rect }) => rect.width >= Math.max(rect.height * 2, 4))
+        .filter(({ rect }) => rect.width <= Math.max(18, labelRect.height * 1.25))
+        .filter(({ rect }) => rect.height <= Math.max(4, stemEntry.rect.width * 4))
+        .filter(({ rect }) => getRectAxisGap(
+            rect.left,
+            rect.right,
+            stemEntry.rect.left - endpointTolerance,
+            stemEntry.rect.right + endpointTolerance,
+        ) <= endpointTolerance)
+        .filter(({ rect }) => {
+            const topGap = getRectAxisGap(
+                rect.top,
+                rect.bottom,
+                stemEntry.rect.top - endpointTolerance,
+                stemEntry.rect.top + endpointTolerance,
+            );
+            const bottomGap = getRectAxisGap(
+                rect.top,
+                rect.bottom,
+                stemEntry.rect.bottom - endpointTolerance,
+                stemEntry.rect.bottom + endpointTolerance,
+            );
+            return Math.min(topGap, bottomGap) <= endpointTolerance;
+        });
+
+    [stemEntry, ...capEntries].forEach(({ el }) => {
+        if (!el.classList.contains('highlight-brace')) {
+            el.classList.add('highlight-brace');
+        }
+    });
+
+    return {
+        el: stemEntry.el,
+        rect: stemEntry.rect,
+    };
+}
+
+function identifyAndHighlightInstrumentGroupLabels() {
+    const svgRoot = document.querySelector('#score-container svg');
+    if (!svgRoot) return;
+    if (detectScoreSourceType(svgRoot, currentRawSvgContent || '') !== SCORE_SOURCE_DORICO) return;
+    if (!(globalSystemBarlineScreenX > 0)) return;
+
+    const textElements = Array.from(svgRoot.querySelectorAll('text'));
+    const openingTextThreshold = globalSystemBarlineScreenX - 2;
+    const braceStemRects = Array.from(svgRoot.querySelectorAll('.highlight-brace'))
+        .map((el) => ({ el, rect: el.getBoundingClientRect() }))
+        .filter(({ rect }) => isLikelyVerticalBraceStemRect(rect))
+        .filter(({ rect }) => rect.left <= globalSystemBarlineScreenX + 80);
+
+    let foundCount = 0;
+    textElements.forEach((el) => {
+        if (
+            el.classList.contains('highlight-clef')
+            || el.classList.contains('highlight-brace')
+            || el.classList.contains('highlight-rehearsalmark')
+            || el.classList.contains('highlight-instname')
+        ) {
+            return;
+        }
+
+        const content = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!content || content.includes('@')) return;
+        if (PRIVATE_USE_GLYPH_REGEX.test(content)) return;
+        if (TIME_SIGNATURE_GLYPH_REGEX.test(content)) return;
+
+        const rect = el.getBoundingClientRect();
+        if (!(rect.width > 0) || !(rect.height > 0)) return;
+        if (rect.right >= openingTextThreshold) return;
+        if (!isNearQuarterTurnTextMatrix(el)) return;
+        let matchingBraceStem = findMatchingOpeningBraceStemRect(rect, braceStemRects);
+        if (!matchingBraceStem) {
+            const rectilinearBracketStem = findAndHighlightRectilinearInstrumentGroupBracket(svgRoot, rect);
+            if (rectilinearBracketStem) {
+                braceStemRects.push(rectilinearBracketStem);
+                matchingBraceStem = rectilinearBracketStem;
+            }
+        }
+        if (!matchingBraceStem) return;
+
+        const supplementalRectilinearBracketStem = findAndHighlightRectilinearInstrumentGroupBracket(svgRoot, rect);
+        if (supplementalRectilinearBracketStem && !braceStemRects.some(({ el }) => el === supplementalRectilinearBracketStem.el)) {
+            braceStemRects.push(supplementalRectilinearBracketStem);
+        }
+
+        el.classList.add('highlight-instgroup-label');
+        foundCount++;
+    });
+
+    debugLog(`✅ 乐器组名称扫描完毕，共标记 ${foundCount} 个 Dorico 竖排组名。`);
+}
+
 function identifyAndHighlightInstrumentNames() {
     const svgRoot = document.querySelector('#score-container svg');
     if (!svgRoot) return;
@@ -2448,7 +2783,7 @@ function identifyAndHighlightInstrumentNames() {
     let foundCount = 0;
 
     candidateElements.forEach(el => {
-        if (el.classList.contains('highlight-rehearsalmark')) return;
+        if (el.classList.contains('highlight-rehearsalmark') || el.classList.contains('highlight-instgroup-label')) return;
         const isMuseScoreSemanticInstrumentName = useMuseScoreSemanticClasses && el.classList.contains('InstrumentName');
 
         if (!isMuseScoreSemanticInstrumentName) {
@@ -2457,6 +2792,7 @@ function identifyAndHighlightInstrumentNames() {
             if (content.includes('@')) return;
             if (PRIVATE_USE_GLYPH_REGEX.test(content)) return;
             if (TIME_SIGNATURE_GLYPH_REGEX.test(content)) return;
+            if (currentAnalysisProfile.sourceType !== SCORE_SOURCE_DORICO && isNearQuarterTurnTextMatrix(el)) return;
         }
 
         const textRect = el.getBoundingClientRect();
@@ -2488,7 +2824,13 @@ function identifyAndHighlightRehearsalMarks() {
     let foundCount = 0;
 
     Array.from(svgRoot.querySelectorAll('text')).forEach((textEl) => {
-        if (textEl.classList.contains('highlight-instname') || textEl.classList.contains('highlight-timesig')) return;
+        if (
+            textEl.classList.contains('highlight-instname')
+            || textEl.classList.contains('highlight-instgroup-label')
+            || textEl.classList.contains('highlight-timesig')
+        ) {
+            return;
+        }
         const content = (textEl.textContent || '').replace(/\s+/g, '').trim();
         if (!isRehearsalMarkText(content)) return;
 
@@ -2571,9 +2913,22 @@ function getTimeSignaturePairThresholds(candidate, other) {
     const otherRect = other?.rect || { width: 0, height: 0 };
     const candidateTag = candidate?.el?.tagName?.toLowerCase?.() || '';
     const otherTag = other?.el?.tagName?.toLowerCase?.() || '';
-    const useCompressedTextStackThresholds = currentAnalysisProfile.sourceType === SCORE_SOURCE_SIBELIUS
-        && candidateTag !== 'path'
-        && otherTag !== 'path';
+    const candidateFontFamily = candidateTag !== 'path'
+        ? getScoreElementFontInfo(candidate?.el).normalizedFontFamily
+        : '';
+    const otherFontFamily = otherTag !== 'path'
+        ? getScoreElementFontInfo(other?.el).normalizedFontFamily
+        : '';
+    const hasKnownMusicFontTextPair = candidateTag !== 'path'
+        && otherTag !== 'path'
+        && Boolean(candidateFontFamily)
+        && Boolean(otherFontFamily);
+    const useCompressedTextStackThresholds = candidateTag !== 'path'
+        && otherTag !== 'path'
+        && (
+            currentAnalysisProfile.sourceType === SCORE_SOURCE_SIBELIUS
+            || hasKnownMusicFontTextPair
+        );
     const useGenericTextStackThresholds = candidateTag !== 'path' && otherTag !== 'path';
 
     return {
@@ -2784,6 +3139,7 @@ function isVisuallyGiantTimeSignature(rect, decoded, staffBands = []) {
 
     const overlappingBandIndices = getOverlappingTimeSignatureStaffBandIndices(rect, staffBands);
     if (overlappingBandIndices.length <= 1) return false;
+    if (getTimeSignatureStaffBandIndex(rect, staffBands) !== -1) return false;
 
     const overlappingBands = overlappingBandIndices
         .map((index) => staffBands[index])
@@ -2866,24 +3222,33 @@ function identifyAndHighlightTimeSignatures() {
     textElements.forEach(el => {
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_MUSESCORE && hasMuseScoreSemanticTimeSigs) return;
         // 👇 🛡️ 新增防御 1：如果是已经被识别为乐器名、谱号修饰符的文本，直接踢出！
-        if (el.classList.contains('highlight-instname') || el.classList.contains('highlight-clef')) return;
+        if (
+            el.classList.contains('highlight-instname')
+            || el.classList.contains('highlight-instgroup-label')
+            || el.classList.contains('highlight-clef')
+        ) {
+            return;
+        }
 
         const content = (el.textContent || '').trim();
         if (!content) return;
+        const decoded = decodeTimeSignatureText(content);
+        if (!decoded) return;
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO) {
             const { normalizedFontFamily } = getScoreElementFontInfo(el);
             // Dorico exports can mix valid time-signature glyphs across music fonts
             // (for example, Leland score symbols with Bravura giant meters).
-            // Keep the text candidate limited to recognized music fonts, but do not
-            // require it to match the dominant analysis font here.
-            if (!normalizedFontFamily) return;
+            // Keep the text candidate limited to recognized music fonts by default,
+            // but still allow plain numeric text meters that Dorico sometimes exports
+            // in text-domain fonts such as Academico. The later stacked-pair, staff-band,
+            // and anchor checks still filter out ordinary stray digits.
+            const isPlainNumericTimeSig = decoded.kind === 'number' && /^\d+$/.test(decoded.token || '');
+            if (!normalizedFontFamily && !isPlainNumericTimeSig) return;
         }
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_SIBELIUS) {
             const { rawFontFamily } = getScoreElementFontInfo(el);
             if (!isSibeliusSymbolFontFamily(rawFontFamily)) return;
         }
-        const decoded = decodeTimeSignatureText(content);
-        if (!decoded) return;
 
         // 👇 🛡️ 新增防御 2：拍号绝对不可能出现在物理小节线的最左侧（边距外）！
         const rect = el.getBoundingClientRect();
@@ -3305,7 +3670,7 @@ function identifyAndHighlightKeySignatures() {
         if (globalSystemBarlineScreenX > 0 && rect.right < globalSystemBarlineScreenX - 5) {
             return;
         }
-        if (textEl.classList.contains('highlight-instname')) {
+        if (textEl.classList.contains('highlight-instname') || textEl.classList.contains('highlight-instgroup-label')) {
             return;
         }
 
@@ -4606,6 +4971,12 @@ function handleAudioOffsetInput(e) {
 
 function handleExportRatioChange(e) {
     const ratio = e.target.value;
+    if (ratio === CUSTOM_EXPORT_RATIO_OPTION_VALUE) {
+        openCustomRatioModal();
+        return;
+    }
+
+    syncExportRatioSelectionState(ratio);
     saveLocalSettings(); // 👈
     syncViewportSizingMode(ratio);
     resizeCanvas();
@@ -4658,7 +5029,48 @@ function handleStickyLockRatioInput(e) {
     redrawCanvas();
 }
 
+function handleCustomRatioInput() {
+    setCustomRatioError("");
+}
+
+function handleCustomRatioConfirm() {
+    const normalizedRatio = normalizeAspectRatioValue(dom.customRatioInput?.value || "");
+    if (!normalizedRatio || normalizedRatio === "auto") {
+        setCustomRatioError("请输入有效的长宽比，例如 3:2");
+        return;
+    }
+
+    customExportRatio = normalizedRatio;
+    updateCustomRatioOptionLabel();
+    if (dom.exportRatioSelect) {
+        dom.exportRatioSelect.value = CUSTOM_EXPORT_RATIO_OPTION_VALUE;
+    }
+    closeCustomRatioModal();
+    saveLocalSettings();
+    applyExportRatioPreviewSync();
+}
+
+function handleCustomRatioCancel() {
+    closeCustomRatioModal();
+    if (dom.exportRatioSelect) {
+        dom.exportRatioSelect.value = customExportRatio ? CUSTOM_EXPORT_RATIO_OPTION_VALUE : lastNonCustomExportRatio;
+    }
+    saveLocalSettings();
+    applyExportRatioPreviewSync();
+}
+
 function handleWindowKeydown(e) {
+    if (isCustomRatioModalOpen()) {
+        if (e.key === "Escape") {
+            e.preventDefault();
+            handleCustomRatioCancel();
+        } else if (e.key === "Enter") {
+            e.preventDefault();
+            handleCustomRatioConfirm();
+        }
+        return;
+    }
+
     const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
     if (["input", "textarea", "select"].includes(activeTag)) {
         return;
@@ -4694,6 +5106,9 @@ bindUiEvents({
     dom,
     handleAudioInputChange: audioFeature.handleAudioInputChange,
     handleAudioOffsetInput,
+    handleCustomRatioCancel,
+    handleCustomRatioConfirm,
+    handleCustomRatioInput,
     handleExportRatioChange,
     handleExportResolutionChange,
     handleExportFpsChange,
@@ -4732,10 +5147,12 @@ function saveLocalSettings() {
         glowRangePercent: dom.glowRangeSlider ? dom.glowRangeSlider.value : "50",
         playlineRatioPercent: dom.playlineRatioSlider ? dom.playlineRatioSlider.value : "50",
         stickyLockRatioPercent: dom.stickyLockRatioSlider ? dom.stickyLockRatioSlider.value : "50",
+        customExportRatio,
         musicFont: document.getElementById('musicFontSelect') ? document.getElementById('musicFontSelect').value : "Bravura",
-        exportRatio: dom.exportRatioSelect ? dom.exportRatioSelect.value : "16:9",
+        exportRatio: dom.exportRatioSelect ? dom.exportRatioSelect.value : DEFAULT_EXPORT_RATIO,
         exportRes: dom.exportResSelect ? dom.exportResSelect.value : "1920",
-        exportFps: dom.exportFpsSelect ? dom.exportFpsSelect.value : "60"
+        exportFps: dom.exportFpsSelect ? dom.exportFpsSelect.value : "60",
+        lastNonCustomExportRatio,
     };
     localStorage.setItem('scoreScrollSettings', JSON.stringify(settings));
 }
@@ -4786,7 +5203,20 @@ function loadLocalSettings() {
             document.getElementById('musicFontSelect').value = settings.musicFont;
             compileFontSignatures(settings.musicFont);
         }
-        if (settings.exportRatio && dom.exportRatioSelect) dom.exportRatioSelect.value = settings.exportRatio;
+        if (typeof settings.customExportRatio === 'string') {
+            customExportRatio = normalizeAspectRatioValue(settings.customExportRatio) || "";
+        }
+        if (typeof settings.lastNonCustomExportRatio === 'string') {
+            lastNonCustomExportRatio = resolveAspectRatioValue(settings.lastNonCustomExportRatio, DEFAULT_EXPORT_RATIO);
+        }
+        updateCustomRatioOptionLabel();
+        if (settings.exportRatio && dom.exportRatioSelect) {
+            const nextExportRatio = settings.exportRatio === CUSTOM_EXPORT_RATIO_OPTION_VALUE
+                ? (customExportRatio ? CUSTOM_EXPORT_RATIO_OPTION_VALUE : lastNonCustomExportRatio)
+                : resolveAspectRatioValue(settings.exportRatio, DEFAULT_EXPORT_RATIO);
+            dom.exportRatioSelect.value = nextExportRatio;
+            syncExportRatioSelectionState(nextExportRatio);
+        }
         if (settings.exportRes && dom.exportResSelect) dom.exportResSelect.value = settings.exportRes;
         if (settings.exportFps && dom.exportFpsSelect) dom.exportFpsSelect.value = settings.exportFps;
 
@@ -4797,6 +5227,7 @@ function loadLocalSettings() {
 
 window.onload = () => {
     loadLocalSettings();
+    updateCustomRatioOptionLabel();
     if (typeof handleExportResolutionChange === 'function') handleExportResolutionChange();
     if (typeof handleExportFpsChange === 'function') handleExportFpsChange();
     syncViewportSizingMode();

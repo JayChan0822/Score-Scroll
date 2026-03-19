@@ -235,6 +235,68 @@ function buildMuseScoreGenericNoteheadAccidentalSvgBuffer() {
   return Buffer.from(svg, 'utf8');
 }
 
+function buildUnknownRotatedOpeningGroupSvgBuffer() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="220" height="140" viewBox="0 0 220 140" version="1.2" baseProfile="tiny">
+      <desc>Unknown Test Fixture</desc>
+      <g fill="none" stroke="#000" stroke-width="1">
+        <line x1="40" y1="40" x2="200" y2="40" />
+        <line x1="40" y1="50" x2="200" y2="50" />
+        <line x1="40" y1="60" x2="200" y2="60" />
+        <line x1="40" y1="70" x2="200" y2="70" />
+        <line x1="40" y1="80" x2="200" y2="80" />
+        <line x1="40" y1="38" x2="40" y2="82" />
+        <polyline points="32,38 32,82" />
+        <polyline points="27,38 32,38" />
+        <polyline points="27,82 32,82" />
+      </g>
+      <g transform="matrix(0,-0.5,0.5,0,18,108)">
+        <text x="0" y="0" font-family="Microsoft YaHei UI" font-size="12">Unknown Group</text>
+      </g>
+      <text x="58" y="63" font-family="Microsoft YaHei UI" font-size="12">Flute</text>
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
+function buildDoricoNestedInstrumentGroupSvgBuffer() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="260" height="190" viewBox="0 0 260 190" version="1.2" baseProfile="tiny">
+      <desc>Dorico6</desc>
+      <g fill="none" stroke="#000" stroke-width="1">
+        <line x1="60" y1="40" x2="230" y2="40" />
+        <line x1="60" y1="50" x2="230" y2="50" />
+        <line x1="60" y1="60" x2="230" y2="60" />
+        <line x1="60" y1="70" x2="230" y2="70" />
+        <line x1="60" y1="80" x2="230" y2="80" />
+        <line x1="60" y1="110" x2="230" y2="110" />
+        <line x1="60" y1="120" x2="230" y2="120" />
+        <line x1="60" y1="130" x2="230" y2="130" />
+        <line x1="60" y1="140" x2="230" y2="140" />
+        <line x1="60" y1="150" x2="230" y2="150" />
+        <line x1="60" y1="38" x2="60" y2="152" />
+        <polyline points="40,38 40,152" />
+        <polyline points="34,38 40,38" />
+        <polyline points="34,152 40,152" />
+        <polyline points="46,38 46,82" />
+        <polyline points="40,38 46,38" />
+        <polyline points="40,82 46,82" />
+      </g>
+      <g transform="matrix(0,-0.5,0.5,0,18,138)">
+        <text x="0" y="0" font-family="Microsoft YaHei UI" font-size="12">Outer Group</text>
+      </g>
+      <g transform="matrix(0,-0.5,0.5,0,24,74)">
+        <text x="0" y="0" font-family="Microsoft YaHei UI" font-size="12">Inner Group</text>
+      </g>
+      <text x="82" y="64" font-family="Microsoft YaHei UI" font-size="12">Flute</text>
+      <text x="82" y="134" font-family="Microsoft YaHei UI" font-size="12">Horn</text>
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
 function buildMuseScoreInstrumentNamePathSvgBuffer() {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="360" height="180" viewBox="0 0 360 180" version="1.2" baseProfile="full">
@@ -2035,6 +2097,75 @@ test('wires export resolution and ratio changes into desktop preview-frame synci
   expect(appSource).toContain('syncDesktopPreviewFrame()');
 });
 
+test('adds a custom export ratio entry and modal controls', async () => {
+  const htmlSource = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8');
+  const domSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'core', 'dom.js'), 'utf8');
+
+  expect(htmlSource).toContain('<option value="custom">自定义比例</option>');
+  expect(htmlSource).toContain('id="customRatioModal"');
+  expect(htmlSource).toContain('id="customRatioInput"');
+  expect(htmlSource).toContain('id="customRatioConfirmBtn"');
+  expect(htmlSource).toContain('id="customRatioCancelBtn"');
+  expect(domSource).toContain('customRatioModal');
+  expect(domSource).toContain('customRatioInput');
+  expect(domSource).toContain('customRatioConfirmBtn');
+  expect(domSource).toContain('customRatioCancelBtn');
+});
+
+test('applies a confirmed custom export ratio to the preview and select label', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'custom-ratio.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildMinimalTwoBarSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+
+  const customRatioState = await page.evaluate(() => {
+    const ratioSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportRatioSelect'));
+    const viewport = /** @type {HTMLElement | null} */ (document.getElementById('viewport'));
+    const modal = /** @type {HTMLElement | null} */ (document.getElementById('customRatioModal'));
+    const input = /** @type {HTMLInputElement | null} */ (document.getElementById('customRatioInput'));
+    const confirmBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('customRatioConfirmBtn'));
+    if (!ratioSelect || !viewport || !modal || !input || !confirmBtn) return null;
+
+    ratioSelect.value = '4:3';
+    ratioSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const width43 = viewport.offsetWidth;
+    const height43 = viewport.offsetHeight;
+
+    ratioSelect.value = 'custom';
+    ratioSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+    input.value = '3:2';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    confirmBtn.click();
+
+    return {
+      height43,
+      heightCustom: viewport.offsetHeight,
+      modalDisplay: getComputedStyle(modal).display,
+      selectedText: ratioSelect.selectedOptions[0]?.textContent?.trim() || '',
+      selectedValue: ratioSelect.value,
+      width43,
+      widthCustom: viewport.offsetWidth,
+    };
+  });
+
+  expect(customRatioState).not.toBeNull();
+  expect(customRatioState.selectedValue).toBe('custom');
+  expect(customRatioState.selectedText).toBe('自定义 (3:2)');
+  expect(customRatioState.modalDisplay).toBe('none');
+  expect(customRatioState.heightCustom).toBe(customRatioState.height43);
+  expect(customRatioState.widthCustom).toBeGreaterThan(customRatioState.width43);
+});
+
 test('adds an independent sticky lock slider beneath the scanline control', async () => {
   const htmlSource = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8');
   const domSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'core', 'dom.js'), 'utf8');
@@ -3414,6 +3545,1036 @@ test('keeps split opening instrument labels sticky for Dorico imports', async ({
   expect(openingInstrumentParts.piano.some((item) => item.classes.includes('highlight-instname'))).toBe(true);
 });
 
+test('Dorico group-label classification marks vertical opening instrument groups separately', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', fixturePath);
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  }), { timeout: 20000 }).toBeGreaterThan(0);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const collect = (text) => Array.from(svg.querySelectorAll('text'))
+      .filter((el) => (el.textContent || '').trim() === text)
+      .map((el) => el.className?.baseVal || '');
+
+    return {
+      woodwinds: collect('Woodwinds'),
+      horn: collect('Horn'),
+      stringsSolo: collect('Strings Solo'),
+      stringsEnsemble: collect('Strings Ensemble'),
+    };
+  });
+
+  expect(state).not.toBeNull();
+  [state.woodwinds, state.horn, state.stringsSolo, state.stringsEnsemble].forEach((classes) => {
+    expect(classes.some((className) => className.includes('highlight-instgroup-label'))).toBe(true);
+    expect(classes.some((className) => className.includes('highlight-instname'))).toBe(false);
+  });
+});
+
+test('does not classify rotated opening text as instrument groups outside Dorico imports', async ({ page }) => {
+  const svgUpload = {
+    name: 'unknown-rotated-opening-group.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildUnknownRotatedOpeningGroupSvgBuffer(),
+  };
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', svgUpload);
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  }), { timeout: 20000 }).toBeGreaterThan(0);
+  await expect.poll(async () => getDetectedScoreSourceType(page)).toBe('Unknown');
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const el = Array.from(svg.querySelectorAll('text'))
+      .find((candidate) => (candidate.textContent || '').trim() === 'Unknown Group');
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const item = result.renderQueue.find((candidate) => (
+      candidate.type === 'text' && (candidate.text || '').trim() === 'Unknown Group'
+    )) || null;
+
+    return {
+      classes: el?.className?.baseVal || '',
+      isSticky: item?.isSticky === true,
+      sharedStickyGroupId: item?.sharedStickyGroupId || null,
+      symbolType: item?.symbolType || null,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(typeof state.classes).toBe('string');
+  expect(state.classes).not.toContain('highlight-instgroup-label');
+  expect(state.classes).not.toContain('highlight-instname');
+  expect(state.symbolType).toBeNull();
+  expect(state.sharedStickyGroupId).toBeNull();
+  expect(state.isSticky).toBe(false);
+});
+
+test('Dorico instrument groups share one sticky group with their opening brackets', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const labels = new Set(['Woodwinds', 'Horn', 'Strings Solo', 'Strings Ensemble']);
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const entries = {};
+
+    result.renderQueue
+      .filter((item) => item.type === 'text' && labels.has((item.text || '').trim()) && item.symbolType === 'InstGroupLabel')
+      .forEach((item) => {
+        const key = (item.text || '').trim();
+        const sharedGroup = item.sharedStickyGroupId
+          ? result.globalStickySharedGroups[item.sharedStickyGroupId] || null
+          : null;
+        const braceItems = sharedGroup
+          ? sharedGroup.blocks.flatMap((block) => block.items).filter((candidate) => candidate.symbolType === 'Brace')
+          : [];
+        const tallBraceItems = braceItems.filter((braceItem) => {
+          const spanX = Math.max(0, (braceItem.absMaxX || 0) - (braceItem.absMinX || 0));
+          const spanY = Math.max(0, (braceItem.absMaxY || 0) - (braceItem.absMinY || 0));
+          return spanY >= 18 && spanY >= Math.max(spanX * 3, 18);
+        });
+
+        if (!entries[key]) entries[key] = [];
+        entries[key].push({
+          symbolType: item.symbolType,
+          sharedStickyGroupId: item.sharedStickyGroupId || null,
+          sharedLockDistance: Number.isFinite(item.sharedLockDistance) ? item.sharedLockDistance : null,
+          braceCount: braceItems.length,
+          tallBraceCount: tallBraceItems.length,
+          braceGroupIds: [...new Set(braceItems.map((braceItem) => braceItem.sharedStickyGroupId || null))],
+        });
+      });
+
+    return entries;
+  });
+
+  expect(state).not.toBeNull();
+  ['Woodwinds', 'Horn', 'Strings Solo', 'Strings Ensemble'].forEach((label) => {
+    expect(state[label]).toHaveLength(1);
+    expect(state[label][0].symbolType).toBe('InstGroupLabel');
+    expect(state[label][0].sharedStickyGroupId).toBeTruthy();
+    expect(state[label][0].sharedLockDistance).toBeCloseTo(0, 5);
+    expect(state[label][0].braceCount).toBeGreaterThan(0);
+    expect(state[label][0].tallBraceCount).toBeGreaterThan(0);
+    expect(state[label][0].braceGroupIds).toEqual([state[label][0].sharedStickyGroupId]);
+  });
+});
+
+test('recognizes rectilinear opening group brackets in 乐器组括号.svg as sticky brace items', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '乐器组括号.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const targetPathDs = new Set([
+      'M42.0335,341.441 L42.0335,340.821 L48.5448,340.821 L48.5448,341.441 L42.0335,341.441',
+      'M42.0335,271.366 L42.0335,341.441 L42.6536,341.441 L42.6536,271.366 L42.0335,271.366',
+      'M42.0335,271.986 L42.0335,271.366 L48.5448,271.366 L48.5448,271.986 L42.0335,271.986',
+      'M43.1702,198.146 L43.1702,197.526 L49.6816,197.526 L49.6816,198.146 L43.1702,198.146',
+      'M43.1702,123.756 L43.1702,198.146 L43.7903,198.146 L43.7903,123.756 L43.1702,123.756',
+      'M43.1702,124.376 L43.1702,123.756 L49.6816,123.756 L49.6816,124.376 L43.1702,124.376',
+    ]);
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const targetElements = Array.from(svg.querySelectorAll('path')).filter((path) => targetPathDs.has(path.getAttribute('d') || ''));
+
+    return result.renderQueue
+      .filter((item) => item.type === 'path' && targetElements.includes(svg.querySelector(`[data-dom-index="${item.domIndex}"]`)))
+      .map((item) => {
+        const element = svg.querySelector(`[data-dom-index="${item.domIndex}"]`);
+        return {
+          d: element?.getAttribute('d') || '',
+          classes: element?.className?.baseVal || '',
+          symbolType: item.symbolType || null,
+          isSticky: Boolean(item.isSticky),
+          stickyType: item.stickyType || null,
+        };
+      })
+      .sort((left, right) => left.d.localeCompare(right.d));
+  });
+
+  expect(state).not.toBeNull();
+  expect(state).toHaveLength(6);
+  expect(state.every((item) => item.classes.includes('highlight-brace'))).toBe(true);
+  expect(state.every((item) => item.symbolType === 'Brace')).toBe(true);
+  expect(state.every((item) => item.isSticky)).toBe(true);
+  expect(state.every((item) => item.stickyType === 'brace' || item.stickyType === 'instGroup')).toBe(true);
+});
+
+test('keeps opening bracket braces separate from instrument-group brackets in 乐器组括号.svg', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '乐器组括号.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const byDomIndex = (domIndex) => svg.querySelector(`[data-dom-index="${domIndex}"]`);
+
+    const stringsGroupLabel = result.renderQueue.find((item) => (
+      item.type === 'text'
+      && (item.text || '').trim() === 'Strings'
+      && item.symbolType === 'InstGroupLabel'
+    )) || null;
+    const pianoGroupLabel = result.renderQueue.find((item) => (
+      item.type === 'text'
+      && (item.text || '').trim() === 'Piano'
+      && item.symbolType === 'InstGroupLabel'
+    )) || null;
+
+    const openingBracketItem = result.renderQueue.find((item) => (
+      item.type === 'line'
+      && (byDomIndex(item.domIndex)?.getAttribute('points') || '').trim() === '115.034,121.585 115.034,200.317'
+    )) || null;
+
+    const stringsGroupBracketItem = result.renderQueue.find((item) => (
+      item.type === 'path'
+      && (byDomIndex(item.domIndex)?.getAttribute('d') || '') === 'M43.1702,123.756 L43.1702,198.146 L43.7903,198.146 L43.7903,123.756 L43.1702,123.756'
+    )) || null;
+
+    return {
+      stringsGroupLabel: stringsGroupLabel ? {
+        stickyType: stringsGroupLabel.stickyType || null,
+        sharedStickyGroupId: stringsGroupLabel.sharedStickyGroupId || null,
+      } : null,
+      pianoGroupLabel: pianoGroupLabel ? {
+        stickyType: pianoGroupLabel.stickyType || null,
+        sharedStickyGroupId: pianoGroupLabel.sharedStickyGroupId || null,
+      } : null,
+      openingBracketItem: openingBracketItem ? {
+        symbolType: openingBracketItem.symbolType || null,
+        isSticky: Boolean(openingBracketItem.isSticky),
+        stickyType: openingBracketItem.stickyType || null,
+        sharedStickyGroupId: openingBracketItem.sharedStickyGroupId || null,
+      } : null,
+      stringsGroupBracketItem: stringsGroupBracketItem ? {
+        symbolType: stringsGroupBracketItem.symbolType || null,
+        isSticky: Boolean(stringsGroupBracketItem.isSticky),
+        stickyType: stringsGroupBracketItem.stickyType || null,
+        sharedStickyGroupId: stringsGroupBracketItem.sharedStickyGroupId || null,
+      } : null,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.stringsGroupLabel?.sharedStickyGroupId).toBeTruthy();
+  expect(state.pianoGroupLabel?.sharedStickyGroupId).toBeTruthy();
+  expect(state.openingBracketItem).toEqual(expect.objectContaining({
+    symbolType: 'Brace',
+    isSticky: true,
+    stickyType: 'brace',
+  }));
+  expect(state.stringsGroupBracketItem).toEqual(expect.objectContaining({
+    symbolType: 'Brace',
+    isSticky: true,
+    stickyType: 'instGroup',
+  }));
+  expect(state.openingBracketItem?.sharedStickyGroupId).not.toBe(state.stringsGroupBracketItem?.sharedStickyGroupId);
+});
+
+test('keeps both opening and instrument-group brackets pinned in 乐器组括号.svg after seeking', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '乐器组括号.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+
+  const toggleHighlightBtn = page.locator('#toggleHighlightBtn');
+  if ((await toggleHighlightBtn.textContent())?.includes('Show Glow')) {
+    await toggleHighlightBtn.click();
+  }
+
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    const progressSlider = document.getElementById('progressSlider');
+    const viewport = document.getElementById('viewport');
+    const canvas = document.getElementById('scoreCanvas') || document.querySelector('canvas');
+    if (!svg || !progressSlider || !viewport || !(canvas instanceof HTMLCanvasElement)) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const byDomIndex = (domIndex) => svg.querySelector(`[data-dom-index="${domIndex}"]`);
+
+    const openingBracketItem = result.renderQueue.find((item) => (
+      item.type === 'line'
+      && (byDomIndex(item.domIndex)?.getAttribute('points') || '').trim() === '115.034,121.585 115.034,200.317'
+    )) || null;
+    const stringsGroupBracketItem = result.renderQueue.find((item) => (
+      item.type === 'path'
+      && (byDomIndex(item.domIndex)?.getAttribute('d') || '') === 'M43.1702,123.756 L43.1702,198.146 L43.7903,198.146 L43.7903,123.756 L43.1702,123.756'
+    )) || null;
+    if (!openingBracketItem || !stringsGroupBracketItem) return null;
+
+    const total = Number(progressSlider.max) || 0;
+    const targetTime = total * 0.6;
+    progressSlider.value = String(targetTime);
+    progressSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
+    const playlineScreenX = viewportWidth * playlineRatio;
+    const stickyLockScreenX = viewportWidth * stickyLockRatio;
+    const worldDistanceLeft = playlineScreenX / zoom;
+    const stickyLockOffset = stickyLockScreenX / zoom;
+    const currentX = Number(window.__lastRenderX) || 0;
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width > 0 ? canvas.width / canvasRect.width : 1;
+    const scaleY = canvasRect.height > 0 ? canvas.height / canvasRect.height : 1;
+    const trueCenterY = Number(window.globalScoreTrueCenterY) || 0;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const describePinnedWindow = (item) => {
+      const lockDistance = item.sharedStickyGroupId && Number.isFinite(item.sharedLockDistance)
+        ? item.sharedLockDistance
+        : (Number.isFinite(item.lockDistance) ? item.lockDistance : 0);
+      const layerMaxX = worldDistanceLeft + result.stickyMinX - stickyLockOffset + lockDistance;
+      const centerX = Number.isFinite(item.centerX)
+        ? item.centerX
+        : ((item.absMinX + item.absMaxX) / 2);
+      const centerY = ((item.absMinY || 0) + (item.absMaxY || 0)) / 2;
+      const expectedCssX = (centerX - layerMaxX) * zoom + playlineScreenX;
+      const expectedCssY = (centerY - trueCenterY) * zoom + (viewportHeight / 2);
+      const expectedCssHeight = Math.max(1, ((item.absMaxY || 0) - (item.absMinY || 0)) * zoom);
+      const sampleX = Math.round(expectedCssX * scaleX);
+      const sampleTop = Math.max(0, Math.floor((expectedCssY - (expectedCssHeight / 2) - 4) * scaleY));
+      const sampleBottom = Math.min(canvas.height, Math.ceil((expectedCssY + (expectedCssHeight / 2) + 4) * scaleY));
+      const sampleLeft = Math.max(0, Math.floor((expectedCssX - 4) * scaleX));
+      const sampleRight = Math.min(canvas.width, Math.ceil((expectedCssX + 4) * scaleX));
+      const width = Math.max(1, sampleRight - sampleLeft);
+      const height = Math.max(1, sampleBottom - sampleTop);
+      const imageData = ctx.getImageData(sampleLeft, sampleTop, width, height).data;
+
+      let redPixelCount = 0;
+      for (let index = 0; index < imageData.length; index += 4) {
+        const r = imageData[index];
+        const g = imageData[index + 1];
+        const b = imageData[index + 2];
+        const a = imageData[index + 3];
+        if (r >= 180 && g <= 110 && b <= 130 && a >= 80) {
+          redPixelCount++;
+        }
+      }
+
+      return {
+        lockDistance,
+        layerMaxX,
+        redPixelCount,
+        expectedCssX,
+      };
+    };
+
+    return {
+      currentX,
+      opening: describePinnedWindow(openingBracketItem),
+      instGroup: describePinnedWindow(stringsGroupBracketItem),
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.currentX).toBeGreaterThan(state.opening.layerMaxX);
+  expect(state.currentX).toBeGreaterThan(state.instGroup.layerMaxX);
+  expect(state.opening.redPixelCount).toBeGreaterThan(0);
+  expect(state.instGroup.redPixelCount).toBeGreaterThan(0);
+  expect(Math.abs(state.opening.expectedCssX - state.instGroup.expectedCssX)).toBeGreaterThan(20);
+});
+
+test('preserves the transparent knockout through the Strings instrument-group bracket in 乐器组括号.svg', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '乐器组括号.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+
+  const toggleHighlightBtn = page.locator('#toggleHighlightBtn');
+  if ((await toggleHighlightBtn.textContent())?.includes('Show Glow')) {
+    await toggleHighlightBtn.click();
+  }
+
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    const progressSlider = document.getElementById('progressSlider');
+    const viewport = document.getElementById('viewport');
+    const canvas = document.getElementById('scoreCanvas') || document.querySelector('canvas');
+    if (!svg || !progressSlider || !viewport || !(canvas instanceof HTMLCanvasElement)) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const byDomIndex = (domIndex) => svg.querySelector(`[data-dom-index="${domIndex}"]`);
+
+    const stringsLabelItem = result.renderQueue.find((item) => (
+      item.type === 'text'
+      && (item.text || '').trim() === 'Strings'
+      && item.symbolType === 'InstGroupLabel'
+    )) || null;
+    const stringsGroupBracketItem = result.renderQueue.find((item) => (
+      item.type === 'path'
+      && (byDomIndex(item.domIndex)?.getAttribute('d') || '') === 'M43.1702,123.756 L43.1702,198.146 L43.7903,198.146 L43.7903,123.756 L43.1702,123.756'
+    )) || null;
+    const labelCenterY = stringsLabelItem
+      ? (((stringsLabelItem.absMinY || 0) + (stringsLabelItem.absMaxY || 0)) / 2)
+      : null;
+    const stringsKnockoutMaskItem = result.renderQueue.find((item) => (
+      item.type === 'rect'
+      && item.fillRole === 'bg'
+      && Math.max(0, (item.absMaxX || 0) - (item.absMinX || 0)) <= 24
+      && Math.max(0, (item.absMaxY || 0) - (item.absMinY || 0)) <= 64
+      && labelCenterY !== null
+      && labelCenterY >= (item.absMinY || 0) - 6
+      && labelCenterY <= (item.absMaxY || 0) + 6
+      && stringsGroupBracketItem
+      && Math.max(
+        0,
+        Math.max(
+          (item.absMinX || 0) - (stringsGroupBracketItem.absMaxX || 0),
+          (stringsGroupBracketItem.absMinX || 0) - (item.absMaxX || 0),
+        ),
+      ) <= 6
+    )) || null;
+    if (!stringsLabelItem || !stringsGroupBracketItem || !stringsKnockoutMaskItem) return null;
+
+    const total = Number(progressSlider.max) || 0;
+    const targetTime = total * 0.6;
+    progressSlider.value = String(targetTime);
+    progressSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
+    const playlineScreenX = viewportWidth * playlineRatio;
+    const stickyLockScreenX = viewportWidth * stickyLockRatio;
+    const worldDistanceLeft = playlineScreenX / zoom;
+    const stickyLockOffset = stickyLockScreenX / zoom;
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width > 0 ? canvas.width / canvasRect.width : 1;
+    const scaleY = canvasRect.height > 0 ? canvas.height / canvasRect.height : 1;
+    const trueCenterY = Number(window.globalScoreTrueCenterY) || 0;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const lockDistance = stringsGroupBracketItem.sharedStickyGroupId && Number.isFinite(stringsGroupBracketItem.sharedLockDistance)
+      ? stringsGroupBracketItem.sharedLockDistance
+      : (Number.isFinite(stringsGroupBracketItem.lockDistance) ? stringsGroupBracketItem.lockDistance : 0);
+    const layerMaxX = worldDistanceLeft + result.stickyMinX - stickyLockOffset + lockDistance;
+    const bracketCenterX = Number.isFinite(stringsGroupBracketItem.centerX)
+      ? stringsGroupBracketItem.centerX
+      : ((stringsGroupBracketItem.absMinX + stringsGroupBracketItem.absMaxX) / 2);
+    const bracketCssX = (bracketCenterX - layerMaxX) * zoom + playlineScreenX;
+    const maskSampleWorldX = (stringsKnockoutMaskItem.absMinX || 0) + Math.min(2, Math.max(1, ((stringsKnockoutMaskItem.absMaxX || 0) - (stringsKnockoutMaskItem.absMinX || 0)) / 4));
+    const maskCssX = (maskSampleWorldX - layerMaxX) * zoom + playlineScreenX;
+    const labelCssY = (labelCenterY - trueCenterY) * zoom + (viewportHeight / 2);
+
+    const sampleWindow = (cssX, cssY, cssWidth, cssHeight) => {
+      const left = Math.max(0, Math.floor(cssX * scaleX));
+      const top = Math.max(0, Math.floor(cssY * scaleY));
+      const right = Math.min(canvas.width, Math.ceil((cssX + cssWidth) * scaleX));
+      const bottom = Math.min(canvas.height, Math.ceil((cssY + cssHeight) * scaleY));
+      const width = Math.max(1, right - left);
+      const height = Math.max(1, bottom - top);
+      const imageData = ctx.getImageData(left, top, width, height).data;
+      let redPixelCount = 0;
+      for (let index = 0; index < imageData.length; index += 4) {
+        const r = imageData[index];
+        const g = imageData[index + 1];
+        const b = imageData[index + 2];
+        const a = imageData[index + 3];
+        if (r >= 180 && g <= 110 && b <= 130 && a >= 80) {
+          redPixelCount++;
+        }
+      }
+      return redPixelCount;
+    };
+
+    return {
+      knockoutStickyType: stringsKnockoutMaskItem.stickyType || null,
+      knockoutSharedStickyGroupId: stringsKnockoutMaskItem.sharedStickyGroupId || null,
+      gapRedPixelCount: sampleWindow(maskCssX - 2, labelCssY - 6, 4, 12),
+      topStemRedPixelCount: sampleWindow(bracketCssX - 3, labelCssY - 42, 6, 12),
+      bottomStemRedPixelCount: sampleWindow(bracketCssX - 3, labelCssY + 30, 6, 12),
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.knockoutStickyType).toBe('instGroup');
+  expect(state.knockoutSharedStickyGroupId).toBeTruthy();
+  expect(state.topStemRedPixelCount).toBeGreaterThan(0);
+  expect(state.bottomStemRedPixelCount).toBeGreaterThan(0);
+  expect(state.gapRedPixelCount).toBeLessThan(state.topStemRedPixelCount);
+  expect(state.gapRedPixelCount).toBeLessThan(state.bottomStemRedPixelCount);
+  expect(state.gapRedPixelCount).toBeLessThanOrEqual(12);
+});
+
+test('keeps knockout masks attached to every instrument-group bracket in 乐器组括号.svg', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '乐器组括号.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const labels = ['Strings', 'Piano'];
+
+    return Object.fromEntries(labels.map((label) => {
+      const labelItem = result.renderQueue.find((item) => (
+        item.type === 'text'
+        && (item.text || '').trim() === label
+        && item.symbolType === 'InstGroupLabel'
+      )) || null;
+      const sharedGroup = labelItem?.sharedStickyGroupId
+        ? result.globalStickySharedGroups[labelItem.sharedStickyGroupId] || null
+        : null;
+      const groupItems = sharedGroup ? sharedGroup.blocks.flatMap((block) => block.items) : [];
+      const knockoutItems = groupItems.filter((item) => (
+        item.fillRole === 'bg'
+        && !item.symbolType
+        && ['rect', 'path'].includes(item.type)
+      ));
+
+      return [label, {
+        sharedStickyGroupId: labelItem?.sharedStickyGroupId || null,
+        knockoutCount: knockoutItems.length,
+      }];
+    }));
+  });
+
+  expect(state).not.toBeNull();
+  ['Strings', 'Piano'].forEach((label) => {
+    expect(state[label].sharedStickyGroupId).toBeTruthy();
+    expect(state[label].knockoutCount).toBeGreaterThan(0);
+  });
+});
+
+test('keeps the M01 Strings Ensemble instrument-group bracket knockout attached to its shared sticky group', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const labelItem = result.renderQueue.find((item) => (
+      item.type === 'text'
+      && (item.text || '').trim() === 'Strings Ensemble'
+      && item.symbolType === 'InstGroupLabel'
+    )) || null;
+    const sharedGroup = labelItem?.sharedStickyGroupId
+      ? result.globalStickySharedGroups[labelItem.sharedStickyGroupId] || null
+      : null;
+    const groupItems = sharedGroup ? sharedGroup.blocks.flatMap((block) => block.items) : [];
+    const knockoutItems = groupItems.filter((item) => (
+      item.fillRole === 'bg'
+      && !item.symbolType
+      && ['rect', 'path'].includes(item.type)
+    ));
+    const braceItems = groupItems.filter((item) => item.symbolType === 'Brace');
+
+    return {
+      sharedStickyGroupId: labelItem?.sharedStickyGroupId || null,
+      knockoutCount: knockoutItems.length,
+      braceCount: braceItems.length,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.sharedStickyGroupId).toBeTruthy();
+  expect(state.braceCount).toBeGreaterThan(0);
+  expect(state.knockoutCount).toBeGreaterThan(0);
+});
+
+test('Dorico instrument group shared stickies include the bracket cap segments', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const labels = ['Woodwinds', 'Horn', 'Strings Solo', 'Strings Ensemble'];
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+
+    const isStemLike = (item) => {
+      const spanX = Math.max(0, (item.absMaxX || 0) - (item.absMinX || 0));
+      const spanY = Math.max(0, (item.absMaxY || 0) - (item.absMinY || 0));
+      return spanY >= 18 && spanY >= Math.max(spanX * 3, 18);
+    };
+
+    return Object.fromEntries(labels.map((label) => {
+      const labelItem = result.renderQueue.find((item) => (
+        item.type === 'text'
+        && (item.text || '').trim() === label
+        && item.symbolType === 'InstGroupLabel'
+      )) || null;
+      const sharedGroup = labelItem?.sharedStickyGroupId
+        ? result.globalStickySharedGroups[labelItem.sharedStickyGroupId] || null
+        : null;
+      const braceItems = sharedGroup
+        ? sharedGroup.blocks.flatMap((block) => block.items).filter((candidate) => candidate.symbolType === 'Brace')
+        : [];
+      const capLikeBraceItems = braceItems.filter((item) => !isStemLike(item));
+
+      return [label, {
+        braceCount: braceItems.length,
+        capLikeBraceCount: capLikeBraceItems.length,
+      }];
+    }));
+  });
+
+  expect(state).not.toBeNull();
+  ['Woodwinds', 'Horn', 'Strings Solo', 'Strings Ensemble'].forEach((label) => {
+    expect(state[label].braceCount).toBeGreaterThan(0);
+    expect(state[label].capLikeBraceCount).toBeGreaterThanOrEqual(2);
+  });
+});
+
+test('Dorico instrument group labels draw in highlight red when glow mode is enabled', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.evaluate(() => {
+    if (window.__fillTextCallsInstalled) {
+      window.__fillTextCalls = [];
+      return;
+    }
+
+    const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+    window.__fillTextCallsInstalled = true;
+    window.__fillTextCalls = [];
+
+    CanvasRenderingContext2D.prototype.fillText = function patchedFillText(text, x, y, ...rest) {
+      window.__fillTextCalls.push({
+        alpha: this.globalAlpha,
+        fillStyle: this.fillStyle,
+        font: this.font,
+        text: String(text),
+        x,
+        y,
+      });
+      return originalFillText.call(this, text, x, y, ...rest);
+    };
+  });
+
+  const toggleHighlightBtn = page.locator('#toggleHighlightBtn');
+  if ((await toggleHighlightBtn.textContent())?.includes('Show Glow')) {
+    await toggleHighlightBtn.click();
+  }
+
+  await page.setInputFiles('#svgInput', fixturePath);
+  await expect.poll(async () => page.evaluate(() => {
+    const calls = window.__fillTextCalls || [];
+    return calls.filter((call) => (call.text || '').trim() === 'Woodwinds').length;
+  }), { timeout: 20000 }).toBeGreaterThan(0);
+
+  const drawCalls = await page.evaluate(() => {
+    const labels = new Set(['Woodwinds', 'Horn', 'Strings Solo', 'Strings Ensemble']);
+    const calls = window.__fillTextCalls || [];
+    return calls
+      .filter((call) => labels.has((call.text || '').trim()))
+      .map(({ text, fillStyle, alpha }) => ({
+        text: (text || '').trim(),
+        fillStyle,
+        alpha,
+      }));
+  });
+
+  expect(drawCalls).not.toHaveLength(0);
+  expect(drawCalls.every((call) => call.fillStyle === '#ff2a5f')).toBe(true);
+});
+
+test('Dorico instrument group braces do not leave overlapping unshared stem copies behind', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const labels = new Set(['Woodwinds', 'Horn', 'Strings Solo', 'Strings Ensemble']);
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const isStemLike = (item) => {
+      const spanX = Math.max(0, (item.absMaxX || 0) - (item.absMinX || 0));
+      const spanY = Math.max(0, (item.absMaxY || 0) - (item.absMinY || 0));
+      return spanY >= 18 && spanY >= Math.max(spanX * 3, 18);
+    };
+    const getOverlap = (minA, maxA, minB, maxB) => Math.max(0, Math.min(maxA, maxB) - Math.max(minA, minB));
+
+    return Object.fromEntries(
+      result.renderQueue
+        .filter((item) => item.type === 'text' && labels.has((item.text || '').trim()) && item.symbolType === 'InstGroupLabel')
+        .map((item) => {
+          const groupId = item.sharedStickyGroupId || null;
+          const sharedGroup = groupId ? result.globalStickySharedGroups[groupId] || null : null;
+          const sharedBraceItems = sharedGroup
+            ? sharedGroup.blocks.flatMap((block) => block.items).filter((candidate) => candidate.symbolType === 'Brace' && isStemLike(candidate))
+            : [];
+
+          const overlappingUnsharedStemCopies = result.renderQueue.filter((candidate) => {
+            if (candidate.symbolType !== 'Brace' || !isStemLike(candidate)) return false;
+            if (candidate.sharedStickyGroupId === groupId) return false;
+
+            return sharedBraceItems.some((sharedBrace) => {
+              const xGap = Math.max(0, Math.max(sharedBrace.absMinX - candidate.absMaxX, candidate.absMinX - sharedBrace.absMaxX));
+              const yOverlap = getOverlap(sharedBrace.absMinY, sharedBrace.absMaxY, candidate.absMinY, candidate.absMaxY);
+              const minSharedSpanY = Math.max(
+                1,
+                Math.min(
+                  Math.max(0, (sharedBrace.absMaxY || 0) - (sharedBrace.absMinY || 0)),
+                  Math.max(0, (candidate.absMaxY || 0) - (candidate.absMinY || 0)),
+                ),
+              );
+
+              return xGap <= 3 && yOverlap >= minSharedSpanY * 0.8;
+            });
+          });
+
+          return [
+            (item.text || '').trim(),
+            {
+              sharedStemCount: sharedBraceItems.length,
+              overlappingUnsharedStemCount: overlappingUnsharedStemCopies.length,
+            },
+          ];
+        })
+    );
+  });
+
+  expect(state).not.toBeNull();
+  Object.values(state).forEach((entry) => {
+    expect(entry.sharedStemCount).toBeGreaterThan(0);
+    expect(entry.overlappingUnsharedStemCount).toBe(0);
+  });
+});
+
+test('Dorico instrument group brace stems render at pinned x positions after seeking', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.evaluate(() => {
+    if (window.__lineStrokeCaptureInstalled) {
+      window.__lineStrokeCalls = [];
+      return;
+    }
+
+    const originalBeginPath = CanvasRenderingContext2D.prototype.beginPath;
+    const originalMoveTo = CanvasRenderingContext2D.prototype.moveTo;
+    const originalLineTo = CanvasRenderingContext2D.prototype.lineTo;
+    const originalStroke = CanvasRenderingContext2D.prototype.stroke;
+
+    window.__lineStrokeCaptureInstalled = true;
+    window.__lineStrokeCalls = [];
+
+    CanvasRenderingContext2D.prototype.beginPath = function patchedBeginPath(...args) {
+      this.__debugLineSegments = [];
+      this.__debugLastPoint = null;
+      return originalBeginPath.call(this, ...args);
+    };
+
+    CanvasRenderingContext2D.prototype.moveTo = function patchedMoveTo(x, y, ...rest) {
+      const point = new DOMPoint(x, y).matrixTransform(this.getTransform());
+      this.__debugLastPoint = point;
+      return originalMoveTo.call(this, x, y, ...rest);
+    };
+
+    CanvasRenderingContext2D.prototype.lineTo = function patchedLineTo(x, y, ...rest) {
+      const nextPoint = new DOMPoint(x, y).matrixTransform(this.getTransform());
+      const prevPoint = this.__debugLastPoint;
+      if (prevPoint) {
+        if (!Array.isArray(this.__debugLineSegments)) this.__debugLineSegments = [];
+        this.__debugLineSegments.push({
+          x1: prevPoint.x,
+          y1: prevPoint.y,
+          x2: nextPoint.x,
+          y2: nextPoint.y,
+        });
+      }
+      this.__debugLastPoint = nextPoint;
+      return originalLineTo.call(this, x, y, ...rest);
+    };
+
+    CanvasRenderingContext2D.prototype.stroke = function patchedStroke(...args) {
+      const segments = Array.isArray(this.__debugLineSegments) ? this.__debugLineSegments : [];
+      segments.forEach((segment) => {
+        window.__lineStrokeCalls.push({
+          ...segment,
+          globalAlpha: this.globalAlpha,
+          lineWidth: this.lineWidth,
+          strokeStyle: this.strokeStyle,
+        });
+      });
+      this.__debugLineSegments = [];
+      this.__debugLastPoint = null;
+      return originalStroke.call(this, ...args);
+    };
+  });
+
+  const toggleHighlightBtn = page.locator('#toggleHighlightBtn');
+  if ((await toggleHighlightBtn.textContent())?.includes('Show Glow')) {
+    await toggleHighlightBtn.click();
+  }
+
+  await page.setInputFiles('#svgInput', fixturePath);
+  await expect.poll(async () => page.evaluate(() => (window.__lineStrokeCalls || []).length), { timeout: 20000 }).toBeGreaterThan(0);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    const progressSlider = document.getElementById('progressSlider');
+    const viewport = document.getElementById('viewport');
+    if (!svg || !progressSlider || !viewport) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const woodwindsLabel = result.renderQueue.find((item) => (
+      item.type === 'text'
+      && (item.text || '').trim() === 'Woodwinds'
+      && item.symbolType === 'InstGroupLabel'
+    ));
+    if (!woodwindsLabel?.sharedStickyGroupId) return null;
+
+    const sharedGroup = result.globalStickySharedGroups[woodwindsLabel.sharedStickyGroupId] || null;
+    const targetStem = sharedGroup
+      ? sharedGroup.blocks
+        .flatMap((block) => block.items)
+        .filter((item) => item.symbolType === 'Brace' && item.type === 'line')
+        .sort((left, right) => {
+          const leftSpan = Math.max(0, (left.absMaxY || 0) - (left.absMinY || 0));
+          const rightSpan = Math.max(0, (right.absMaxY || 0) - (right.absMinY || 0));
+          return rightSpan - leftSpan;
+        })[0] || null
+      : null;
+    if (!targetStem) return null;
+
+    window.__lineStrokeCalls = [];
+    const total = Number(progressSlider.max) || 0;
+    const targetTime = total * 0.6;
+    progressSlider.value = String(targetTime);
+    progressSlider.dispatchEvent(new Event('input', { bubbles: true }));
+
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
+    const playlineScreenX = viewportWidth * playlineRatio;
+    const stickyLockScreenX = viewportWidth * stickyLockRatio;
+    const worldDistanceLeft = playlineScreenX / zoom;
+    const stickyLockOffset = stickyLockScreenX / zoom;
+    const layerMaxX = worldDistanceLeft + result.stickyMinX - stickyLockOffset;
+    const currentX = Number(window.__lastRenderX) || 0;
+    const targetWorldX = ((targetStem.absMinX || 0) + (targetStem.absMaxX || 0)) / 2;
+    const targetWorldY = ((targetStem.absMinY || 0) + (targetStem.absMaxY || 0)) / 2;
+    const targetWorldHeight = Math.max(0, (targetStem.absMaxY || 0) - (targetStem.absMinY || 0));
+    const expectedPinnedX = (targetWorldX - layerMaxX) * zoom + playlineScreenX;
+    const expectedUnpinnedX = (targetWorldX - currentX) * zoom + playlineScreenX;
+    const expectedScreenY = (targetWorldY - (window.globalScoreTrueCenterY || 0)) * zoom + (viewportHeight / 2);
+    const expectedScreenHeight = targetWorldHeight * zoom;
+
+    const candidateSegments = (window.__lineStrokeCalls || [])
+      .filter((segment) => segment.strokeStyle === '#ff2a5f')
+      .map((segment) => {
+        const midX = (segment.x1 + segment.x2) / 2;
+        const midY = (segment.y1 + segment.y2) / 2;
+        return {
+          ...segment,
+          height: Math.abs(segment.y2 - segment.y1),
+          width: Math.abs(segment.x2 - segment.x1),
+          midX,
+          midY,
+        };
+      })
+      .filter((segment) => segment.height >= 20 && segment.height >= Math.max(segment.width * 3, 20));
+
+    const bestSegment = candidateSegments
+      .slice()
+      .sort((left, right) => {
+        const leftScore = Math.abs(left.midY - expectedScreenY)
+          + Math.abs(left.height - expectedScreenHeight)
+          + Math.abs(left.midX - expectedPinnedX) * 2;
+        const rightScore = Math.abs(right.midY - expectedScreenY)
+          + Math.abs(right.height - expectedScreenHeight)
+          + Math.abs(right.midX - expectedPinnedX) * 2;
+        return leftScore - rightScore;
+      })[0] || null;
+
+    return {
+      currentX,
+      layerMaxX,
+      expectedPinnedX,
+      expectedUnpinnedX,
+      expectedScreenY,
+      expectedScreenHeight,
+      bestSegment,
+      candidateCount: candidateSegments.length,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.currentX).toBeGreaterThan(state.layerMaxX);
+  expect(state.candidateCount).toBeGreaterThan(0);
+  expect(state.bestSegment).not.toBeNull();
+  expect(Math.abs(state.bestSegment.midX - state.expectedPinnedX)).toBeLessThan(3);
+  expect(Math.abs(state.bestSegment.midX - state.expectedUnpinnedX)).toBeGreaterThan(10);
+});
+
+test('keeps nested Dorico instrument groups paired with their own bracket stems', async ({ page }) => {
+  const svgUpload = {
+    name: 'dorico-nested-instrument-groups.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildDoricoNestedInstrumentGroupSvgBuffer(),
+  };
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', svgUpload);
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  }), { timeout: 20000 }).toBeGreaterThan(0);
+  await expect.poll(async () => getDetectedScoreSourceType(page)).toBe('Dorico');
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const labels = ['Outer Group', 'Inner Group'];
+
+    return Object.fromEntries(labels.map((label) => {
+      const matches = result.renderQueue
+        .filter((item) => item.type === 'text' && (item.text || '').trim() === label && item.symbolType === 'InstGroupLabel')
+        .map((item) => {
+          const sharedGroup = item.sharedStickyGroupId
+            ? result.globalStickySharedGroups[item.sharedStickyGroupId] || null
+            : null;
+          const braceItems = sharedGroup
+            ? sharedGroup.blocks.flatMap((block) => block.items).filter((candidate) => candidate.symbolType === 'Brace')
+            : [];
+
+          return {
+            braceCount: braceItems.length,
+            sharedStickyGroupId: item.sharedStickyGroupId || null,
+          };
+        });
+
+      return [label, matches];
+    }));
+  });
+
+  expect(state).not.toBeNull();
+  expect(state['Outer Group']).toHaveLength(1);
+  expect(state['Inner Group']).toHaveLength(1);
+  expect(state['Outer Group'][0].sharedStickyGroupId).toBeTruthy();
+  expect(state['Inner Group'][0].sharedStickyGroupId).toBeTruthy();
+  expect(state['Outer Group'][0].sharedStickyGroupId).not.toBe(state['Inner Group'][0].sharedStickyGroupId);
+  expect(state['Outer Group'][0].braceCount).toBeGreaterThan(0);
+  expect(state['Inner Group'][0].braceCount).toBeGreaterThan(0);
+});
+
 test('preserves segmented Water Town bridge lines for opening flute and oboe rows', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'water-town-opening-instruments.svg');
   await loadFixtureIntoScore(page, fixturePath);
@@ -4240,6 +5401,150 @@ test('recognizes non-power-of-two stacked numeric time signatures in Dorico impo
 
   expect(state).not.toBeNull();
   expect(state.pairs).toEqual(expect.arrayContaining(['5/6', '9/10', '15/16']));
+});
+
+test('keeps the Horn 3/4 row Bravura opening digits classified as one 3/4 time signature', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      if (!svg) return null;
+
+      const textClass = (el) => (typeof el.className === 'string' ? el.className : (el.className?.baseVal || ''));
+      const transformPoint = (el, x, y) => {
+        const matrix = typeof el.getCTM === 'function' ? el.getCTM() : null;
+        if (!matrix) return { x, y };
+        const point = typeof DOMPoint === 'function'
+          ? new DOMPoint(x, y)
+          : svg.createSVGPoint();
+        if (!point) return { x, y };
+        if ('x' in point) point.x = x;
+        if ('y' in point) point.y = y;
+        const transformed = typeof point.matrixTransform === 'function' ? point.matrixTransform(matrix) : null;
+        return transformed ? { x: transformed.x, y: transformed.y } : { x, y };
+      };
+      const toBox = (el) => {
+        try {
+          const box = typeof el.getBBox === 'function' ? el.getBBox() : null;
+          if (!box) return null;
+          const corners = [
+            transformPoint(el, box.x, box.y),
+            transformPoint(el, box.x + box.width, box.y),
+            transformPoint(el, box.x, box.y + box.height),
+            transformPoint(el, box.x + box.width, box.y + box.height),
+          ];
+          const xs = corners.map((point) => point.x);
+          const ys = corners.map((point) => point.y);
+          return {
+            left: Math.min(...xs),
+            top: Math.min(...ys),
+            right: Math.max(...xs),
+            bottom: Math.max(...ys),
+          };
+        } catch (error) {
+          return null;
+        }
+      };
+      const getLineGeometry = (el) => {
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'line') {
+          const x1 = Number(el.getAttribute('x1'));
+          const y1 = Number(el.getAttribute('y1'));
+          const x2 = Number(el.getAttribute('x2'));
+          const y2 = Number(el.getAttribute('y2'));
+          if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+          const start = transformPoint(el, x1, y1);
+          const end = transformPoint(el, x2, y2);
+          return { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+        }
+        if (tag === 'polyline') {
+          const raw = (el.getAttribute('points') || '').trim();
+          if (!raw) return null;
+          const coords = raw.split(/[\s,]+/).map(Number).filter(Number.isFinite);
+          if (coords.length < 4) return null;
+          const start = transformPoint(el, coords[0], coords[1]);
+          const end = transformPoint(el, coords[coords.length - 2], coords[coords.length - 1]);
+          return { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+        }
+        return null;
+      };
+
+      const hornRows = Array.from(svg.querySelectorAll('text'))
+        .filter((el) => (el.textContent || '').replace(/\s+/g, ' ').trim() === 'Horn in F')
+        .map((el) => {
+          const rect = toBox(el);
+          return rect ? rect : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.top - b.top);
+      const targetRow = hornRows[1] || null;
+      if (!targetRow) return null;
+
+      const openingBarline = Array.from(svg.querySelectorAll('line, polyline'))
+        .map((el) => {
+          const geometry = getLineGeometry(el);
+          if (!geometry) return null;
+          if (Math.abs(geometry.x1 - geometry.x2) > 1) return null;
+          return {
+            x: (geometry.x1 + geometry.x2) / 2,
+            top: Math.min(geometry.y1, geometry.y2),
+            bottom: Math.max(geometry.y1, geometry.y2),
+            height: Math.abs(geometry.y2 - geometry.y1),
+          };
+        })
+        .filter(Boolean)
+        .filter((segment) => segment.height >= 20)
+        .filter((segment) => segment.bottom >= targetRow.top - 12 && segment.top <= targetRow.bottom + 28)
+        .filter((segment) => segment.x >= targetRow.right + 2)
+        .sort((a, b) => a.x - b.x)[0] || null;
+      if (!openingBarline) return null;
+
+      const hornMeterGlyphs = Array.from(svg.querySelectorAll('text, tspan'))
+        .map((el) => {
+          const rect = toBox(el);
+          if (!rect) return null;
+          const text = (el.textContent || '').trim();
+          const centerY = (rect.top + rect.bottom) / 2;
+          return {
+            text,
+            className: textClass(el),
+            fontFamily: el.getAttribute('font-family') || el.parentElement?.getAttribute?.('font-family') || '',
+            left: rect.left,
+            centerY,
+            codepoint: text ? `U+${text.codePointAt(0).toString(16).toUpperCase()}` : '',
+          };
+        })
+        .filter(Boolean)
+        .filter((item) => item.fontFamily === 'Bravura')
+        .filter((item) => item.left >= openingBarline.x + 35 && item.left <= openingBarline.x + 65)
+        .filter((item) => item.centerY >= targetRow.top - 10 && item.centerY <= targetRow.bottom + 20)
+        .sort((a, b) => a.centerY - b.centerY || a.left - b.left);
+
+      return {
+        hornMeterGlyphs,
+        displayText: document.getElementById('timeSigDisplay')?.textContent?.trim() || '',
+      };
+    });
+
+    return {
+      count: state?.hornMeterGlyphs?.length || 0,
+      highlightedCount: state?.hornMeterGlyphs?.filter((item) => item.className.includes('highlight-timesig')).length || 0,
+      codepoints: state?.hornMeterGlyphs?.map((item) => item.codepoint) || [],
+    };
+  }, {
+    message: 'waiting for the Horn 3/4 row Bravura opening digits to settle',
+  }).toEqual({
+    count: 2,
+    highlightedCount: 2,
+    codepoints: ['U+E083', 'U+E084'],
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.hornMeterGlyphs.map((item) => item.codepoint)).toEqual(['U+E083', 'U+E084']);
+  expect(state.displayText).toBe('3/4');
 });
 
 test('keeps MuseScore opening path time signatures paired when short horizontal lines pollute staff-band spacing', async ({ page }) => {
