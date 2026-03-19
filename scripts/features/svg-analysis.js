@@ -10,6 +10,34 @@ export function createSvgAnalysisFeature({
     identifyClefOrBrace,
     identifyAccidental,
 }) {
+    const SOURCE_TYPED_MID_CLEF_OFFSETS = {
+        Dorico: {
+            Bass: 0.3,
+            Treble: -0.3,
+            AltoTenor: 0,
+        },
+        Sibelius: {
+            Bass: 0.24,
+            Treble: -0.24,
+            AltoTenor: 0,
+        },
+        MuseScore: {
+            Bass: 0.18,
+            Treble: -0.18,
+            AltoTenor: 0,
+        },
+    };
+
+    function getMidClefOffsetY({ sourceType, specificType, staffSpace }) {
+        if (!specificType || !Number.isFinite(staffSpace)) return 0;
+
+        const sourceOffsets = SOURCE_TYPED_MID_CLEF_OFFSETS[sourceType] || SOURCE_TYPED_MID_CLEF_OFFSETS.Dorico;
+        if (specificType.includes("Bass")) return staffSpace * (sourceOffsets.Bass || 0);
+        if (specificType.includes("Treble")) return staffSpace * (sourceOffsets.Treble || 0);
+        if (specificType.includes("Alto/Tenor")) return staffSpace * (sourceOffsets.AltoTenor || 0);
+        return 0;
+    }
+
     function getStickyClefIdentity(item) {
         if (!item) return null;
 
@@ -423,7 +451,8 @@ export function createSvgAnalysisFeature({
         });
     }
 
-    function buildRenderQueue(svgRoot) {
+    function buildRenderQueue(svgRoot, options = {}) {
+        const { sourceType = "Unknown" } = options;
         const renderQueue = [];
         const globalStickyLanes = {};
         const globalStickySharedGroups = {};
@@ -1223,11 +1252,11 @@ export function createSvgAnalysisFeature({
                         if (isMidClef && item.type === "path" && item.originalD) {
                             const sigStr = item.originalD.replace(/[^a-zA-Z]/g, "").toUpperCase();
                             const specificType = identifyClefOrBrace(sigStr, item.originalD);
-                            if (specificType && specificType.includes("Bass")) {
-                                item.midClefOffsetY = currentStaffSpace * 0.3;
-                            } else if (specificType && specificType.includes("Treble")) {
-                                item.midClefOffsetY = -currentStaffSpace * 0.3;
-                            }
+                            item.midClefOffsetY = getMidClefOffsetY({
+                                sourceType,
+                                specificType,
+                                staffSpace: currentStaffSpace,
+                            });
                         }
                     });
                 });

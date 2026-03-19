@@ -2058,16 +2058,27 @@ test('uses separate horizontal ratios for the scanline and sticky lock onset col
   expect(uiEventsSource).toContain('dom.stickyLockRatioSlider?.addEventListener("input", handleStickyLockRatioInput);');
 });
 
-test('uses separate sticky mid-clef scale presets for Dorico and MuseScore svg imports', async () => {
+test('uses separate sticky mid-clef scale and offset presets for Dorico Sibelius and MuseScore svg imports', async () => {
   const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const svgAnalysisSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js'), 'utf8');
 
-  expect(appSource).toContain('const DORICO_MID_CLEF_STICKY_SCALE = 1.5;');
-  expect(appSource).toContain('const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.3;');
-  expect(appSource).toContain('let currentSvgIsMuseScore = false;');
-  expect(appSource).toContain('currentSvgIsMuseScore = isMuseScoreSvg(newSvgRoot);');
-  expect(appSource).toContain('const activeMidClefStickyScale = currentSvgIsMuseScore ? MUSESCORE_MID_CLEF_STICKY_SCALE : DORICO_MID_CLEF_STICKY_SCALE;');
+  expect(appSource).toContain('const DORICO_MID_CLEF_STICKY_SCALE =');
+  expect(appSource).toContain('const SIBELIUS_MID_CLEF_STICKY_SCALE =');
+  expect(appSource).toContain('const MUSESCORE_MID_CLEF_STICKY_SCALE =');
+  expect(appSource).toContain('function getMidClefStickyScale(sourceType) {');
+  expect(appSource).toContain('case SCORE_SOURCE_SIBELIUS:');
+  expect(appSource).toContain('return SIBELIUS_MID_CLEF_STICKY_SCALE;');
+  expect(appSource).toContain('const activeMidClefStickyScale = getMidClefStickyScale(currentAnalysisProfile.sourceType);');
   expect(appSource).toContain('if (item.isMidClef) targetScale = activeMidClefStickyScale;');
   expect(appSource).not.toContain('if (item.isMidClef) targetScale = 1.5;');
+
+  expect(svgAnalysisSource).toContain('function getMidClefOffsetY({ sourceType, specificType, staffSpace }) {');
+  expect(svgAnalysisSource).toContain('const SOURCE_TYPED_MID_CLEF_OFFSETS = {');
+  expect(svgAnalysisSource).toContain('Sibelius: {');
+  expect(svgAnalysisSource).toContain('AltoTenor: 0,');
+  expect(svgAnalysisSource).toContain('if (specificType.includes("Alto/Tenor")) return staffSpace * (sourceOffsets.AltoTenor || 0);');
+  expect(svgAnalysisSource).toContain('item.midClefOffsetY = getMidClefOffsetY({');
+  expect(svgAnalysisSource).toContain('sourceType,');
 });
 
 test('fills Light-theme MP4 export frames with the active background color', async ({ page }) => {

@@ -52,7 +52,8 @@ const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
 const PLAYBACK_TAIL_BUFFER_SEC = 2;
 const PREVIEW_FOCUS_MODE_CLASS = "preview-focus-mode";
 const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
-const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.3;
+const SIBELIUS_MID_CLEF_STICKY_SCALE = 1.3;
+const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.25;
 const SIBELIUS_SOURCE_REGEX = /\b(?:Opus(?:\s+Special)?\s+Std|Opus\s+Text\s+Std|Helsinki|Inkpen2)\b/i;
 const controlStackEl = document.querySelector(".control-stack");
 const stageWrapEl = document.querySelector(".stage-wrap");
@@ -567,7 +568,6 @@ let allKnownNoteheadMap = {};
 let currentRawSvgContent = null; // 用于切换字体时热重载 SVG
 let svgProcessingGeneration = 0;
 let currentMappedSvgRoot = null;
-let currentSvgIsMuseScore = false;
 let currentAnalysisProfile = buildScoreAnalysisProfile({
     sourceType: SCORE_SOURCE_UNKNOWN,
     selectedMusicFont: document.getElementById('musicFontSelect')?.value || 'Bravura',
@@ -588,7 +588,6 @@ function syncScoreSourceTypeUi({ showPlaceholder = false } = {}) {
 
 function resetScoreSourceTypeUi() {
     currentScoreSourceType = SCORE_SOURCE_UNKNOWN;
-    currentSvgIsMuseScore = false;
     currentAnalysisProfile = buildScoreAnalysisProfile({
         sourceType: SCORE_SOURCE_UNKNOWN,
         selectedMusicFont: document.getElementById('musicFontSelect')?.value || 'Bravura',
@@ -612,6 +611,18 @@ function scheduleStickyTransitionFrame(currentX) {
         if (isPlaying || isExportingVideoMode || typeof renderCanvas !== 'function') return;
         renderCanvas(stickyTransitionRenderX);
     });
+}
+
+function getMidClefStickyScale(sourceType) {
+    switch (sourceType) {
+    case SCORE_SOURCE_SIBELIUS:
+        return SIBELIUS_MID_CLEF_STICKY_SCALE;
+    case SCORE_SOURCE_MUSESCORE:
+        return MUSESCORE_MID_CLEF_STICKY_SCALE;
+    case SCORE_SOURCE_DORICO:
+    default:
+        return DORICO_MID_CLEF_STICKY_SCALE;
+    }
 }
 
 function compileKnownClefSignatures() {
@@ -718,7 +729,7 @@ function renderCanvas(currentX, options = {}) {
     const noteColor = noteColorPicker ? noteColorPicker.value : defaultNoteColor;
     const solidBgColor = bgColorPicker ? bgColorPicker.value : defaultBgColor;
     const bgColor = transparentBackground ? 'rgba(0, 0, 0, 0)' : solidBgColor;
-    const activeMidClefStickyScale = currentSvgIsMuseScore ? MUSESCORE_MID_CLEF_STICKY_SCALE : DORICO_MID_CLEF_STICKY_SCALE;
+    const activeMidClefStickyScale = getMidClefStickyScale(currentAnalysisProfile.sourceType);
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!transparentBackground) {
@@ -1502,7 +1513,6 @@ async function processSvgContent(svgContent) {
     const newSvgRoot = sandbox.querySelector('svg');
     if (!newSvgRoot) return;
     currentScoreSourceType = detectScoreSourceType(newSvgRoot, svgContent);
-    currentSvgIsMuseScore = currentScoreSourceType === SCORE_SOURCE_MUSESCORE;
     currentAnalysisProfile = buildScoreAnalysisProfile({
         sourceType: currentScoreSourceType,
         selectedMusicFont: document.getElementById('musicFontSelect')?.value || 'Bravura',
@@ -1547,7 +1557,9 @@ async function processSvgContent(svgContent) {
 
     document.querySelector = originalQuerySelector;
 
-    const svgAnalysis = svgAnalysisFeature.buildRenderQueue(newSvgRoot);
+    const svgAnalysis = svgAnalysisFeature.buildRenderQueue(newSvgRoot, {
+        sourceType: currentAnalysisProfile.sourceType,
+    });
     renderQueue = svgAnalysis.renderQueue;
     stickyMinX = svgAnalysis.stickyMinX;
     globalStickyLanes = svgAnalysis.globalStickyLanes;
