@@ -1428,7 +1428,13 @@ function identifyAnyKnownNotehead(sig) {
 function shouldCollectPathNoteheadCandidate(el, sig) {
     if (currentAnalysisProfile.sourceType === SCORE_SOURCE_SIBELIUS) return false;
     if (currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO) {
-        return Boolean(activeSignatureMap.noteheads[sig]);
+        if (activeSignatureMap.noteheads[sig]) return true;
+        const { normalizedFontFamily } = getScoreElementFontInfo(el);
+        return Boolean(
+            normalizedFontFamily
+            && normalizedFontFamily === getAnalysisMusicFont()
+            && identifyAnyKnownNotehead(sig)
+        );
     }
     if (currentAnalysisProfile.sourceType === SCORE_SOURCE_MUSESCORE) {
         if (hasSemanticCandidates(currentAnalysisProfile, 'noteheads')) {
@@ -1441,7 +1447,11 @@ function shouldCollectPathNoteheadCandidate(el, sig) {
 function shouldCollectTextNoteheadCandidate(el, sig) {
     if (currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO) {
         const { normalizedFontFamily } = getScoreElementFontInfo(el);
-        return Boolean(normalizedFontFamily && normalizedFontFamily === getAnalysisMusicFont() && identifyNotehead(sig));
+        return Boolean(
+            normalizedFontFamily
+            && normalizedFontFamily === getAnalysisMusicFont()
+            && identifyAnyKnownNotehead(sig)
+        );
     }
     if (currentAnalysisProfile.sourceType === SCORE_SOURCE_SIBELIUS) {
         const { rawFontFamily } = getScoreElementFontInfo(el);

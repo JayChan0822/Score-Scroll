@@ -4160,62 +4160,6 @@ test('keeps the M01 Strings Ensemble instrument-group bracket knockout attached 
   expect(state.knockoutCount).toBeGreaterThan(0);
 });
 
-test('debug M01 opening key signature sticky state', async ({ page }) => {
-  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
-  await loadFixtureIntoScore(page, fixturePath);
-
-  const state = await page.evaluate(async () => {
-    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
-    const svg = document.querySelector('#svg-sandbox svg');
-    if (!svg) return null;
-
-    const svgAnalysisFeature = createSvgAnalysisFeature({
-      getFallbackSystemInternalX: () => 0,
-      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
-      identifyClefOrBrace: () => null,
-    });
-    const result = svgAnalysisFeature.buildRenderQueue(svg);
-
-    const openingKeyItems = result.renderQueue
-      .filter((item) => item.symbolType === 'KeySig')
-      .filter((item) => Number.isFinite(item.absMinX) && item.absMinX <= result.stickyMinX + 220)
-      .map((item) => ({
-        type: item.type,
-        absMinX: item.absMinX,
-        absMaxX: item.absMaxX,
-        absMinY: item.absMinY,
-        absMaxY: item.absMaxY,
-        laneId: item.laneId || null,
-        blockIndex: Number.isFinite(item.blockIndex) ? item.blockIndex : null,
-        lockDistance: Number.isFinite(item.lockDistance) ? item.lockDistance : null,
-        isSticky: item.isSticky === true,
-      }))
-      .sort((a, b) => a.absMinY - b.absMinY || a.absMinX - b.absMinX);
-
-    const sharedBgItems = result.renderQueue
-      .filter((item) => item.fillRole === 'bg' && item.sharedStickyGroupId)
-      .map((item) => ({
-        type: item.type,
-        absMinX: item.absMinX,
-        absMaxX: item.absMaxX,
-        absMinY: item.absMinY,
-        absMaxY: item.absMaxY,
-        stickyType: item.stickyType || null,
-        sharedStickyGroupId: item.sharedStickyGroupId || null,
-      }))
-      .sort((a, b) => a.absMinY - b.absMinY || a.absMinX - b.absMinX);
-
-    return {
-      stickyMinX: result.stickyMinX,
-      openingKeyItems,
-      sharedBgItems,
-    };
-  });
-
-  console.log(JSON.stringify(state, null, 2));
-  expect(state).not.toBeNull();
-});
-
 test('keeps the opening M01 key signatures visible after they pin', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
 
@@ -4243,13 +4187,9 @@ test('keeps the opening M01 key signatures visible after they pin', async ({ pag
       identifyClefOrBrace: () => null,
     });
     const result = svgAnalysisFeature.buildRenderQueue(svg);
-    const targetKeyItem = result.renderQueue.find((item) => (
-      item.symbolType === 'KeySig'
-      && item.laneId === 'lane-0'
-      && Number.isFinite(item.absMinX)
-      && item.absMinX <= result.stickyMinX + 220
-    )) || null;
-    if (!targetKeyItem) return null;
+    const targetLane = result.globalStickyLanes['lane-0'] || null;
+    const targetBlock = targetLane?.typeBlocks?.key?.[0] || null;
+    if (!targetBlock) return null;
 
     const total = Number(progressSlider.max) || 0;
     const targetTime = total * 0.4;
@@ -4266,17 +4206,15 @@ test('keeps the opening M01 key signatures visible after they pin', async ({ pag
     const stickyLockScreenX = viewportWidth * stickyLockRatio;
     const worldDistanceLeft = playlineScreenX / zoom;
     const stickyLockOffset = stickyLockScreenX / zoom;
-    const lockDistance = Number.isFinite(targetKeyItem.lockDistance) ? targetKeyItem.lockDistance : 0;
+    const lockDistance = Number.isFinite(targetBlock.lockDistance) ? targetBlock.lockDistance : 0;
     const layerMaxX = worldDistanceLeft + result.stickyMinX - stickyLockOffset + lockDistance;
     const currentX = Number(window.__lastRenderX) || 0;
-    const centerX = Number.isFinite(targetKeyItem.centerX)
-      ? targetKeyItem.centerX
-      : ((targetKeyItem.absMinX + targetKeyItem.absMaxX) / 2);
-    const centerY = ((targetKeyItem.absMinY || 0) + (targetKeyItem.absMaxY || 0)) / 2;
+    const centerX = ((targetBlock.minX || 0) + (targetBlock.maxX || 0)) / 2;
+    const centerY = ((targetBlock.minY || 0) + (targetBlock.maxY || 0)) / 2;
     const cssX = (centerX - layerMaxX) * zoom + playlineScreenX;
     const cssY = (centerY - (Number(window.globalScoreTrueCenterY) || 0)) * zoom + (viewportHeight / 2);
-    const cssWidth = Math.max(8, ((targetKeyItem.absMaxX || 0) - (targetKeyItem.absMinX || 0)) * zoom + 6);
-    const cssHeight = Math.max(16, ((targetKeyItem.absMaxY || 0) - (targetKeyItem.absMinY || 0)) * zoom + 6);
+    const cssWidth = Math.max(20, ((targetBlock.maxX || 0) - (targetBlock.minX || 0)) * zoom + 20);
+    const cssHeight = Math.max(24, ((targetBlock.maxY || 0) - (targetBlock.minY || 0)) * zoom + 12);
 
     const ctx = canvas.getContext('2d');
     const canvasRect = canvas.getBoundingClientRect();
@@ -4316,82 +4254,45 @@ test('keeps the opening M01 key signatures visible after they pin', async ({ pag
   expect(state.redPixelCount).toBeGreaterThan(0);
 });
 
-test('debug M01 lane-0 key sticky activation state', async ({ page }) => {
+test('does not leave mid-system key-signature highlights in M01 after accidental reclassification', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(async () => {
-    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
-    const { calculateStickySystemDelta } = await import('/scripts/features/sticky-layout.mjs');
+  const state = await page.evaluate(() => {
     const svg = document.querySelector('#svg-sandbox svg');
     if (!svg) return null;
 
-    const svgAnalysisFeature = createSvgAnalysisFeature({
-      getFallbackSystemInternalX: () => 0,
-      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
-      identifyClefOrBrace: () => null,
-    });
-    const result = svgAnalysisFeature.buildRenderQueue(svg);
-    const lane = result.globalStickyLanes['lane-0'] || null;
-    if (!lane) return null;
-
-    const progressSlider = document.getElementById('progressSlider');
-    const viewport = document.getElementById('viewport');
-    if (!progressSlider || !viewport) return null;
-    const total = Number(progressSlider.max) || 0;
-    const targetTime = total * 0.4;
-    progressSlider.value = String(targetTime);
-    progressSlider.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-
-    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
-    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
-    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
-    const viewportWidth = viewport.clientWidth;
-    const playlineScreenX = viewportWidth * playlineRatio;
-    const stickyLockScreenX = viewportWidth * stickyLockRatio;
-    const worldDistanceLeft = playlineScreenX / zoom;
-    const stickyLockOffset = stickyLockScreenX / zoom;
-    const maxStickySmoothXInitial = worldDistanceLeft + result.stickyMinX - stickyLockOffset;
-    const currentX = Number(window.__lastRenderX) || 0;
-
-    const keyBlocks = (lane.typeBlocks.key || []).map((block, index) => ({
-      index,
-      minX: block.minX,
-      lockDistance: block.lockDistance,
-      layerMaxX: maxStickySmoothXInitial + (Number.isFinite(block.lockDistance) ? block.lockDistance : 0),
-      width: block.width,
-    }));
-    const clefBlocks = (lane.typeBlocks.clef || []).map((block, index) => ({
-      index,
-      minX: block.minX,
-      lockDistance: block.lockDistance,
-      layerMaxX: maxStickySmoothXInitial + (Number.isFinite(block.lockDistance) ? block.lockDistance : 0),
-      width: block.width,
-      stickyWidth: block.stickyWidth,
-    }));
-    const activeClefBlocks = clefBlocks.filter((block) => currentX >= block.layerMaxX);
-    const activeClefWidth = activeClefBlocks.length > 0
-      ? activeClefBlocks[activeClefBlocks.length - 1].stickyWidth
-      : (lane.baseWidths?.clef || 0);
-    const systemDeltaClef = calculateStickySystemDelta({
-      type: 'clef',
-      baseWidth: lane.baseWidths?.clef || 0,
-      currentWidth: activeClefWidth,
-    });
+    const openingThresholdLeft = Math.min(
+      ...Array.from(svg.querySelectorAll('.highlight-barline')).map((el) => el.getBoundingClientRect().left)
+    );
+    const midSystemKeys = Array.from(svg.querySelectorAll('.highlight-keysig')).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+      };
+    }).filter((item) => item.left > openingThresholdLeft + 220);
 
     return {
-      stickyMinX: result.stickyMinX,
-      currentX,
-      laneBaseWidths: lane.baseWidths,
-      keyBlocks,
-      clefBlocks,
-      systemDeltaClef,
+      midSystemKeySigCount: midSystemKeys.length,
     };
   });
 
-  console.log(JSON.stringify(state, null, 2));
   expect(state).not.toBeNull();
+  expect(state.midSystemKeySigCount).toBe(0);
+});
+
+test('keeps M01 timeline barline mapping stable after notehead-based stem filtering', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => ({
+    barlineCount: Number(document.getElementById('barlineCount')?.textContent?.trim() || 0),
+  }));
+
+  expect(state.barlineCount).toBe(108);
 });
 
 test('Dorico instrument group shared stickies include the bracket cap segments', async ({ page }) => {
