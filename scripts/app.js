@@ -2,11 +2,16 @@ import {
     PRIVATE_USE_GLYPH_REGEX,
     TIME_SIGNATURE_GLYPH_REGEX,
 } from "./core/constants.js";
-import { getDomRefs } from "./core/dom.js?v=20260313-preview-focus-mode-1";
+import { getDomRefs } from "./core/dom.js?v=20260319-custom-export-ratio-1";
 import { createInitialState } from "./core/state.js?v=20260313-sticky-lock-light-export-1";
 import { MusicFontRegistry } from "./data/music-font-registry.js";
 import { createAudioFeature } from "./features/audio.js";
-import { computeSharedExportDimensions, createExportVideoFeature } from "./features/export-video.js?v=20260313-equal-height-preview-1";
+import {
+    computeSharedExportDimensions,
+    createExportVideoFeature,
+    normalizeAspectRatioValue,
+    resolveAspectRatioValue,
+} from "./features/export-video.js?v=20260319-custom-export-ratio-1";
 import { parseMidiData } from "./features/midi.js";
 import {
     buildScoreAnalysisProfile,
@@ -45,12 +50,14 @@ import {
     simplifySvgPathSignature,
 } from "./features/time-signature-decoder.js?v=20260317-glyph-font-fallback-1";
 import { createTimelineFeature } from "./features/timeline.js";
-import { bindUiEvents } from "./features/ui-events.js?v=20260313-sticky-lock-light-export-1";
+import { bindUiEvents } from "./features/ui-events.js?v=20260319-custom-export-ratio-1";
 import { debugLog } from "./utils/debug.js";
 import { formatSeconds } from "./utils/format.js";
 import { clamp } from "./utils/math.js";
 
 const DESKTOP_LAYOUT_BREAKPOINT_PX = 900;
+const CUSTOM_EXPORT_RATIO_OPTION_VALUE = "custom";
+const DEFAULT_EXPORT_RATIO = "16:9";
 const PLAYBACK_TAIL_BUFFER_SEC = 2;
 const PREVIEW_FOCUS_MODE_CLASS = "preview-focus-mode";
 const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
@@ -120,6 +127,11 @@ const {
     bpmVal,
     canvas: initialCanvas,
     cancelExportBtn,
+    customRatioCancelBtn,
+    customRatioConfirmBtn,
+    customRatioError,
+    customRatioInput,
+    customRatioModal,
     delaySlider,
     delayVal,
     distSlider,
@@ -176,6 +188,11 @@ const dom = {
     bpmVal,
     cancelExportBtn,
     canvas,
+    customRatioCancelBtn,
+    customRatioConfirmBtn,
+    customRatioError,
+    customRatioInput,
+    customRatioModal,
     delaySlider,
     delayVal,
     distSlider,
@@ -306,6 +323,7 @@ const exportFeature = createExportVideoFeature({
     getCanvas: () => canvas,
     getCancelVideoExport: () => cancelVideoExport,
     getCtx: () => ctx,
+    getEffectiveExportRatio,
     getGlobalAudioFile: () => globalAudioFile,
     getGlobalScoreHeight: () => globalScoreHeight,
     getGlobalZoom: () => globalZoom,
@@ -342,6 +360,9 @@ const exportFeature = createExportVideoFeature({
         smoothX = nextX;
     },
 });
+
+let customExportRatio = "";
+let lastNonCustomExportRatio = resolveAspectRatioValue(exportRatioSelect?.value, DEFAULT_EXPORT_RATIO);
 
 function updateZoomUI() {
     zoomValDisplay.innerText = Math.round(globalZoom * 100) + '%';
@@ -385,6 +406,67 @@ function schedulePreviewFocusLayoutSync() {
     });
 }
 
+function getCustomRatioOption() {
+    return /** @type {HTMLOptionElement | null} */ (dom.exportRatioSelect?.querySelector(`option[value="${CUSTOM_EXPORT_RATIO_OPTION_VALUE}"]`) || null);
+}
+
+function updateCustomRatioOptionLabel() {
+    const customOption = getCustomRatioOption();
+    if (!customOption) return;
+    customOption.textContent = customExportRatio ? `自定义 (${customExportRatio})` : "自定义比例";
+}
+
+function setCustomRatioError(message = "") {
+    if (dom.customRatioError) {
+        dom.customRatioError.textContent = message;
+    }
+}
+
+function getEffectiveExportRatio(selectedRatio = dom.exportRatioSelect?.value || DEFAULT_EXPORT_RATIO) {
+    const fallbackRatio = resolveAspectRatioValue(lastNonCustomExportRatio, DEFAULT_EXPORT_RATIO);
+    if (selectedRatio === CUSTOM_EXPORT_RATIO_OPTION_VALUE) {
+        return resolveAspectRatioValue(customExportRatio, fallbackRatio);
+    }
+    return resolveAspectRatioValue(selectedRatio, fallbackRatio);
+}
+
+function syncExportRatioSelectionState(selectedRatio = dom.exportRatioSelect?.value || DEFAULT_EXPORT_RATIO) {
+    if (selectedRatio !== CUSTOM_EXPORT_RATIO_OPTION_VALUE) {
+        lastNonCustomExportRatio = resolveAspectRatioValue(selectedRatio, DEFAULT_EXPORT_RATIO);
+    }
+    updateCustomRatioOptionLabel();
+}
+
+function isCustomRatioModalOpen() {
+    return Boolean(dom.customRatioModal?.classList.contains("show"));
+}
+
+function openCustomRatioModal() {
+    if (!dom.customRatioModal || !dom.customRatioInput) return;
+
+    dom.customRatioModal.style.display = "flex";
+    void dom.customRatioModal.offsetWidth;
+    dom.customRatioModal.classList.add("show");
+    dom.customRatioInput.value = customExportRatio || (lastNonCustomExportRatio === "auto" ? DEFAULT_EXPORT_RATIO : lastNonCustomExportRatio);
+    setCustomRatioError("");
+    requestAnimationFrame(() => {
+        dom.customRatioInput?.focus();
+        dom.customRatioInput?.select();
+    });
+}
+
+function closeCustomRatioModal() {
+    if (!dom.customRatioModal) return;
+    dom.customRatioModal.classList.remove("show");
+    dom.customRatioModal.style.display = "none";
+    setCustomRatioError("");
+}
+
+function applyExportRatioPreviewSync() {
+    syncViewportSizingMode();
+    resizeCanvas();
+}
+
 function togglePreviewFocusMode() {
     document.body.classList.toggle(PREVIEW_FOCUS_MODE_CLASS);
     syncPreviewFocusButtonState();
@@ -408,7 +490,7 @@ function fitScoreToViewportHeight() {
     }
 }
 
-function syncViewportSizingMode(ratio = exportRatioSelect ? exportRatioSelect.value : "auto") {
+function syncViewportSizingMode(ratio = getEffectiveExportRatio()) {
     if (!viewportEl) return;
 
     viewportEl.style.width = "100%";
@@ -466,7 +548,7 @@ function syncDesktopPreviewFrame() {
         0;
     if (!Number.isFinite(stageAvailableWidth) || stageAvailableWidth <= 0) return false;
 
-    const selectedRatio = exportRatioSelect?.value || "auto";
+    const selectedRatio = getEffectiveExportRatio();
     let desiredPreviewWidth = stageAvailableWidth;
 
     if (selectedRatio === "auto") {
@@ -512,7 +594,7 @@ function syncMobileExportPreviewHeight() {
     if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return false;
 
     const { targetHeight } = computeSharedExportDimensions({
-        aspectRatio: exportRatioSelect?.value || "auto",
+        aspectRatio: getEffectiveExportRatio(),
         baseRes: getSelectedExportBaseResolution(),
         globalScoreHeight,
         globalZoom,
@@ -4606,6 +4688,12 @@ function handleAudioOffsetInput(e) {
 
 function handleExportRatioChange(e) {
     const ratio = e.target.value;
+    if (ratio === CUSTOM_EXPORT_RATIO_OPTION_VALUE) {
+        openCustomRatioModal();
+        return;
+    }
+
+    syncExportRatioSelectionState(ratio);
     saveLocalSettings(); // 👈
     syncViewportSizingMode(ratio);
     resizeCanvas();
@@ -4658,7 +4746,48 @@ function handleStickyLockRatioInput(e) {
     redrawCanvas();
 }
 
+function handleCustomRatioInput() {
+    setCustomRatioError("");
+}
+
+function handleCustomRatioConfirm() {
+    const normalizedRatio = normalizeAspectRatioValue(dom.customRatioInput?.value || "");
+    if (!normalizedRatio || normalizedRatio === "auto") {
+        setCustomRatioError("请输入有效的长宽比，例如 3:2");
+        return;
+    }
+
+    customExportRatio = normalizedRatio;
+    updateCustomRatioOptionLabel();
+    if (dom.exportRatioSelect) {
+        dom.exportRatioSelect.value = CUSTOM_EXPORT_RATIO_OPTION_VALUE;
+    }
+    closeCustomRatioModal();
+    saveLocalSettings();
+    applyExportRatioPreviewSync();
+}
+
+function handleCustomRatioCancel() {
+    closeCustomRatioModal();
+    if (dom.exportRatioSelect) {
+        dom.exportRatioSelect.value = customExportRatio ? CUSTOM_EXPORT_RATIO_OPTION_VALUE : lastNonCustomExportRatio;
+    }
+    saveLocalSettings();
+    applyExportRatioPreviewSync();
+}
+
 function handleWindowKeydown(e) {
+    if (isCustomRatioModalOpen()) {
+        if (e.key === "Escape") {
+            e.preventDefault();
+            handleCustomRatioCancel();
+        } else if (e.key === "Enter") {
+            e.preventDefault();
+            handleCustomRatioConfirm();
+        }
+        return;
+    }
+
     const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
     if (["input", "textarea", "select"].includes(activeTag)) {
         return;
@@ -4694,6 +4823,9 @@ bindUiEvents({
     dom,
     handleAudioInputChange: audioFeature.handleAudioInputChange,
     handleAudioOffsetInput,
+    handleCustomRatioCancel,
+    handleCustomRatioConfirm,
+    handleCustomRatioInput,
     handleExportRatioChange,
     handleExportResolutionChange,
     handleExportFpsChange,
@@ -4732,10 +4864,12 @@ function saveLocalSettings() {
         glowRangePercent: dom.glowRangeSlider ? dom.glowRangeSlider.value : "50",
         playlineRatioPercent: dom.playlineRatioSlider ? dom.playlineRatioSlider.value : "50",
         stickyLockRatioPercent: dom.stickyLockRatioSlider ? dom.stickyLockRatioSlider.value : "50",
+        customExportRatio,
         musicFont: document.getElementById('musicFontSelect') ? document.getElementById('musicFontSelect').value : "Bravura",
-        exportRatio: dom.exportRatioSelect ? dom.exportRatioSelect.value : "16:9",
+        exportRatio: dom.exportRatioSelect ? dom.exportRatioSelect.value : DEFAULT_EXPORT_RATIO,
         exportRes: dom.exportResSelect ? dom.exportResSelect.value : "1920",
-        exportFps: dom.exportFpsSelect ? dom.exportFpsSelect.value : "60"
+        exportFps: dom.exportFpsSelect ? dom.exportFpsSelect.value : "60",
+        lastNonCustomExportRatio,
     };
     localStorage.setItem('scoreScrollSettings', JSON.stringify(settings));
 }
@@ -4786,7 +4920,20 @@ function loadLocalSettings() {
             document.getElementById('musicFontSelect').value = settings.musicFont;
             compileFontSignatures(settings.musicFont);
         }
-        if (settings.exportRatio && dom.exportRatioSelect) dom.exportRatioSelect.value = settings.exportRatio;
+        if (typeof settings.customExportRatio === 'string') {
+            customExportRatio = normalizeAspectRatioValue(settings.customExportRatio) || "";
+        }
+        if (typeof settings.lastNonCustomExportRatio === 'string') {
+            lastNonCustomExportRatio = resolveAspectRatioValue(settings.lastNonCustomExportRatio, DEFAULT_EXPORT_RATIO);
+        }
+        updateCustomRatioOptionLabel();
+        if (settings.exportRatio && dom.exportRatioSelect) {
+            const nextExportRatio = settings.exportRatio === CUSTOM_EXPORT_RATIO_OPTION_VALUE
+                ? (customExportRatio ? CUSTOM_EXPORT_RATIO_OPTION_VALUE : lastNonCustomExportRatio)
+                : resolveAspectRatioValue(settings.exportRatio, DEFAULT_EXPORT_RATIO);
+            dom.exportRatioSelect.value = nextExportRatio;
+            syncExportRatioSelectionState(nextExportRatio);
+        }
         if (settings.exportRes && dom.exportResSelect) dom.exportResSelect.value = settings.exportRes;
         if (settings.exportFps && dom.exportFpsSelect) dom.exportFpsSelect.value = settings.exportFps;
 
@@ -4797,6 +4944,7 @@ function loadLocalSettings() {
 
 window.onload = () => {
     loadLocalSettings();
+    updateCustomRatioOptionLabel();
     if (typeof handleExportResolutionChange === 'function') handleExportResolutionChange();
     if (typeof handleExportFpsChange === 'function') handleExportFpsChange();
     syncViewportSizingMode();
