@@ -4160,6 +4160,62 @@ test('keeps the M01 Strings Ensemble instrument-group bracket knockout attached 
   expect(state.knockoutCount).toBeGreaterThan(0);
 });
 
+test('debug M01 opening key signature sticky state', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '..', 'M01.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+
+    const openingKeyItems = result.renderQueue
+      .filter((item) => item.symbolType === 'KeySig')
+      .filter((item) => Number.isFinite(item.absMinX) && item.absMinX <= result.stickyMinX + 220)
+      .map((item) => ({
+        type: item.type,
+        absMinX: item.absMinX,
+        absMaxX: item.absMaxX,
+        absMinY: item.absMinY,
+        absMaxY: item.absMaxY,
+        laneId: item.laneId || null,
+        blockIndex: Number.isFinite(item.blockIndex) ? item.blockIndex : null,
+        lockDistance: Number.isFinite(item.lockDistance) ? item.lockDistance : null,
+        isSticky: item.isSticky === true,
+      }))
+      .sort((a, b) => a.absMinY - b.absMinY || a.absMinX - b.absMinX);
+
+    const sharedBgItems = result.renderQueue
+      .filter((item) => item.fillRole === 'bg' && item.sharedStickyGroupId)
+      .map((item) => ({
+        type: item.type,
+        absMinX: item.absMinX,
+        absMaxX: item.absMaxX,
+        absMinY: item.absMinY,
+        absMaxY: item.absMaxY,
+        stickyType: item.stickyType || null,
+        sharedStickyGroupId: item.sharedStickyGroupId || null,
+      }))
+      .sort((a, b) => a.absMinY - b.absMinY || a.absMinX - b.absMinX);
+
+    return {
+      stickyMinX: result.stickyMinX,
+      openingKeyItems,
+      sharedBgItems,
+    };
+  });
+
+  console.log(JSON.stringify(state, null, 2));
+  expect(state).not.toBeNull();
+});
+
 test('Dorico instrument group shared stickies include the bracket cap segments', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
   await loadFixtureIntoScore(page, fixturePath);
