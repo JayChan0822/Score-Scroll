@@ -3,7 +3,7 @@ export function calculateStickySystemDelta({ type, baseWidth, currentWidth }) {
     const normalizedCurrentWidth = Number.isFinite(currentWidth) ? currentWidth : 0;
     let delta = normalizedCurrentWidth - normalizedBaseWidth;
 
-    const usesSyntheticPadding = type !== 'key' || normalizedBaseWidth > 0;
+    const usesSyntheticPadding = type !== 'key';
     if (usesSyntheticPadding) {
         if (normalizedBaseWidth === 0 && normalizedCurrentWidth > 0) delta += 15;
         else if (normalizedBaseWidth > 0 && normalizedCurrentWidth === 0) delta -= 15;

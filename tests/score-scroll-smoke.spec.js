@@ -5926,14 +5926,63 @@ test('reclassifies mid-system flats adjacent to hollow noteheads instead of leav
   const fixturePath = path.resolve(__dirname, 'fixtures', 'zhangchengyao-mid-system-naturals.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const svg = document.querySelector('#svg-sandbox svg');
+      const flatSignature = 'MCCLCCLMCCCLCLCLCCCCCLCLCLCCL';
+      const hollowNoteheadSignature = 'MCCCCMCCCCCCCC';
+      const openingTimeSigRight = Math.max(
+        ...Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => el.getBoundingClientRect().right)
+      );
+
+      const items = Array.from(svg.querySelectorAll('path')).map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+          classes: el.className?.baseVal || '',
+          left: rect.left,
+          right: rect.right,
+          centerY: rect.top + rect.height / 2,
+        };
+      });
+
+      const targets = items.filter((item) => {
+        if (item.signature !== flatSignature) return false;
+        if (item.left <= openingTimeSigRight + 500) return false;
+        return items.some((other) => {
+          const dx = other.left - item.right;
+          const dy = Math.abs(other.centerY - item.centerY);
+          return other.signature === hollowNoteheadSignature && dx >= -2 && dx <= 8 && dy <= 2;
+        });
+      });
+
+      return { targets };
+    });
+
+    return Boolean(
+      state
+      && state.targets.length > 0
+      && state.targets.every((item) => item.classes.includes('highlight-accidental'))
+      && state.targets.every((item) => !item.classes.includes('highlight-keysig'))
+    );
+  }).toBe(true);
+
+  expect(state.targets.length).toBeGreaterThan(0);
+  expect(state.targets.every((item) => item.classes.includes('highlight-accidental'))).toBe(true);
+  expect(state.targets.every((item) => !item.classes.includes('highlight-keysig'))).toBe(true);
+});
+
+test('reclassifies Water Town mid-system flats that sit directly before piano noteheads', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', '水乡记忆.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
   const state = await page.evaluate(() => {
     const svg = document.querySelector('#svg-sandbox svg');
-    const flatSignature = 'MCCLCCLMCCCLCLCLCCCCCLCLCLCCL';
-    const hollowNoteheadSignature = 'MCCCCMCCCCCCCC';
-    const openingTimeSigRight = Math.max(
-      ...Array.from(svg.querySelectorAll('.highlight-timesig')).map((el) => el.getBoundingClientRect().right)
-    );
+    if (!svg) return null;
 
+    const flatSignature = 'MCCLCCCCCCCLMCCCCLC';
+    const filledNoteheadSignature = 'MCCCC';
     const items = Array.from(svg.querySelectorAll('path')).map((el) => {
       const rect = el.getBoundingClientRect();
       return {
@@ -5941,23 +5990,26 @@ test('reclassifies mid-system flats adjacent to hollow noteheads instead of leav
         classes: el.className?.baseVal || '',
         left: rect.left,
         right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
         centerY: rect.top + rect.height / 2,
       };
     });
 
     const targets = items.filter((item) => {
       if (item.signature !== flatSignature) return false;
-      if (item.left <= openingTimeSigRight + 500) return false;
+      if (item.left <= 3000) return false;
       return items.some((other) => {
         const dx = other.left - item.right;
         const dy = Math.abs(other.centerY - item.centerY);
-        return other.signature === hollowNoteheadSignature && dx >= -2 && dx <= 8 && dy <= 2;
+        return other.signature === filledNoteheadSignature && dx >= 12 && dx <= 26 && dy <= 6;
       });
     });
 
     return { targets };
   });
 
+  expect(state).not.toBeNull();
   expect(state.targets.length).toBeGreaterThan(0);
   expect(state.targets.every((item) => item.classes.includes('highlight-accidental'))).toBe(true);
   expect(state.targets.every((item) => !item.classes.includes('highlight-keysig'))).toBe(true);
@@ -5988,18 +6040,28 @@ test('preserves mid-system sharp key-signature clusters even after earlier notes
   const fixturePath = path.resolve(__dirname, 'fixtures', 'zhangchengyao-mid-system-sharp-keysig.svg');
   await loadFixtureIntoScore(page, fixturePath);
 
-  const state = await page.evaluate(() => {
-    const targetSignature = 'MCCCCCCCCMCLCCCCLCCLCCCLCCLCCCLCCCCCLCCCLCCCCCLCCLCLCCLCCLCCCLCCLCLCL';
-    const sharps = Array.from(document.querySelectorAll('#svg-sandbox svg path'))
-      .map((el) => ({
-        signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
-        classes: el.className?.baseVal || '',
-        left: el.getBoundingClientRect().left,
-      }))
-      .filter((item) => item.signature === targetSignature && item.left >= 1640 && item.left <= 1675);
+  let state = null;
+  await expect.poll(async () => {
+    state = await page.evaluate(() => {
+      const targetSignature = 'MCCCCCCCCMCLCCCCLCCLCCCLCCLCCCLCCCCCLCCCLCCCCCLCCLCLCCLCCLCCCLCCLCLCL';
+      const sharps = Array.from(document.querySelectorAll('#svg-sandbox svg path'))
+        .map((el) => ({
+          signature: (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase(),
+          classes: el.className?.baseVal || '',
+          left: el.getBoundingClientRect().left,
+        }))
+        .filter((item) => item.signature === targetSignature && item.left >= 1640 && item.left <= 1675);
 
-    return { sharps };
-  });
+      return { sharps };
+    });
+
+    return Boolean(
+      state
+      && state.sharps.length === 3
+      && state.sharps.every((item) => item.classes.includes('highlight-keysig'))
+      && state.sharps.every((item) => !item.classes.includes('highlight-accidental'))
+    );
+  }).toBe(true);
 
   expect(state.sharps.length).toBe(3);
   expect(state.sharps.every((item) => item.classes.includes('highlight-keysig'))).toBe(true);

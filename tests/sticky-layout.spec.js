@@ -33,6 +33,16 @@ test('natural-only key signature blocks clear the sticky key display', async () 
   })).toBeCloseTo(24.5, 5);
 });
 
+test('cleared key signatures keep later time columns aligned just to the right of the clef', async () => {
+  const { calculateStickySystemDelta } = await importStickyLayout();
+
+  expect(calculateStickySystemDelta({
+    type: 'key',
+    baseWidth: 24.5,
+    currentWidth: 0,
+  })).toBeCloseTo(-24.5, 5);
+});
+
 test('clefs keep synthetic padding when a sticky clef appears without a base slot', async () => {
   const { calculateStickySystemDelta } = await importStickyLayout();
 

@@ -3791,6 +3791,17 @@ function identifyAndHighlightAccidentals() {
     });
 
     const groupedCandidates = new Map();
+    const detectAccidentalCandidateKind = (el) => {
+        if (!el) return null;
+        if (el instanceof SVGPathElement) {
+            const sig = (el.getAttribute('d') || '').replace(/[^A-Za-z]/g, '').toUpperCase();
+            return identifyAccidental(sig);
+        }
+        if (el instanceof SVGTextElement || el instanceof SVGTSpanElement) {
+            return identifyAccidental((el.textContent || '').trim());
+        }
+        return null;
+    };
     svgRoot.querySelectorAll('.highlight-keysig').forEach((el, index) => {
         const clusterId = el.getAttribute('data-accidental-cluster-id') || `candidate-${index}`;
         const rect = el.getBoundingClientRect();
@@ -3801,6 +3812,9 @@ function identifyAndHighlightAccidentals() {
             existing.right = Math.max(existing.right, rect.right);
             existing.top = Math.min(existing.top, rect.top);
             existing.bottom = Math.max(existing.bottom, rect.bottom);
+            if (!existing.accidentalKind) {
+                existing.accidentalKind = detectAccidentalCandidateKind(el);
+            }
             return;
         }
 
@@ -3811,6 +3825,7 @@ function identifyAndHighlightAccidentals() {
             right: rect.right,
             top: rect.top,
             bottom: rect.bottom,
+            accidentalKind: detectAccidentalCandidateKind(el),
         });
     });
 
@@ -3831,6 +3846,41 @@ function identifyAndHighlightAccidentals() {
     });
     const keySignatureIds = new Set(classification.keySignatureIds);
     const accidentalIds = new Set(classification.accidentalIds);
+    const normalizedStaffSpace = Math.max(1, Number.isFinite(staffSpace) ? staffSpace : 10);
+    const flatNoteProximityDxMin = -Math.max(1, staffSpace) * 0.8;
+    const flatNoteProximityDxMax = Math.max(30, normalizedStaffSpace * 3.0);
+    const flatNoteProximityDyMax = Math.max(6, normalizedStaffSpace * 0.9);
+    const flatAnchorWindowMax = Math.max(48, normalizedStaffSpace * 8);
+
+    accidentalCandidates.forEach((candidate) => {
+        if (!keySignatureIds.has(candidate.id)) return;
+        if (String(candidate.accidentalKind || '').toLowerCase() !== 'flat') return;
+        const previousBarlineAnchor = trustedAnchors
+            .filter((anchor) => anchor?.kind === 'barline' && Number.isFinite(anchor.x) && anchor.x <= candidate.left)
+            .sort((a, b) => b.x - a.x)[0] || null;
+        if (!previousBarlineAnchor) return;
+        if (candidate.left > previousBarlineAnchor.x + flatAnchorWindowMax) return;
+
+        const hasNearbyNotehead = noteheads.some((note) => {
+            const sameBand = (
+                candidate.bandIndex !== -1
+                && note.bandIndex !== -1
+                && candidate.bandIndex === note.bandIndex
+            );
+            const tightlyAligned = Math.abs(note.centerY - candidate.centerY) <= flatNoteProximityDyMax;
+            if (!sameBand && !tightlyAligned) return false;
+
+            const dx = note.left - candidate.right;
+            const dy = Math.abs(note.centerY - candidate.centerY);
+            return dx >= flatNoteProximityDxMin
+                && dx <= flatNoteProximityDxMax
+                && dy <= flatNoteProximityDyMax;
+        });
+
+        if (!hasNearbyNotehead) return;
+        keySignatureIds.delete(candidate.id);
+        accidentalIds.add(candidate.id);
+    });
 
     function isLikelyMaestroNaturalSlideMarker(candidate) {
         if (!candidate || !Array.isArray(candidate.elements) || candidate.elements.length !== 1) return false;
