@@ -10,11 +10,6 @@
  * @property {HTMLElement | null} bpmVal
  * @property {HTMLCanvasElement | null} canvas
  * @property {HTMLButtonElement | null} cancelExportBtn
- * @property {HTMLButtonElement | null} customRatioCancelBtn
- * @property {HTMLButtonElement | null} customRatioConfirmBtn
- * @property {HTMLElement | null} customRatioError
- * @property {HTMLInputElement | null} customRatioInput
- * @property {HTMLElement | null} customRatioModal
  * @property {HTMLInputElement | null} delaySlider
  * @property {HTMLElement | null} delayVal
  * @property {HTMLInputElement | null} distSlider
@@ -84,11 +79,6 @@ export function getDomRefs(doc = document) {
         bpmVal: byId(doc, "bpmVal"),
         canvas: byId(doc, "score-canvas"),
         cancelExportBtn: byId(doc, "cancelExportBtn"),
-        customRatioCancelBtn: byId(doc, "customRatioCancelBtn"),
-        customRatioConfirmBtn: byId(doc, "customRatioConfirmBtn"),
-        customRatioError: byId(doc, "customRatioError"),
-        customRatioInput: byId(doc, "customRatioInput"),
-        customRatioModal: byId(doc, "customRatioModal"),
         delaySlider: byId(doc, "delaySlider"),
         delayVal: byId(doc, "delayVal"),
         distSlider: byId(doc, "distSlider"),

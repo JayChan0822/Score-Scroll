@@ -2,9 +2,6 @@ export function bindUiEvents({
     dom,
     handleAudioInputChange,
     handleAudioOffsetInput,
-    handleCustomRatioCancel,
-    handleCustomRatioConfirm,
-    handleCustomRatioInput,
     handleExportRatioChange,
     handleExportResolutionChange,
     handleExportFpsChange,
@@ -27,9 +24,6 @@ export function bindUiEvents({
 }) {
     dom.audioInput?.addEventListener("change", handleAudioInputChange);
     dom.audioOffsetSlider?.addEventListener("input", handleAudioOffsetInput);
-    dom.customRatioCancelBtn?.addEventListener("click", handleCustomRatioCancel);
-    dom.customRatioConfirmBtn?.addEventListener("click", handleCustomRatioConfirm);
-    dom.customRatioInput?.addEventListener("input", handleCustomRatioInput);
     dom.distSlider?.addEventListener("input", onDistInput);
     dom.scatterSlider?.addEventListener("input", onScatterInput);
     dom.delaySlider?.addEventListener("input", onDelayInput);

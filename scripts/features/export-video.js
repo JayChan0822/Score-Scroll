@@ -33,7 +33,6 @@ const PLAYBACK_TAIL_BUFFER_SEC = 2;
  * @property {() => HTMLCanvasElement} getCanvas
  * @property {() => boolean} getCancelVideoExport
  * @property {() => CanvasRenderingContext2D | null} getCtx
- * @property {() => string} getEffectiveExportRatio
  * @property {() => File | null} getGlobalAudioFile
  * @property {() => number} getGlobalScoreHeight
  * @property {() => number} getGlobalZoom
@@ -64,48 +63,6 @@ const PLAYBACK_TAIL_BUFFER_SEC = 2;
  */
 
 /**
- * @param {string | null | undefined} aspectRatio
- * @returns {string | null}
- */
-export function normalizeAspectRatioValue(aspectRatio) {
-    if (typeof aspectRatio !== "string") {
-        return null;
-    }
-
-    const sanitized = aspectRatio.trim().replaceAll("：", ":").replace(/\s+/g, "");
-    if (!sanitized) {
-        return null;
-    }
-
-    if (sanitized === "auto") {
-        return "auto";
-    }
-
-    const ratioParts = sanitized.split(":");
-    if (ratioParts.length !== 2) {
-        return null;
-    }
-
-    const [widthPart, heightPart] = ratioParts;
-    const widthValue = Number.parseFloat(widthPart);
-    const heightValue = Number.parseFloat(heightPart);
-    if (!Number.isFinite(widthValue) || !Number.isFinite(heightValue) || widthValue <= 0 || heightValue <= 0) {
-        return null;
-    }
-
-    return `${widthPart}:${heightPart}`;
-}
-
-/**
- * @param {string | null | undefined} aspectRatio
- * @param {string} [fallbackAspectRatio="auto"]
- * @returns {string}
- */
-export function resolveAspectRatioValue(aspectRatio, fallbackAspectRatio = "auto") {
-    return normalizeAspectRatioValue(aspectRatio) ?? normalizeAspectRatioValue(fallbackAspectRatio) ?? "auto";
-}
-
-/**
  * @param {{
  *   aspectRatio?: string,
  *   baseRes?: number,
@@ -122,18 +79,17 @@ export function computeSharedExportDimensions({
     globalZoom = 1,
     viewportWidth = 1920,
 }) {
-    const resolvedAspectRatio = resolveAspectRatioValue(aspectRatio);
     let targetWidth = baseRes;
     let targetHeight;
     let finalExportZoom = globalZoom;
     const originalPhysWidth = viewportWidth > 0 ? viewportWidth : 1920;
 
-    if (resolvedAspectRatio === "auto") {
+    if (aspectRatio === "auto") {
         const exportZoomMultiplier = targetWidth / originalPhysWidth;
         finalExportZoom = globalZoom * exportZoomMultiplier;
         targetHeight = Math.ceil(globalScoreHeight * finalExportZoom + 120);
     } else {
-        const ratioParts = resolvedAspectRatio.split(":");
+        const ratioParts = aspectRatio.split(":");
         const wRatio = parseFloat(ratioParts[0]);
         const hRatio = parseFloat(ratioParts[1]);
 
@@ -171,7 +127,6 @@ export function createExportVideoFeature({
     getCanvas,
     getCancelVideoExport,
     getCtx,
-    getEffectiveExportRatio,
     getGlobalAudioFile,
     getGlobalScoreHeight,
     getGlobalZoom,
@@ -745,7 +700,7 @@ export function createExportVideoFeature({
 
     /** @returns {Promise<void>} */
     async function runExportFlow() {
-        const selectedRatio = getEffectiveExportRatio();
+        const selectedRatio = dom.exportRatioSelect?.value || "auto";
         const selectedWidth = parseInt(dom.exportResSelect?.value || "1920", 10);
         const selectedFps = parseInt(dom.exportFpsSelect?.value || "60", 10);
         const startSec = parseFloat(dom.exportStartInput?.value || "0") || 0;
@@ -876,7 +831,7 @@ export function createExportVideoFeature({
 
     /** @returns {Promise<void>} */
     async function runPngExportFlow() {
-        const selectedRatio = getEffectiveExportRatio();
+        const selectedRatio = dom.exportRatioSelect?.value || "auto";
         const selectedWidth = parseInt(dom.exportResSelect?.value || "1920", 10);
         const selectedFps = parseInt(dom.exportFpsSelect?.value || "60", 10);
         const startSec = parseFloat(dom.exportStartInput?.value || "0") || 0;
