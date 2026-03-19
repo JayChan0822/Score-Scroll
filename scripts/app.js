@@ -27,11 +27,13 @@ import {
     buildTrustedBarlineAnchors,
     classifyAccidentalGroups,
 } from "./features/symbol-graph.mjs";
-import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260317-natural-key-clear-1";
+import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260319-reh-vertical-clearance-1";
 import {
+    calculateRehearsalMarkStickyYOffset,
+    resolveRehearsalMarkTargetExtraY,
     calculateStickySystemDelta,
     getStickyBlockDisplayWidth,
-} from "./features/sticky-layout.mjs?v=20260317-natural-key-clear-1";
+} from "./features/sticky-layout.mjs?v=20260319-reh-fade-freeze-1";
 import {
     clearInjectedSvgLocalFontFaces,
     registerImportedSvgTextFonts,
@@ -786,7 +788,7 @@ function renderCanvas(currentX, options = {}) {
     for (const laneId in globalStickyLanes) {
         activeIdx[laneId] = { inst: -1, reh: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };
         activeWidth[laneId] = { inst: 0, reh: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
-        laneOffsets[laneId] = { clef: 0, key: 0 };
+        laneOffsets[laneId] = { rehY: 0, clef: 0, key: 0 };
         const { typeBlocks, baseWidths } = globalStickyLanes[laneId];
 
         ['inst', 'reh', 'clef', 'key', 'time', 'bar', 'brace'].forEach(type => {
@@ -834,6 +836,17 @@ function renderCanvas(currentX, options = {}) {
     const sysDeltaKey = calcSystemDelta('key');
 
     for (const laneId in globalStickyLanes) {
+        const { typeBlocks, baseWidths } = globalStickyLanes[laneId];
+        const openingClefBlock = typeBlocks?.clef?.[0] || null;
+        const activeRehearsalBlock = activeIdx[laneId].reh >= 0
+            ? (typeBlocks?.reh?.[activeIdx[laneId].reh] || null)
+            : null;
+        laneOffsets[laneId].rehY = calculateRehearsalMarkStickyYOffset({
+            hasOpeningClefAnchor: (baseWidths?.clef || 0) > 0,
+            rehearsalMaxY: activeRehearsalBlock?.maxY,
+            clefMinY: openingClefBlock?.minY,
+            padding: 4,
+        });
         laneOffsets[laneId].clef = sysDeltaClef;
         laneOffsets[laneId].key = sysDeltaKey;
     }
@@ -843,7 +856,7 @@ function renderCanvas(currentX, options = {}) {
 
     for (let i = 0; i < renderQueue.length; i++) {
         const item = renderQueue[i];
-        let isPinned = false; let pinShiftX = 0; let targetOpacity = 1; let targetExtraX = 0; let targetScale = 1;
+        let isPinned = false; let pinShiftX = 0; let targetOpacity = 1; let targetExtraX = 0; let targetExtraY = 0; let targetScale = 1;
 
         if (item.isSticky) {
             const sharedStickyGroupId = item.sharedStickyGroupId || null;
@@ -858,7 +871,15 @@ function renderCanvas(currentX, options = {}) {
                 ? (sharedActiveIdx[sharedStickyGroupId] ?? -1)
                 : activeIdx[item.laneId][item.stickyType];
             if (itemBlockIndex < currentActive) targetOpacity = 0;
-            if (item.stickyType === 'key') targetExtraX = laneOffsets[item.laneId].clef;
+            if (item.stickyType === 'reh') {
+                targetExtraY = resolveRehearsalMarkTargetExtraY({
+                    itemBlockIndex,
+                    currentActive,
+                    targetExtraY: laneOffsets[item.laneId].rehY,
+                    currentExtraY: item.currentExtraY,
+                });
+            }
+            else if (item.stickyType === 'key') targetExtraX = laneOffsets[item.laneId].clef;
             else if (item.stickyType === 'time') targetExtraX = laneOffsets[item.laneId].clef + laneOffsets[item.laneId].key;
 
             if (currentX >= layerMaxX) { isPinned = true; pinShiftX = currentX - layerMaxX; if (item.isMidClef) targetScale = activeMidClefStickyScale; }
@@ -872,11 +893,13 @@ function renderCanvas(currentX, options = {}) {
 
         if (item.currentOpacity === undefined) item.currentOpacity = targetOpacity;
         if (item.currentExtraX === undefined) item.currentExtraX = targetExtraX;
+        if (item.currentExtraY === undefined) item.currentExtraY = targetExtraY;
         if (item.currentScale === undefined) item.currentScale = targetScale;
 
         const stickyTransitionPending = item.isSticky && (
             Math.abs(item.currentOpacity - targetOpacity) > 0.001
             || Math.abs(item.currentExtraX - targetExtraX) > 0.01
+            || Math.abs(item.currentExtraY - targetExtraY) > 0.01
             || Math.abs(item.currentScale - targetScale) > 0.001
         );
         const shouldAnimateStickyTransition = item.isSticky && (
@@ -888,14 +911,17 @@ function renderCanvas(currentX, options = {}) {
         if (isXJump) {
             item.currentOpacity = targetOpacity;
             item.currentExtraX = targetExtraX;
+            item.currentExtraY = targetExtraY;
             item.currentScale = targetScale;
         } else if (shouldAnimateStickyTransition) {
             item.currentOpacity += (targetOpacity - item.currentOpacity) * 0.15;
             item.currentExtraX += (targetExtraX - item.currentExtraX) * 0.20;
+            item.currentExtraY += (targetExtraY - item.currentExtraY) * 0.20;
             item.currentScale += (targetScale - item.currentScale) * 0.15;
         } else {
             item.currentOpacity = targetOpacity;
             item.currentExtraX = targetExtraX;
+            item.currentExtraY = targetExtraY;
             item.currentScale = targetScale;
         }
 
@@ -906,6 +932,7 @@ function renderCanvas(currentX, options = {}) {
             && (
                 Math.abs(item.currentOpacity - targetOpacity) > 0.01
                 || Math.abs(item.currentExtraX - targetExtraX) > 0.05
+                || Math.abs(item.currentExtraY - targetExtraY) > 0.05
                 || Math.abs(item.currentScale - targetScale) > 0.01
             )
         ) {
@@ -939,6 +966,7 @@ function renderCanvas(currentX, options = {}) {
         }
 
         const appliedExtraX = isPinned ? item.currentExtraX : 0;
+        const appliedExtraY = isPinned ? item.currentExtraY : 0;
         const midClefScaleProgress = item.isMidClef && activeMidClefStickyScale > 1
             ? Math.max(0, (item.currentScale - 1) / (activeMidClefStickyScale - 1))
             : 0;
@@ -946,7 +974,7 @@ function renderCanvas(currentX, options = {}) {
             item, drawColor, isPureBg,
             alpha: alpha * item.currentOpacity,
             tx: flyOffsetX + pinShiftX + appliedExtraX,
-            ty: flyOffsetY + ((item.midClefOffsetY || 0) * midClefScaleProgress),
+            ty: flyOffsetY + appliedExtraY + ((item.midClefOffsetY || 0) * midClefScaleProgress),
             scale: item.currentScale
         };
 

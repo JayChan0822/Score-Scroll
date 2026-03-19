@@ -2,7 +2,7 @@ import { debugLog } from "../utils/debug.js";
 import {
     calculateStickyBlockLockDistance,
     getStickyBlockDisplayWidth,
-} from "./sticky-layout.mjs?v=20260317-natural-key-clear-1";
+} from "./sticky-layout.mjs?v=20260319-reh-fade-freeze-1";
 
 export function createSvgAnalysisFeature({
     getFallbackSystemInternalX,
@@ -538,6 +538,14 @@ export function createSvgAnalysisFeature({
             return { minX: Math.min(x1, x2, x3, x4), maxX: Math.max(x1, x2, x3, x4) };
         }
 
+        function getAbsoluteYLimits(box, matrix) {
+            const y1 = matrix.b * box.x + matrix.d * box.y + matrix.f;
+            const y2 = matrix.b * (box.x + box.width) + matrix.d * box.y + matrix.f;
+            const y3 = matrix.b * box.x + matrix.d * (box.y + box.height) + matrix.f;
+            const y4 = matrix.b * (box.x + box.width) + matrix.d * (box.y + box.height) + matrix.f;
+            return { minY: Math.min(y1, y2, y3, y4), maxY: Math.max(y1, y2, y3, y4) };
+        }
+
         function getSourceMetadata(el) {
             return {
                 sourceTypeHint: sourceType,
@@ -804,6 +812,8 @@ export function createSvgAnalysisFeature({
                     localX1: lx1, localY1: ly1, localX2: lx2, localY2: ly2,
                     lineWidth, fillRole, strokeRole, matrix,
                     absMinX: limits.minX, absMaxX: limits.maxX, symbolType,
+                    absMinY: Math.min(matrix.b * lx1 + matrix.d * ly1 + matrix.f, matrix.b * lx2 + matrix.d * ly2 + matrix.f),
+                    absMaxY: Math.max(matrix.b * lx1 + matrix.d * ly1 + matrix.f, matrix.b * lx2 + matrix.d * ly2 + matrix.f),
                     centerY: limits.minX + (limits.maxX - limits.minX) / 2,
                     timeSigAnchorX: getTimeSigAnchorX(el),
                     timeSigIsGiant: getTimeSigIsGiant(el),
@@ -844,6 +854,14 @@ export function createSvgAnalysisFeature({
                         localX1: ltx1, localY1: lty1, localX2: ltx2, localY2: lty2,
                         lineWidth, fillRole, strokeRole, matrix,
                         absMinX: Math.min(tx1, tx2), absMaxX: Math.max(tx1, tx2),
+                        absMinY: Math.min(
+                            matrix.b * ltx1 + matrix.d * lty1 + matrix.f,
+                            matrix.b * ltx2 + matrix.d * lty2 + matrix.f,
+                        ),
+                        absMaxY: Math.max(
+                            matrix.b * ltx1 + matrix.d * lty1 + matrix.f,
+                            matrix.b * ltx2 + matrix.d * lty2 + matrix.f,
+                        ),
                         symbolType, centerY: matrix.b * ltx1 + matrix.d * lty1 + matrix.f,
                         timeSigAnchorX: getTimeSigAnchorX(el),
                         timeSigIsGiant: getTimeSigIsGiant(el),
@@ -883,11 +901,13 @@ export function createSvgAnalysisFeature({
             }
 
             const limits = getAbsoluteXLimits(box, matrix);
+            const yLimits = getAbsoluteYLimits(box, matrix);
             renderQueue.push({
                 type: "rect", domIndex: parseInt(el.dataset.domIndex) || 0,
                 localX: box.x, localY: box.y, width: box.width, height: box.height,
                 fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix,
                 absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
+                absMinY: yLimits.minY, absMaxY: yLimits.maxY,
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2, ...getMathFlyinParams(),
                 timeSigAnchorX: getTimeSigAnchorX(el),
@@ -912,6 +932,7 @@ export function createSvgAnalysisFeature({
             }
 
             const limits = getAbsoluteXLimits(box, matrix);
+            const yLimits = getAbsoluteYLimits(box, matrix);
             const cx = parseFloat(el.getAttribute("cx")) || (box.x + box.width / 2);
             const cy = parseFloat(el.getAttribute("cy")) || (box.y + box.height / 2);
             const rx = parseFloat(el.getAttribute("rx") || el.getAttribute("r")) || (box.width / 2);
@@ -922,6 +943,7 @@ export function createSvgAnalysisFeature({
                 localCX: cx, localCY: cy, radiusX: rx, radiusY: ry,
                 fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix,
                 absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
+                absMinY: yLimits.minY, absMaxY: yLimits.maxY,
                 centerY: matrix.b * cx + matrix.d * cy + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
                 timeSigAnchorX: getTimeSigAnchorX(el),
@@ -961,10 +983,12 @@ export function createSvgAnalysisFeature({
             d += "Z";
 
             const limits = getAbsoluteXLimits(box, matrix);
+            const yLimits = getAbsoluteYLimits(box, matrix);
             renderQueue.push({
                 type: "path", domIndex: parseInt(el.dataset.domIndex) || 0, path2D: new Path2D(d),
                 fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix, originalD: d,
                 absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
+                absMinY: yLimits.minY, absMaxY: yLimits.maxY,
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
                 timeSigToken: getTimeSigToken(el),
@@ -986,11 +1010,13 @@ export function createSvgAnalysisFeature({
             let box = { x: 0, y: 0, width: 0, height: 0 };
             try { box = el.getBBox(); } catch (error) {}
             const limits = getAbsoluteXLimits(box, matrix);
+            const yLimits = getAbsoluteYLimits(box, matrix);
 
             renderQueue.push({
                 type: "path", domIndex: parseInt(el.dataset.domIndex) || 0, path2D: new Path2D(d),
                 fillRole, strokeRole, strokeWidth: extractStrokeWidth(el), matrix, originalD: d,
                 absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
+                absMinY: yLimits.minY, absMaxY: yLimits.maxY,
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 centerX: limits.minX + (limits.maxX - limits.minX) / 2,
                 timeSigToken: getTimeSigToken(el),
@@ -1019,6 +1045,7 @@ export function createSvgAnalysisFeature({
             const fontStyle = styleNode.getAttribute("font-style") || "normal";
             const fontWeight = weightNode.getAttribute("font-weight") || "normal";
             const fontFamily = familyNode.getAttribute("font-family") || "serif";
+            const yLimits = getAbsoluteYLimits(box, matrix);
 
             renderQueue.push({
                 type: "text", domIndex: parseInt(el.dataset.domIndex) || 0, text: textContent,
@@ -1026,6 +1053,7 @@ export function createSvgAnalysisFeature({
                 font: `${fontStyle} ${fontWeight} ${fontSize} ${fontFamily}`,
                 fillRole: el.dataset.roleFill || "fg", strokeRole: "none", strokeWidth: 0,
                 matrix, absMinX: limits.minX, absMaxX: limits.maxX, symbolType: getSymbolType(el),
+                absMinY: yLimits.minY, absMaxY: yLimits.maxY,
                 centerY: matrix.b * box.x + matrix.d * (box.y + box.height / 2) + matrix.f,
                 timeSigToken: getTimeSigToken(el),
                 timeSigAnchorX: getTimeSigAnchorX(el),
@@ -1223,17 +1251,31 @@ export function createSvgAnalysisFeature({
                 const items = itemsByType[type];
                 if (items.length === 0) return;
                 items.sort((a, b) => a.absMinX - b.absMinX);
-                let currentBlock = { minX: items[0].absMinX, maxX: items[0].absMaxX, items: [items[0]] };
+                let currentBlock = {
+                    minX: items[0].absMinX,
+                    maxX: items[0].absMaxX,
+                    minY: Number.isFinite(items[0].absMinY) ? items[0].absMinY : items[0].centerY,
+                    maxY: Number.isFinite(items[0].absMaxY) ? items[0].absMaxY : items[0].centerY,
+                    items: [items[0]],
+                };
                 const blocks = [];
                 for (let i = 1; i < items.length; i++) {
                     const item = items[i];
                     if (!shouldStartNewStickyBlock(type, currentBlock, item, clusterThresholdX)) {
                         currentBlock.items.push(item);
                         if (item.absMaxX > currentBlock.maxX) currentBlock.maxX = item.absMaxX;
+                        if (Number.isFinite(item.absMinY) && item.absMinY < currentBlock.minY) currentBlock.minY = item.absMinY;
+                        if (Number.isFinite(item.absMaxY) && item.absMaxY > currentBlock.maxY) currentBlock.maxY = item.absMaxY;
                     } else {
                         currentBlock.width = currentBlock.maxX - currentBlock.minX;
                         blocks.push(currentBlock);
-                        currentBlock = { minX: item.absMinX, maxX: item.absMaxX, items: [item] };
+                        currentBlock = {
+                            minX: item.absMinX,
+                            maxX: item.absMaxX,
+                            minY: Number.isFinite(item.absMinY) ? item.absMinY : item.centerY,
+                            maxY: Number.isFinite(item.absMaxY) ? item.absMaxY : item.centerY,
+                            items: [item],
+                        };
                     }
                 }
                 currentBlock.width = currentBlock.maxX - currentBlock.minX;
@@ -1303,6 +1345,8 @@ export function createSvgAnalysisFeature({
                         item.blockIndex = index;
                         item.lockDistance = lockDistance;
                         item.blockMinX = block.minX;
+                        item.blockMinY = block.minY;
+                        item.blockMaxY = block.maxY;
                         item.blockCenterY = block.items[0].centerY;
                         item.isMidClef = isMidClef;
                         item.midClefOffsetY = 0;

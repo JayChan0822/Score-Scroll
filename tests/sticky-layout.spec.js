@@ -68,6 +68,63 @@ test('rehearsal marks keep their existing opening lock when no clef anchor exist
   })).toBeCloseTo(0, 5);
 });
 
+test('rehearsal marks align to a shared sticky height above the opening clef', async () => {
+  const { calculateRehearsalMarkStickyYOffset } = await importStickyLayout();
+
+  expect(calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor: true,
+    rehearsalMaxY: 32,
+    clefMinY: 42,
+    padding: 4,
+  })).toBeCloseTo(6, 5);
+
+  expect(calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor: true,
+    rehearsalMaxY: 38,
+    clefMinY: 42,
+    padding: 4,
+  })).toBe(0);
+
+  expect(calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor: true,
+    rehearsalMaxY: 48,
+    clefMinY: 42,
+    padding: 4,
+  })).toBeCloseTo(-10, 5);
+
+  expect(calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor: false,
+    rehearsalMaxY: 48,
+    clefMinY: 42,
+    padding: 4,
+  })).toBe(0);
+});
+
+test('rehearsal-mark y targets freeze replaced marks and keep future marks at origin until activation', async () => {
+  const { resolveRehearsalMarkTargetExtraY } = await importStickyLayout();
+
+  expect(resolveRehearsalMarkTargetExtraY({
+    itemBlockIndex: 1,
+    currentActive: 2,
+    targetExtraY: -10,
+    currentExtraY: 6,
+  })).toBe(6);
+
+  expect(resolveRehearsalMarkTargetExtraY({
+    itemBlockIndex: 2,
+    currentActive: 2,
+    targetExtraY: -10,
+    currentExtraY: 6,
+  })).toBe(-10);
+
+  expect(resolveRehearsalMarkTargetExtraY({
+    itemBlockIndex: 3,
+    currentActive: 2,
+    targetExtraY: -10,
+    currentExtraY: 6,
+  })).toBe(0);
+});
+
 test('late-only key signatures can lock to an opening fallback column', async () => {
   const { calculateStickyBlockLockDistance } = await importStickyLayout();
 

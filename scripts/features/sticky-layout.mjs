@@ -22,6 +22,44 @@ export function getStickyBlockDisplayWidth({ type, blockWidth, clearsKeySignatur
     return normalizedWidth;
 }
 
+export function calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor,
+    rehearsalMaxY,
+    clefMinY,
+    padding = 4,
+}) {
+    const normalizedRehearsalMaxY = Number.isFinite(rehearsalMaxY) ? rehearsalMaxY : null;
+    const normalizedClefMinY = Number.isFinite(clefMinY) ? clefMinY : null;
+    const normalizedPadding = Number.isFinite(padding) ? padding : 0;
+
+    if (!hasOpeningClefAnchor || normalizedRehearsalMaxY === null || normalizedClefMinY === null) {
+        return 0;
+    }
+
+    const targetBottomY = normalizedClefMinY - normalizedPadding;
+    return targetBottomY - normalizedRehearsalMaxY;
+}
+
+export function resolveRehearsalMarkTargetExtraY({
+    itemBlockIndex,
+    currentActive,
+    targetExtraY,
+    currentExtraY,
+}) {
+    const normalizedTargetExtraY = Number.isFinite(targetExtraY) ? targetExtraY : 0;
+
+    if (
+        Number.isFinite(itemBlockIndex)
+        && Number.isFinite(currentActive)
+        && itemBlockIndex < currentActive
+        && Number.isFinite(currentExtraY)
+    ) {
+        return currentExtraY;
+    }
+
+    return normalizedTargetExtraY;
+}
+
 function isOpeningStickyBlock(minX, stickyMinX, openingThresholdX) {
     return Number.isFinite(minX)
         && Number.isFinite(stickyMinX)
