@@ -6,6 +6,7 @@ import {
 export const SCORE_SOURCE_MUSESCORE = "MuseScore";
 export const SCORE_SOURCE_DORICO = "Dorico";
 export const SCORE_SOURCE_SIBELIUS = "Sibelius";
+export const SCORE_SOURCE_LILYPOND = "LilyPond";
 export const SCORE_SOURCE_UNKNOWN = "Unknown";
 
 const DETECTOR_SEMANTIC_CLASS_TOKENS = {

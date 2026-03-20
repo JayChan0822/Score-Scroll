@@ -568,6 +568,34 @@ export const MusicFontRegistry = {
         }
     },
     'Emmentaler': {
+        clefs: {
+            'Treble Clef (高音谱号)': ['MHCCCCCCHZMCCCZMCCCCCCCCCCCCZMCCCCCCCCCCCCCCCCLCCCCZMCCCCZ'],
+            'Bass Clef (低音谱号)': ['MCSSSZMCSSSZMCCCCCCCCCCCCCZ'],
+            'Alto/Tenor Clef (中/次中音谱号)': [''],
+            'Percussion Clef (打击乐谱号)': [''],
+            'Tab Clef (TAB谱号)': [''],
+            'Treble Clef 8va (高八度高音谱号)': [''],
+            'Treble Clef 15va (高十五度高音谱号)': [''],
+            'Treble Clef 8vb (低八度高音谱号)': [''],
+            'Brace (方括号上端)': ['MVCHCCCHZ'],
+            'Brace (方括号下端)': ['MHCCCHCVZ'],
+            'Brace (大谱表花括号)': ['']
+        },
+        accidentals: {
+            'Sharp': ['MCLVCSVLVCSVLCCVCLVLCCVCLVCSVLVCSVLCCVCLVLCCVZMLVLVZ'],
+            'Flat': ['MCLCCCCCCCCCCCCCCCLCCCCCCCCMCLCCCCCC'],
+            'Natural': ['MCSLLHCLCSLLHCZMLLLZ']
+        },
+        noteheads: {
+            'Notehead_Quarter': ['MCCCCCCZ'],
+            'Notehead_Half': ['MCCCSCCCCSCZMCCCCCCCCZ'],
+            'Notehead_Whole': [''],
+            'Notehead_DoubleWhole': [''],
+            'Notehead_X_Quarter': [''],
+            'Notehead_X_Half': [''],
+            'Notehead_X_Whole': [''],
+            'Notehead_X_DoubleWhole': ['']
+        },
         timeSignatures: {
             '0': ['MCCCLCCCCLCMCCCCCCCC'],
             '1': ['MCCCCCLCCCCCCCCCCCCLCCCLCCCCLC'],
@@ -579,7 +607,7 @@ export const MusicFontRegistry = {
             '7': ['MCCCCCCCCLCCLCCLCCCCCCCCCCCCCCCLCLCCC'],
             '8': ['MCCCCCCLMCCCCCCCCCCCCCMCCCCCCL'],
             '9': ['MCCCLCCCCCMCCCCCCCCCCCCCCCCCCCCCCC'],
-            'Common Time': ['MCCCCCCCCCCCLCCCCCCCCCCCCCCCCC'],
+            'Common Time': ['MCCCCCCCCCCCLCCCCCCCCCCCCCCCCC','MCCCCCVVCCCCCCCSCCCCZ'],
             'Cut Time': ['MCCCCCCCLLCLCCCCCCCCLLCLCLCCCCLCLCLLCCCMLCCLCC']
         }
     },

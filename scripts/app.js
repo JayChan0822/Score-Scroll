@@ -20,6 +20,7 @@ import {
     isSibeliusSymbolFontFamily,
     isSibeliusTextDomainFontFamily,
     SCORE_SOURCE_DORICO,
+    SCORE_SOURCE_LILYPOND,
     SCORE_SOURCE_MUSESCORE,
     SCORE_SOURCE_SIBELIUS,
     SCORE_SOURCE_UNKNOWN,
@@ -63,6 +64,7 @@ const PREVIEW_FOCUS_MODE_CLASS = "preview-focus-mode";
 const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
 const SIBELIUS_MID_CLEF_STICKY_SCALE = 1.35;
 const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.25;
+const LILYPOND_MID_CLEF_STICKY_SCALE = 1.2;
 const REHEARSAL_STICKY_PADDING_ABOVE = 8;
 const REHEARSAL_STICKY_PADDING_BELOW = 12;
 const SIBELIUS_SOURCE_REGEX = /\b(?:Opus(?:\s+Special)?\s+Std|Opus\s+Text\s+Std|Helsinki|Inkpen2)\b/i;
@@ -747,6 +749,8 @@ function getMidClefStickyScale(sourceType) {
         return SIBELIUS_MID_CLEF_STICKY_SCALE;
     case SCORE_SOURCE_MUSESCORE:
         return MUSESCORE_MID_CLEF_STICKY_SCALE;
+    case SCORE_SOURCE_LILYPOND:
+        return LILYPOND_MID_CLEF_STICKY_SCALE;
     case SCORE_SOURCE_DORICO:
     default:
         return DORICO_MID_CLEF_STICKY_SCALE;
@@ -1668,6 +1672,14 @@ function detectScoreSourceType(svgRoot, svgText = "") {
         return SCORE_SOURCE_SIBELIUS;
     }
 
+    if (
+        /\.ly:\d+:\d+:\d+/i.test(svgText)
+        || /No rights reserved\./i.test(svgText)
+        || svgRoot.querySelector('a[*|href*=".ly:"]')
+    ) {
+        return SCORE_SOURCE_LILYPOND;
+    }
+
     return SCORE_SOURCE_UNKNOWN;
 }
 
@@ -2220,17 +2232,77 @@ function identifyAndHighlightInitialBarlines() {
     globalSystemBarlineScreenX = 0;
     window.hasPhysicalStartBarline = false;
 
-    const lines = svgRoot.querySelectorAll('polyline, line');
+    const sourceType = currentAnalysisProfile?.sourceType || SCORE_SOURCE_UNKNOWN;
+    const verticalRectMaxWidthFor = (screenHeight) => (
+        sourceType === SCORE_SOURCE_LILYPOND
+            ? Math.max(3.5, screenHeight * 0.08)
+            : 1.5
+    );
+    const horizontalRectMaxHeightFor = (screenWidth) => (
+        sourceType === SCORE_SOURCE_LILYPOND
+            ? Math.max(3.5, screenWidth * 0.08)
+            : 1.5
+    );
+    const elements = svgRoot.querySelectorAll('polyline, line, rect');
     let horizontalSegments = [];
     let verticalLines = [];
 
-    lines.forEach(line => {
+    elements.forEach(line => {
         let x1, y1, x2, y2;
         if (line.tagName === 'line') {
             x1 = Number(line.getAttribute('x1'));
             y1 = Number(line.getAttribute('y1'));
             x2 = Number(line.getAttribute('x2'));
             y2 = Number(line.getAttribute('y2'));
+        } else if (line.tagName === 'rect') {
+            const rectX = Number(line.getAttribute('x'));
+            const rectY = Number(line.getAttribute('y'));
+            const rectWidth = Number(line.getAttribute('width'));
+            const rectHeight = Number(line.getAttribute('height'));
+            if (![rectX, rectY, rectWidth, rectHeight].every(Number.isFinite) || rectWidth <= 0 || rectHeight <= 0) return;
+
+            const lineRect = line.getBoundingClientRect();
+            const ctm = line.getCTM();
+            const matrix = ctm
+                ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f }
+                : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+            const corners = [
+                { x: rectX, y: rectY },
+                { x: rectX + rectWidth, y: rectY },
+                { x: rectX, y: rectY + rectHeight },
+                { x: rectX + rectWidth, y: rectY + rectHeight },
+            ].map(({ x, y }) => ({
+                x: matrix.a * x + matrix.c * y + matrix.e,
+                y: matrix.b * x + matrix.d * y + matrix.f,
+            }));
+            const absMinX = Math.min(...corners.map((point) => point.x));
+            const absMaxX = Math.max(...corners.map((point) => point.x));
+            const absMinY = Math.min(...corners.map((point) => point.y));
+            const absMaxY = Math.max(...corners.map((point) => point.y));
+            const screenWidth = Math.abs(lineRect.right - lineRect.left);
+            const screenHeight = Math.abs(lineRect.bottom - lineRect.top);
+
+            if (screenWidth <= verticalRectMaxWidthFor(screenHeight) && screenHeight >= 8) {
+                verticalLines.push({
+                    element: line,
+                    x: (absMinX + absMaxX) / 2,
+                    screenX: (lineRect.left + lineRect.right) / 2,
+                    height: screenHeight,
+                });
+                return;
+            }
+
+            if (screenHeight <= horizontalRectMaxHeightFor(screenWidth) && screenWidth >= 24) {
+                horizontalSegments.push({
+                    leftX: absMinX,
+                    rightX: absMaxX,
+                    screenLeftX: Math.min(lineRect.left, lineRect.right),
+                    screenRightX: Math.max(lineRect.left, lineRect.right),
+                    screenY: (lineRect.top + lineRect.bottom) / 2,
+                    screenLength: screenWidth,
+                });
+            }
+            return;
         } else {
             const pointsStr = line.getAttribute('points');
             if (!pointsStr) return;
@@ -2390,7 +2462,7 @@ function identifyAndHighlightGeometricBrackets() {
         }
     }
 
-    const elements = Array.from(svgRoot.querySelectorAll('polyline, line'));
+    const elements = Array.from(svgRoot.querySelectorAll('polyline, line, rect'));
     const segments = [];
 
     elements.forEach((el) => {
@@ -2401,6 +2473,67 @@ function identifyAndHighlightGeometricBrackets() {
             y1 = Number(el.getAttribute('y1'));
             x2 = Number(el.getAttribute('x2'));
             y2 = Number(el.getAttribute('y2'));
+        } else if (el.tagName.toLowerCase() === 'rect') {
+            const rectX = Number(el.getAttribute('x'));
+            const rectY = Number(el.getAttribute('y'));
+            const rectWidth = Number(el.getAttribute('width'));
+            const rectHeight = Number(el.getAttribute('height'));
+            if (![rectX, rectY, rectWidth, rectHeight].every(Number.isFinite)) return;
+            if (!(rectWidth > 0) || !(rectHeight > 0)) return;
+
+            const ctm = el.getCTM();
+            const matrix = ctm
+                ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f }
+                : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+            const corners = [
+                { x: rectX, y: rectY },
+                { x: rectX + rectWidth, y: rectY },
+                { x: rectX, y: rectY + rectHeight },
+                { x: rectX + rectWidth, y: rectY + rectHeight },
+            ].map((point) => ({
+                x: matrix.a * point.x + matrix.c * point.y + matrix.e,
+                y: matrix.b * point.x + matrix.d * point.y + matrix.f,
+            }));
+
+            const xs = corners.map((point) => point.x);
+            const ys = corners.map((point) => point.y);
+            const leftX = Math.min(...xs);
+            const rightX = Math.max(...xs);
+            const topY = Math.min(...ys);
+            const bottomY = Math.max(...ys);
+            const width = rightX - leftX;
+            const height = bottomY - topY;
+            const verticalRectMaxWidth = currentAnalysisProfile.sourceType === SCORE_SOURCE_LILYPOND
+                ? Math.max(3.5, height * 0.08)
+                : 1.5;
+            const horizontalRectMaxHeight = currentAnalysisProfile.sourceType === SCORE_SOURCE_LILYPOND
+                ? Math.max(3.5, width * 0.08)
+                : 1.5;
+
+            if (width <= verticalRectMaxWidth && height > 1) {
+                segments.push({
+                    element: el,
+                    kind: 'vertical',
+                    x: (leftX + rightX) / 2,
+                    leftX,
+                    rightX,
+                    topY,
+                    bottomY,
+                    length: height,
+                });
+            } else if (height <= horizontalRectMaxHeight && width > 1) {
+                segments.push({
+                    element: el,
+                    kind: 'horizontal',
+                    y: (topY + bottomY) / 2,
+                    leftX,
+                    rightX,
+                    topY,
+                    bottomY,
+                    length: width,
+                });
+            }
+            return;
         } else {
             const pointsStr = el.getAttribute('points');
             if (!pointsStr) return;
@@ -2479,7 +2612,9 @@ function identifyAndHighlightGeometricBrackets() {
     const verticalMinHeight = Math.max(1, staffSpace * 0.4);
     const leftSearchMinX = globalSystemInternalX - Math.max(100, staffSpace * 8);
     const leftSearchMaxX = globalSystemInternalX + Math.max(40, staffSpace * 6);
-    const bracketBandWidth = Math.max(12, staffSpace * 3.5);
+    const bracketBandWidth = currentAnalysisProfile.sourceType === SCORE_SOURCE_LILYPOND
+        ? Math.max(40, staffSpace * 14)
+        : Math.max(12, staffSpace * 3.5);
     const bracketGapFromBarline = Math.max(1.5, staffSpace * 0.25);
 
     const independentBracketVerticals = segments.filter(seg =>
@@ -2525,7 +2660,10 @@ function identifyAndHighlightGeometricBrackets() {
 
             return touchedAnchors.length >= 2 || touchesBracketStemEndpoint;
         });
-        const independentConnectedBracePaths = currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO
+        const independentConnectedBracePaths = (
+            currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO
+            || currentAnalysisProfile.sourceType === SCORE_SOURCE_LILYPOND
+        )
             ? Array.from(svgRoot.querySelectorAll('path')).filter((path) => {
                 if (path.classList.contains('highlight-clef') || path.classList.contains('highlight-brace')) return false;
 

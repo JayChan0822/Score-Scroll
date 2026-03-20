@@ -3395,11 +3395,12 @@ test('preserves opening barlines, instrument names, and key signatures for trans
   expect(detectionState.firstFlatClasses).not.toContain('highlight-accidental');
 });
 
-test('classifies imported score sources as Dorico MuseScore Sibelius or Unknown', async ({ page }) => {
+test('classifies imported score sources as Dorico MuseScore Sibelius LilyPond or Unknown', async ({ page }) => {
   const fixtures = [
     ['score-source-dorico.svg', 'Dorico'],
     ['score-source-musescore.svg', 'MuseScore'],
     ['score-source-sibelius.svg', 'Sibelius'],
+    ['score-source-lilypond.svg', 'LilyPond'],
     ['unknown-score-source.svg', 'Unknown'],
   ];
 
@@ -3432,11 +3433,184 @@ test('shows the detected score source type in the sources card', async ({ page }
     message: 'waiting for Sibelius label to appear',
   }).toBe('Sibelius');
 
+  const lilyPondFixture = path.resolve(__dirname, 'fixtures', 'score-source-lilypond.svg');
+  await loadFixtureIntoScore(page, lilyPondFixture);
+  await expect.poll(async () => getDisplayedScoreSourceType(page), {
+    message: 'waiting for LilyPond label to appear',
+  }).toBe('LilyPond');
+
   const unknownFixture = path.resolve(__dirname, 'fixtures', 'unknown-score-source.svg');
   await loadFixtureIntoScore(page, unknownFixture);
   await expect.poll(async () => getDisplayedScoreSourceType(page), {
     message: 'waiting for Unknown label to appear',
   }).toBe('Unknown');
+});
+
+test('recognizes LilyPond opening bracket stems and reserves a LilyPond clef scale branch', async ({ page }) => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const svgAnalysisSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js'), 'utf8');
+  const lilyPondFixture = path.resolve(__dirname, 'fixtures', 'score-source-lilypond.svg');
+
+  expect(appSource).toContain('const LILYPOND_MID_CLEF_STICKY_SCALE =');
+  expect(appSource).toContain('case SCORE_SOURCE_LILYPOND:');
+  expect(svgAnalysisSource).toContain('LilyPond: {');
+
+  await loadFixtureIntoScore(page, lilyPondFixture);
+
+  await expect.poll(async () => ({
+    sourceType: await getDetectedScoreSourceType(page),
+    bracketClass: await getClassNameBySvgElementId(page, 'lilypond-opening-bracket'),
+  }), {
+    message: 'waiting for LilyPond opening bracket rect to highlight',
+  }).toEqual({
+    sourceType: 'LilyPond',
+    bracketClass: expect.stringContaining('highlight-brace'),
+  });
+});
+
+test('highlights the real LilyPond opening bracket rect in fugue8_expanded_oneline.svg', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', 'fugue8_expanded_oneline.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const targetGroup = Array.from(svg.querySelectorAll('g')).find((el) => (
+      (el.getAttribute('transform') || '').includes('translate(4.3806, 17.5927)')
+    ));
+    const targetRect = targetGroup?.querySelector('rect[width="0.4500"][height="22.7800"]');
+    const highlightedRects = Array.from(svg.querySelectorAll('rect.highlight-brace')).map((el) => ({
+      width: el.getAttribute('width'),
+      height: el.getAttribute('height'),
+      transform: el.parentElement?.getAttribute('transform') || '',
+      className: typeof el.className === 'string' ? el.className : (el.className?.baseVal || ''),
+    }));
+
+    return {
+      sourceType: document.body.dataset.scoreSourceType || null,
+      rectClass: targetRect
+        ? (typeof targetRect.className === 'string' ? targetRect.className : (targetRect.className?.baseVal || ''))
+        : null,
+      groupClass: targetGroup
+        ? (typeof targetGroup.className === 'string' ? targetGroup.className : (targetGroup.className?.baseVal || ''))
+        : null,
+      highlightedRects,
+      globalSystemInternalX: window.globalAbsoluteSystemInternalX ?? null,
+    };
+  });
+
+  expect(state).toEqual({
+    sourceType: 'LilyPond',
+    rectClass: expect.stringContaining('highlight-brace'),
+    groupClass: '',
+    highlightedRects: expect.any(Array),
+    globalSystemInternalX: expect.any(Number),
+  });
+});
+
+test('keeps the real LilyPond opening bracket rect as a sticky brace item', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', 'fugue8_expanded_oneline.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const targetGroup = Array.from(svg.querySelectorAll('g')).find((el) => (
+      (el.getAttribute('transform') || '').includes('translate(4.3806, 17.5927)')
+    ));
+    const targetRect = targetGroup?.querySelector('rect[width="0.4500"][height="22.7800"]');
+    if (!targetRect) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => window.globalAbsoluteSystemInternalX || 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+      identifyAccidental: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg, { sourceType: document.body.dataset.scoreSourceType || 'Unknown' });
+    const domIndex = Number(targetRect.dataset.domIndex || -1);
+    const targetItems = result.renderQueue.filter((item) => item.domIndex === domIndex).map((item) => ({
+      type: item.type,
+      symbolType: item.symbolType || null,
+      isSticky: Boolean(item.isSticky),
+      stickyType: item.stickyType || null,
+      laneId: item.laneId || null,
+      blockIndex: Number.isFinite(item.blockIndex) ? item.blockIndex : null,
+    }));
+
+    return {
+      sourceType: document.body.dataset.scoreSourceType || null,
+      targetItems,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.sourceType).toBe('LilyPond');
+  expect(state.targetItems).toEqual([
+    expect.objectContaining({
+      type: 'rect',
+      symbolType: 'Brace',
+      isSticky: true,
+      stickyType: 'brace',
+    }),
+  ]);
+});
+
+test('keeps the real LilyPond opening barline rect as a sticky bar item', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, '..', 'fugue8_expanded_oneline.svg');
+  await loadFixtureIntoScore(page, fixturePath);
+
+  const state = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const targetGroup = Array.from(svg.querySelectorAll('g')).find((el) => (
+      (el.getAttribute('transform') || '').includes('translate(5.6306, 17.5927)')
+    ));
+    const targetRect = targetGroup?.querySelector('rect[width="0.1600"][height="22.6900"]');
+    if (!targetRect) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => window.globalAbsoluteSystemInternalX || 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+      identifyAccidental: () => null,
+    });
+
+    const result = svgAnalysisFeature.buildRenderQueue(svg, { sourceType: document.body.dataset.scoreSourceType || 'Unknown' });
+    const domIndex = Number(targetRect.dataset.domIndex || -1);
+    const targetItems = result.renderQueue.filter((item) => item.domIndex === domIndex).map((item) => ({
+      type: item.type,
+      symbolType: item.symbolType || null,
+      isSticky: Boolean(item.isSticky),
+      stickyType: item.stickyType || null,
+      laneId: item.laneId || null,
+      blockIndex: Number.isFinite(item.blockIndex) ? item.blockIndex : null,
+    }));
+
+    return {
+      sourceType: document.body.dataset.scoreSourceType || null,
+      rectClass: typeof targetRect.className === 'string' ? targetRect.className : (targetRect.className?.baseVal || ''),
+      targetItems,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.sourceType).toBe('LilyPond');
+  expect(state.rectClass).toContain('highlight-barline');
+  expect(state.targetItems).toEqual([
+    expect.objectContaining({
+      type: 'rect',
+      symbolType: 'Barline',
+      isSticky: true,
+      stickyType: 'bar',
+    }),
+  ]);
 });
 
 test('accepts Dorico clef paths from known music fonts beyond the dominant analysis font', async ({ page }) => {

@@ -26,6 +26,11 @@ export function createSvgAnalysisFeature({
             Treble: -0.2,
             AltoTenor: 0,
         },
+        LilyPond: {
+            Bass: 0.16,
+            Treble: -0.16,
+            AltoTenor: 0,
+        },
     };
 
     function getMidClefOffsetY({ sourceType, specificType, staffSpace }) {
