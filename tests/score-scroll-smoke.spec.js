@@ -74,6 +74,32 @@ function buildMinimalTwoBarSvgBuffer() {
   return Buffer.from(svg, 'utf8');
 }
 
+function buildTallPreviewSvgBuffer() {
+  const staffGroups = Array.from({ length: 16 }, (_, index) => {
+    const topY = 30 + index * 120;
+    const bottomY = topY + 40;
+    const lines = Array.from({ length: 5 }, (_, lineIndex) => {
+      const y = topY + lineIndex * 10;
+      return `<line x1="20" y1="${y}" x2="420" y2="${y}" stroke="#000" stroke-width="1" />`;
+    }).join('');
+
+    return `
+      ${lines}
+      <line x1="20" y1="${topY}" x2="20" y2="${bottomY}" stroke="#000" stroke-width="1" />
+      <line x1="220" y1="${topY}" x2="220" y2="${bottomY}" stroke="#000" stroke-width="1" />
+      <line x1="420" y1="${topY}" x2="420" y2="${bottomY}" stroke="#000" stroke-width="1" />
+    `;
+  }).join('');
+
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="460" height="1980" viewBox="0 0 460 1980">
+      ${staffGroups}
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
 function buildPathDataFromSimplifiedSignature(signature) {
   let x = 0;
   let y = 0;
@@ -1506,7 +1532,8 @@ test('writes transparent png frames into an auto-created subfolder', async () =>
   expect(exportSource).toContain('frame_');
   expect(exportSource).toContain('transparentBackground: true');
   expect(appSource).toContain('function renderCanvas(currentX, options = {})');
-  expect(appSource).toContain('const { transparentBackground = false } = options;');
+  expect(appSource).toContain('transparentBackground = false');
+  expect(appSource).toContain('scoreCenterYOverride');
 });
 
 test('exports numbered png frames through the directory access api', async ({ page }) => {
@@ -1643,6 +1670,152 @@ test('exports numbered png frames through the directory access api', async ({ pa
   expect(frameWrites).toHaveLength(2);
   expect(frameWrites[0]).toMatchObject({ fileName: 'frame_000001.png', mime: 'image/png' });
   expect(frameWrites[1]).toMatchObject({ fileName: 'frame_000002.png', mime: 'image/png' });
+});
+
+test('uses the current preview viewport aspect ratio and framing for auto png export', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const exportResult = await page.evaluate(async () => {
+    const { createExportVideoFeature } = await import('/scripts/features/export-video.js');
+
+    /** @type {{ width: number, height: number } | null} */
+    let exportCanvasSize = null;
+    /** @type {Array<Record<string, unknown>>} */
+    const renderCalls = [];
+    /** @type {HTMLCanvasElement} */
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = 800;
+    previewCanvas.height = 1200;
+    Object.defineProperty(previewCanvas, 'clientWidth', { configurable: true, value: 800 });
+    Object.defineProperty(previewCanvas, 'clientHeight', { configurable: true, value: 1200 });
+
+    /** @type {HTMLCanvasElement} */
+    let canvas = previewCanvas;
+    /** @type {CanvasRenderingContext2D | null} */
+    let ctx = canvas.getContext('2d');
+    let cancelVideoExport = false;
+    let cachedViewportWidth = 800;
+    let globalZoom = 1;
+    let smoothState = { playbackSimTime: 0, smoothVx: 0, smoothX: 0 };
+
+    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function toBlob(callback, type) {
+      callback(new Blob(['png'], { type: type || 'image/png' }));
+    };
+
+    Object.defineProperty(window, 'showDirectoryPicker', {
+      configurable: true,
+      value: async () => ({
+        async getDirectoryHandle() {
+          return {
+            async getFileHandle() {
+              return {
+                async createWritable() {
+                  return {
+                    async abort() {},
+                    async close() {},
+                    async write() {},
+                  };
+                },
+              };
+            },
+          };
+        },
+      }),
+    });
+
+    const exportModal = document.createElement('div');
+    const exportModalTitle = document.createElement('div');
+    const exportProgressBar = document.createElement('div');
+    const exportProgressText = document.createElement('div');
+    const cancelExportBtn = document.createElement('button');
+    const playBtn = document.createElement('button');
+    const viewportEl = document.createElement('div');
+    Object.defineProperty(viewportEl, 'clientWidth', { configurable: true, value: 800 });
+
+    const dom = {
+      cancelExportBtn,
+      exportEndInput: null,
+      exportFpsSelect: null,
+      exportModal,
+      exportModalTitle,
+      exportProgressBar,
+      exportProgressText,
+      exportRatioSelect: null,
+      exportResSelect: null,
+      exportStartInput: null,
+      playBtn,
+      viewportEl,
+    };
+
+    const feature = createExportVideoFeature({
+      dom,
+      getAudioOffsetSec: () => 0,
+      getCachedViewportWidth: () => cachedViewportWidth,
+      getCanvas: () => canvas,
+      getCancelVideoExport: () => cancelVideoExport,
+      getCtx: () => ctx,
+      getGlobalAudioFile: () => null,
+      getGlobalScoreHeight: () => 320,
+      getGlobalZoom: () => globalZoom,
+      getInterpolatedXByTime: (timeSec) => ({ x: timeSec * 100, index: 0, atEnd: false }),
+      getIsPlaying: () => false,
+      getPreviewExportSourceState: () => ({
+        sourceHeight: 500,
+        sourceWidth: 800,
+        worldCenterY: 432.5,
+      }),
+      getSmoothedTargetVelocityByTime: () => 0,
+      getSmoothState: () => smoothState,
+      getTotalDuration: () => 1,
+      renderCanvas: (_smoothX, options = {}) => {
+        renderCalls.push({
+          scoreCenterYOverride: options.scoreCenterYOverride ?? null,
+          transparentBackground: options.transparentBackground === true,
+        });
+      },
+      resizeCanvas: () => {},
+      setCachedViewportWidth: (width) => {
+        cachedViewportWidth = width;
+      },
+      setCanvas: (nextCanvas) => {
+        if (!exportCanvasSize && nextCanvas !== previewCanvas) {
+          exportCanvasSize = { width: nextCanvas.width, height: nextCanvas.height };
+        }
+        canvas = nextCanvas;
+      },
+      setCancelVideoExport: (cancelled) => {
+        cancelVideoExport = cancelled;
+      },
+      setCtx: (nextCtx) => {
+        ctx = nextCtx;
+      },
+      setGlobalZoom: (zoom) => {
+        globalZoom = zoom;
+      },
+      setIsExportingVideoMode: () => {},
+      setSmoothState: (nextState) => {
+        smoothState = nextState;
+      },
+    });
+
+    try {
+      await feature.exportPngSequence(640, 1, 'auto', 0, 1);
+      return { exportCanvasSize, renderCalls };
+    } finally {
+      HTMLCanvasElement.prototype.toBlob = originalToBlob;
+      delete window.showDirectoryPicker;
+    }
+  });
+
+  expect(exportResult.exportCanvasSize).toEqual({
+    width: 640,
+    height: 400,
+  });
+  expect(exportResult.renderCalls[0]).toMatchObject({
+    scoreCenterYOverride: 432.5,
+    transparentBackground: true,
+  });
 });
 
 test('prefers local file streaming targets for mp4 export when file system access is available', async ({ page }) => {
@@ -1830,6 +2003,200 @@ test('prefers local file streaming targets for mp4 export when file system acces
   expect(exportResult.pickerCalls).toBe(1);
   expect(exportResult.targetKinds).toEqual(['file-system']);
   expect(exportResult.downloadClicks).toBe(0);
+});
+
+test('uses the current preview viewport aspect ratio and framing for auto mp4 export', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const exportResult = await page.evaluate(async () => {
+    const { createExportVideoFeature } = await import('/scripts/features/export-video.js');
+
+    /** @type {Array<VideoEncoderConfig>} */
+    const configureCalls = [];
+    /** @type {Array<Record<string, unknown>>} */
+    const renderCalls = [];
+    /** @type {HTMLCanvasElement} */
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = 800;
+    previewCanvas.height = 1200;
+    Object.defineProperty(previewCanvas, 'clientWidth', { configurable: true, value: 800 });
+    Object.defineProperty(previewCanvas, 'clientHeight', { configurable: true, value: 1200 });
+
+    /** @type {HTMLCanvasElement} */
+    let canvas = previewCanvas;
+    /** @type {CanvasRenderingContext2D | null} */
+    let ctx = canvas.getContext('2d');
+    let cancelVideoExport = false;
+    let cachedViewportWidth = 800;
+    let globalZoom = 1;
+    let smoothState = { playbackSimTime: 0, smoothVx: 0, smoothX: 0 };
+
+    const OriginalVideoEncoder = window.VideoEncoder;
+    const OriginalVideoFrame = window.VideoFrame;
+    const OriginalMp4Muxer = window.Mp4Muxer;
+    const OriginalShowSaveFilePicker = window.showSaveFilePicker;
+    const OriginalFileSystemWritableFileStream = window.FileSystemWritableFileStream;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+
+    class FakeWritableStream {}
+
+    class FakeVideoEncoder {
+      constructor({ output }) {
+        this.output = output;
+        this.encodeQueueSize = 0;
+      }
+      configure(config) {
+        configureCalls.push(config);
+      }
+      encode() {
+        this.encodeQueueSize += 1;
+        this.output({ byteLength: 4 }, {});
+        this.encodeQueueSize -= 1;
+      }
+      async flush() {}
+      close() {}
+    }
+
+    class FakeVideoFrame {
+      constructor() {}
+      close() {}
+    }
+
+    class FakeFileSystemWritableFileStreamTarget {
+      constructor(stream) {
+        this.kind = 'file-system';
+        this.stream = stream;
+      }
+    }
+
+    class FakeMuxer {
+      constructor(options) {
+        this.target = options.target;
+      }
+      addVideoChunk() {}
+      addAudioChunk() {}
+      finalize() {}
+    }
+
+    window.FileSystemWritableFileStream = FakeWritableStream;
+    window.VideoEncoder = FakeVideoEncoder;
+    window.VideoFrame = FakeVideoFrame;
+    window.Mp4Muxer = {
+      ArrayBufferTarget: class FakeArrayBufferTarget {
+        constructor() {
+          this.buffer = new Uint8Array([1, 2, 3]).buffer;
+        }
+      },
+      FileSystemWritableFileStreamTarget: FakeFileSystemWritableFileStreamTarget,
+      Muxer: FakeMuxer,
+    };
+    window.showSaveFilePicker = async () => ({
+      async createWritable() {
+        return new FakeWritableStream();
+      },
+    });
+    URL.createObjectURL = () => 'blob:fake';
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function click() {};
+
+    const exportModal = document.createElement('div');
+    const exportModalTitle = document.createElement('div');
+    const exportProgressBar = document.createElement('div');
+    const exportProgressText = document.createElement('div');
+    const cancelExportBtn = document.createElement('button');
+    const playBtn = document.createElement('button');
+    const viewportEl = document.createElement('div');
+    Object.defineProperty(viewportEl, 'clientWidth', { configurable: true, value: 800 });
+
+    const dom = {
+      cancelExportBtn,
+      exportEndInput: null,
+      exportFpsSelect: null,
+      exportModal,
+      exportModalTitle,
+      exportProgressBar,
+      exportProgressText,
+      exportRatioSelect: null,
+      exportResSelect: null,
+      exportStartInput: null,
+      playBtn,
+      viewportEl,
+    };
+
+    const feature = createExportVideoFeature({
+      dom,
+      getAudioOffsetSec: () => 0,
+      getCachedViewportWidth: () => cachedViewportWidth,
+      getCanvas: () => canvas,
+      getCancelVideoExport: () => cancelVideoExport,
+      getCtx: () => ctx,
+      getGlobalAudioFile: () => null,
+      getGlobalScoreHeight: () => 320,
+      getGlobalZoom: () => globalZoom,
+      getInterpolatedXByTime: (timeSec) => ({ x: timeSec * 100, index: 0, atEnd: false }),
+      getIsPlaying: () => false,
+      getPreviewExportSourceState: () => ({
+        sourceHeight: 500,
+        sourceWidth: 800,
+        worldCenterY: 432.5,
+      }),
+      getPlaybackGainByTime: () => 1,
+      getSmoothedTargetVelocityByTime: () => 0,
+      getSmoothState: () => smoothState,
+      getTotalDuration: () => 1,
+      renderCanvas: (_smoothX, options = {}) => {
+        renderCalls.push({
+          scoreCenterYOverride: options.scoreCenterYOverride ?? null,
+          transparentBackground: options.transparentBackground === true,
+        });
+      },
+      resizeCanvas: () => {},
+      setCachedViewportWidth: (width) => {
+        cachedViewportWidth = width;
+      },
+      setCanvas: (nextCanvas) => {
+        canvas = nextCanvas;
+      },
+      setCancelVideoExport: (cancelled) => {
+        cancelVideoExport = cancelled;
+      },
+      setCtx: (nextCtx) => {
+        ctx = nextCtx;
+      },
+      setGlobalZoom: (zoom) => {
+        globalZoom = zoom;
+      },
+      setIsExportingVideoMode: () => {},
+      setSmoothState: (nextState) => {
+        smoothState = nextState;
+      },
+    });
+
+    try {
+      await feature.exportHighQualityVideo(640, 1, 'auto', 0, 1);
+      return { configureCalls, renderCalls };
+    } finally {
+      window.VideoEncoder = OriginalVideoEncoder;
+      window.VideoFrame = OriginalVideoFrame;
+      window.Mp4Muxer = OriginalMp4Muxer;
+      window.showSaveFilePicker = OriginalShowSaveFilePicker;
+      window.FileSystemWritableFileStream = OriginalFileSystemWritableFileStream;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalAnchorClick;
+    }
+  });
+
+  expect(exportResult.configureCalls[0]).toMatchObject({
+    width: 640,
+    height: 400,
+  });
+  expect(exportResult.renderCalls[0]).toMatchObject({
+    scoreCenterYOverride: 432.5,
+    transparentBackground: false,
+  });
 });
 
 test('falls back to in-memory mp4 export when local file streaming is unavailable', async ({ page }) => {
@@ -2487,6 +2854,62 @@ test('shows the actual export dimensions inside the resolution option labels', a
   await expect(page.locator('#exportResSelect option[value="3840"]')).toHaveText('4K（3840x2160）');
 });
 
+test('shows auto export dimensions from the current preview viewport ratio', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'auto-export-canvas-ratio.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildMinimalTwoBarSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+
+  const labelState = await page.evaluate(() => {
+    const ratioSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportRatioSelect'));
+    const resSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportResSelect'));
+    const scrollHost = /** @type {HTMLElement | null} */ (document.getElementById('previewScrollHost'));
+    if (!ratioSelect || !resSelect || !scrollHost) return null;
+
+    ratioSelect.value = 'auto';
+    ratioSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const sourceWidth = scrollHost.clientWidth;
+    const sourceHeight = scrollHost.clientHeight;
+    const scale = sourceWidth > 0 ? 1920 / sourceWidth : 0;
+    let expectedHeight = Math.ceil(sourceHeight * scale);
+    if (expectedHeight % 2 !== 0) expectedHeight += 1;
+    expectedHeight = Math.min(4320, expectedHeight);
+
+    return {
+      expectedText: `1080P（1920x${expectedHeight}）`,
+      optionText: (resSelect.querySelector('option[value="1920"]')?.textContent || '').trim(),
+      sourceHeight,
+      sourceWidth,
+    };
+  });
+
+  expect(labelState).not.toBeNull();
+  expect(labelState.sourceWidth).toBeGreaterThan(0);
+  expect(labelState.sourceHeight).toBeGreaterThan(0);
+  expect(labelState.optionText).toBe(labelState.expectedText);
+});
+
+test('wires preview viewport framing into export feature creation', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+  const exportSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'export-video.js'), 'utf8');
+
+  expect(appSource).toContain('function getCurrentPreviewExportSourceState()');
+  expect(appSource).toContain('worldCenterY');
+  expect(appSource).toContain('getPreviewExportSourceState: getCurrentPreviewExportSourceState');
+  expect(exportSource).toContain('scoreCenterYOverride');
+  expect(exportSource).toContain('getPreviewExportSourceState');
+});
+
 test('allows selecting 4k and 120fps together', async ({ page }) => {
   await page.goto('/index.html');
 
@@ -2582,6 +3005,165 @@ test('adapts the desktop preview width when export ratio changes', async ({ page
   expect(previewWidths).not.toBeNull();
   expect(previewWidths.height43).toBe(previewWidths.height916);
   expect(previewWidths.width43).toBeGreaterThan(previewWidths.width916);
+});
+
+test('keeps desktop auto preview width stable when zoom increases on a tall score', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'tall-preview.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildTallPreviewSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+
+  const previewWidths = await page.evaluate(() => {
+    const ratioSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportRatioSelect'));
+    const zoomSlider = /** @type {HTMLInputElement | null} */ (document.getElementById('zoomSlider'));
+    const viewport = /** @type {HTMLElement | null} */ (document.getElementById('viewport'));
+    if (!ratioSelect || !zoomSlider || !viewport) return null;
+
+    ratioSelect.value = 'auto';
+    ratioSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+    zoomSlider.value = '0.35';
+    zoomSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    const widthAtLowZoom = viewport.offsetWidth;
+    const heightAtLowZoom = viewport.offsetHeight;
+
+    zoomSlider.value = '1.4';
+    zoomSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    const widthAtHighZoom = viewport.offsetWidth;
+    const heightAtHighZoom = viewport.offsetHeight;
+
+    return {
+      widthAtHighZoom,
+      widthAtLowZoom,
+      heightAtHighZoom,
+      heightAtLowZoom,
+    };
+  });
+
+  expect(previewWidths).not.toBeNull();
+  expect(previewWidths.heightAtLowZoom).toBe(previewWidths.heightAtHighZoom);
+  expect(previewWidths.widthAtHighZoom).toBe(previewWidths.widthAtLowZoom);
+});
+
+test('preview becomes vertically scrollable when zoom makes score taller than viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'preview-scroll.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildTallPreviewSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+
+  await page.evaluate(() => {
+    const zoomSlider = /** @type {HTMLInputElement | null} */ (document.getElementById('zoomSlider'));
+    if (!zoomSlider) return;
+
+    zoomSlider.value = '1.4';
+    zoomSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const scrollHost = /** @type {HTMLElement | null} */ (document.getElementById('previewScrollHost'));
+    if (!scrollHost) return null;
+
+    return {
+      clientHeight: scrollHost.clientHeight,
+      overflowY: getComputedStyle(scrollHost).overflowY,
+      scrollHeight: scrollHost.scrollHeight,
+    };
+  })).not.toBeNull();
+
+  const previewOverflow = await page.evaluate(() => {
+    const scrollHost = /** @type {HTMLElement | null} */ (document.getElementById('previewScrollHost'));
+    if (!scrollHost) return null;
+
+    return {
+      clientHeight: scrollHost.clientHeight,
+      overflowY: getComputedStyle(scrollHost).overflowY,
+      scrollHeight: scrollHost.scrollHeight,
+    };
+  });
+
+  expect(previewOverflow).not.toBeNull();
+  expect(previewOverflow.overflowY).toBe('auto');
+  expect(previewOverflow.scrollHeight).toBeGreaterThan(previewOverflow.clientHeight);
+});
+
+test('preview wheel scrolls vertically inside the preview', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'preview-wheel-scroll.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildTallPreviewSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    return svg ? svg.querySelectorAll('*').length : 0;
+  })).toBeGreaterThan(0);
+
+  await page.evaluate(() => {
+    const zoomSlider = /** @type {HTMLInputElement | null} */ (document.getElementById('zoomSlider'));
+    if (!zoomSlider) return;
+
+    zoomSlider.value = '1.4';
+    zoomSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const scrollHost = /** @type {HTMLElement | null} */ (document.getElementById('previewScrollHost'));
+    return scrollHost ? scrollHost.scrollHeight - scrollHost.clientHeight : null;
+  })).toBeGreaterThan(0);
+
+  const scrollHostBox = await page.locator('#previewScrollHost').boundingBox();
+  expect(scrollHostBox).not.toBeNull();
+  await page.mouse.move(scrollHostBox.x + scrollHostBox.width / 2, scrollHostBox.y + scrollHostBox.height / 2);
+
+  const scrollBefore = await page.evaluate(() => {
+    const scrollHost = /** @type {HTMLElement | null} */ (document.getElementById('previewScrollHost'));
+    return scrollHost?.scrollTop ?? null;
+  });
+
+  expect(scrollBefore).not.toBeNull();
+  await page.evaluate(() => {
+    const scrollHost = /** @type {HTMLElement | null} */ (document.getElementById('previewScrollHost'));
+    if (!scrollHost) return;
+
+    scrollHost.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 420,
+    }));
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const scrollHost = /** @type {HTMLElement | null} */ (document.getElementById('previewScrollHost'));
+    return scrollHost?.scrollTop ?? null;
+  })).toBeGreaterThan(scrollBefore);
+
+  const scrollAfter = await page.evaluate(() => {
+    const scrollHost = /** @type {HTMLElement | null} */ (document.getElementById('previewScrollHost'));
+    return scrollHost?.scrollTop ?? null;
+  });
+
+  expect(scrollAfter).toBeGreaterThan(scrollBefore);
 });
 
 test('wires export resolution and ratio changes into desktop preview-frame syncing', async () => {
@@ -7144,6 +7726,64 @@ test('does not infer a timeline time signature from a single numeric token', asy
   expect(state.loneClass).not.toContain('highlight-timesig');
   expect(state.extracted).toEqual([]);
   expect(state.ensured).toEqual([{ x: -Infinity, num: 4, den: 4 }]);
+});
+
+test('clears the full canvas backing store when browser zoom makes dpr smaller than 1', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'devicePixelRatio', {
+      configurable: true,
+      get: () => 0.8,
+    });
+
+    const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
+    window.__clearRectCalls = [];
+
+    CanvasRenderingContext2D.prototype.clearRect = function captureClearRect(x, y, width, height) {
+      const transform = typeof this.getTransform === 'function' ? this.getTransform() : { a: 1, d: 1 };
+      window.__clearRectCalls.push({
+        canvasHeight: this.canvas?.height || 0,
+        canvasWidth: this.canvas?.width || 0,
+        height,
+        scaleX: transform?.a ?? 1,
+        scaleY: transform?.d ?? 1,
+        width,
+        x,
+        y,
+      });
+      return originalClearRect.call(this, x, y, width, height);
+    };
+  });
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'clear-full-backing-store.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildMinimalTwoBarSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => (window.__clearRectCalls || []).length)).toBeGreaterThan(0);
+
+  const clearMetrics = await page.evaluate(() => {
+    const calls = window.__clearRectCalls || [];
+    const lastCall = [...calls].reverse().find((entry) => entry.canvasWidth > 0 && entry.canvasHeight > 0) || null;
+    if (!lastCall) return null;
+
+    return {
+      canvasHeight: lastCall.canvasHeight,
+      canvasWidth: lastCall.canvasWidth,
+      effectiveHeight: lastCall.height * lastCall.scaleY,
+      effectiveWidth: lastCall.width * lastCall.scaleX,
+      scaleX: lastCall.scaleX,
+      scaleY: lastCall.scaleY,
+    };
+  });
+
+  expect(clearMetrics).not.toBeNull();
+  expect(clearMetrics.scaleX).toBeLessThan(1);
+  expect(clearMetrics.scaleY).toBeLessThan(1);
+  expect(clearMetrics.effectiveWidth).toBeGreaterThanOrEqual(clearMetrics.canvasWidth - 1);
+  expect(clearMetrics.effectiveHeight).toBeGreaterThanOrEqual(clearMetrics.canvasHeight - 1);
 });
 
 test('does not classify Wu Zetian pipa boxed noteheads as fragmented time signatures', async ({ page }) => {

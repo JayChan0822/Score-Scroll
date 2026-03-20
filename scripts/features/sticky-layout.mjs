@@ -38,10 +38,6 @@ export function calculateRehearsalMarkStickyYOffset({
     const normalizedOpeningMaxY = Number.isFinite(openingMaxY) ? openingMaxY : null;
     const normalizedPadding = Number.isFinite(padding) ? padding : 0;
 
-    if (!hasOpeningClefAnchor) {
-        return 0;
-    }
-
     if (normalizedPlacement === "below") {
         if (normalizedRehearsalMinY === null || normalizedOpeningMaxY === null) {
             return 0;
@@ -49,6 +45,10 @@ export function calculateRehearsalMarkStickyYOffset({
 
         const targetTopY = normalizedOpeningMaxY + normalizedPadding;
         return targetTopY - normalizedRehearsalMinY;
+    }
+
+    if (!hasOpeningClefAnchor) {
+        return 0;
     }
 
     if (normalizedRehearsalMaxY === null || normalizedClefMinY === null) {

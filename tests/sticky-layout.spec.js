@@ -137,6 +137,14 @@ test('bottom-lane rehearsal marks align to a shared sticky height below the open
     openingMaxY: 42,
     padding: 4,
   })).toBeCloseTo(-10, 5);
+
+  expect(calculateRehearsalMarkStickyYOffset({
+    hasOpeningClefAnchor: false,
+    placement: 'below',
+    rehearsalMinY: 32,
+    openingMaxY: 42,
+    padding: 4,
+  })).toBeCloseTo(14, 5);
 });
 
 test('rehearsal-mark y targets freeze replaced marks and keep future marks at origin until activation', async () => {

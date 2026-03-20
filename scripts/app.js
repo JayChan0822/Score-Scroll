@@ -66,7 +66,7 @@ const SIBELIUS_MID_CLEF_STICKY_SCALE = 1.35;
 const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.25;
 const LILYPOND_MID_CLEF_STICKY_SCALE = 1.2;
 const REHEARSAL_STICKY_PADDING_ABOVE = 8;
-const REHEARSAL_STICKY_PADDING_BELOW = 12;
+const REHEARSAL_STICKY_PADDING_BELOW = -8;
 const SIBELIUS_SOURCE_REGEX = /\b(?:Opus(?:\s+Special)?\s+Std|Opus\s+Text\s+Std|Helsinki|Inkpen2)\b/i;
 const controlStackEl = document.querySelector(".control-stack");
 const stageWrapEl = document.querySelector(".stage-wrap");
@@ -154,6 +154,7 @@ const {
     glowRangeVal,
     noteColorPicker,
     playBtn,
+    previewScrollHost,
     playlineRatioSlider,
     playlineRatioVal,
     scoreSourceType,
@@ -215,6 +216,7 @@ const dom = {
     glowRangeVal,
     noteColorPicker,
     playBtn,
+    previewScrollHost,
     playlineRatioSlider,
     playlineRatioVal,
     scoreSourceType,
@@ -332,6 +334,7 @@ const exportFeature = createExportVideoFeature({
     getPlaybackGainByTime,
     getInterpolatedXByTime,
     getIsPlaying: () => isPlaying,
+    getPreviewExportSourceState: getCurrentPreviewExportSourceState,
     getSmoothState: () => ({ playbackSimTime, smoothVx, smoothX }),
     getSmoothedTargetVelocityByTime,
     getTotalDuration,
@@ -381,6 +384,76 @@ function setGlobalZoom(val) {
     if (typeof renderCanvas === 'function') {
         renderCanvas(smoothX);
     }
+}
+
+function getPreviewVisibleHeight() {
+    if (isExportingVideoMode) return canvas?.height || 0;
+    return (
+        previewScrollHost?.clientHeight
+        || previewScrollHost?.getBoundingClientRect().height
+        || viewportEl?.clientHeight
+        || viewportEl?.getBoundingClientRect().height
+        || 0
+    );
+}
+
+function getRenderedPreviewContentHeight(visibleHeight = getPreviewVisibleHeight()) {
+    const safeVisibleHeight = Number.isFinite(visibleHeight) && visibleHeight > 0 ? visibleHeight : 0;
+    if (!Number.isFinite(globalScoreHeight) || globalScoreHeight <= 0) return safeVisibleHeight;
+
+    const renderedScoreHeight = Math.ceil(globalScoreHeight * globalZoom);
+    return Math.max(safeVisibleHeight, renderedScoreHeight);
+}
+
+function getCurrentPreviewExportSourceState() {
+    const parsedCanvasStyleWidth = Number.parseFloat(canvas?.style?.width || "");
+    const parsedCanvasStyleHeight = Number.parseFloat(canvas?.style?.height || "");
+    const sourceWidth =
+        previewScrollHost?.clientWidth
+        || canvas?.clientWidth
+        || parsedCanvasStyleWidth
+        || cachedViewportWidth
+        || viewportEl?.clientWidth
+        || viewportEl?.getBoundingClientRect().width
+        || 1920;
+    const sourceHeight = getPreviewVisibleHeight();
+    const contentHeight =
+        canvas?.clientHeight
+        || parsedCanvasStyleHeight
+        || getRenderedPreviewContentHeight(sourceHeight);
+    const scrollTop = previewScrollHost?.scrollTop || 0;
+    const baseScoreCenterY = window.globalScoreTrueCenterY || (globalScoreHeight / 2);
+    const worldCenterY = Number.isFinite(globalZoom) && globalZoom > 0
+        ? baseScoreCenterY + ((scrollTop + (sourceHeight / 2) - (contentHeight / 2)) / globalZoom)
+        : baseScoreCenterY;
+
+    return { sourceHeight, sourceWidth, worldCenterY };
+}
+
+function syncPreviewScrollPosition(visibleHeight, contentHeight, previousMetrics = null) {
+    if (!previewScrollHost || isExportingVideoMode) return;
+
+    const previousClientHeight = previousMetrics?.clientHeight ?? previewScrollHost.clientHeight;
+    const previousScrollHeight = previousMetrics?.scrollHeight ?? previewScrollHost.scrollHeight;
+    const previousMaxScrollTop = Math.max(0, previousScrollHeight - previousClientHeight);
+    const previousScrollTop = previousMetrics?.scrollTop ?? previewScrollHost.scrollTop;
+    const nextMaxScrollTop = Math.max(0, contentHeight - visibleHeight);
+
+    if (nextMaxScrollTop <= 0) {
+        if (previousScrollTop !== 0) previewScrollHost.scrollTop = 0;
+        return;
+    }
+
+    if (previousMaxScrollTop <= 0) {
+        previewScrollHost.scrollTop = Math.round(nextMaxScrollTop / 2);
+        return;
+    }
+
+    previewScrollHost.scrollTop = clamp(
+        (previousScrollTop / previousMaxScrollTop) * nextMaxScrollTop,
+        0,
+        nextMaxScrollTop,
+    );
 }
 
 function isPreviewFocusMode() {
@@ -479,7 +552,7 @@ function fitScoreToViewportHeight() {
     if (!viewportEl || !currentRawSvgContent || isExportingVideoMode) return;
     if (!Number.isFinite(globalScoreHeight) || globalScoreHeight <= 0) return;
 
-    const viewportHeight = viewportEl.clientHeight;
+    const viewportHeight = getPreviewVisibleHeight();
     if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return;
 
     const fitZoom = viewportHeight / globalScoreHeight;
@@ -537,11 +610,7 @@ function updateExportResolutionOptionLabels() {
     if (!dom.exportResSelect) return;
 
     const selectedRatio = getEffectiveExportRatio();
-    const viewportWidth =
-        viewportEl?.clientWidth ||
-        cachedViewportWidth ||
-        viewportEl?.getBoundingClientRect().width ||
-        1920;
+    const { sourceHeight, sourceWidth } = getCurrentPreviewExportSourceState();
     const labelByResolution = {
         1920: "1080P",
         2560: "2K",
@@ -561,7 +630,9 @@ function updateExportResolutionOptionLabels() {
             baseRes,
             globalScoreHeight,
             globalZoom,
-            viewportWidth,
+            sourceHeight,
+            sourceWidth,
+            viewportWidth: sourceWidth,
         });
 
         if (!Number.isFinite(targetWidth) || !Number.isFinite(targetHeight) || targetWidth <= 0 || targetHeight <= 0) {
@@ -596,16 +667,7 @@ function syncDesktopPreviewFrame() {
     let desiredPreviewWidth = stageAvailableWidth;
 
     if (selectedRatio === "auto") {
-        const dimensions = computeSharedExportDimensions({
-            aspectRatio: selectedRatio,
-            baseRes: getSelectedExportBaseResolution(),
-            globalScoreHeight,
-            globalZoom,
-            viewportWidth: stageAvailableWidth,
-        });
-        if (Number.isFinite(dimensions.targetWidth) && Number.isFinite(dimensions.targetHeight) && dimensions.targetHeight > 0) {
-            desiredPreviewWidth = Math.round(controlHeight * (dimensions.targetWidth / dimensions.targetHeight));
-        }
+        desiredPreviewWidth = stageAvailableWidth;
     } else {
         const [wRatio, hRatio] = selectedRatio.split(":").map((value) => parseFloat(value));
         if (Number.isFinite(wRatio) && Number.isFinite(hRatio) && wRatio > 0 && hRatio > 0) {
@@ -682,6 +744,27 @@ zoomOutBtn.addEventListener('click', () => {
 zoomInBtn.addEventListener('click', () => {
     setGlobalZoom(globalZoom + 0.1);
 });
+
+if (viewportEl && previewScrollHost) {
+    viewportEl.addEventListener("wheel", (event) => {
+        if (isExportingVideoMode) return;
+        if (event.target instanceof Element && event.target.closest(".zoom-control-wrapper")) return;
+
+        const maxScrollTop = previewScrollHost.scrollHeight - previewScrollHost.clientHeight;
+        if (!(maxScrollTop > 0)) return;
+
+        const nextScrollTop = clamp(
+            previewScrollHost.scrollTop + event.deltaY,
+            0,
+            maxScrollTop,
+        );
+
+        if (nextScrollTop === previewScrollHost.scrollTop) return;
+
+        previewScrollHost.scrollTop = nextScrollTop;
+        event.preventDefault();
+    }, { passive: false });
+}
 
 if (viewportFullscreenBtn) {
     syncPreviewFocusButtonState();
@@ -856,17 +939,30 @@ function renderCanvas(currentX, options = {}) {
     if (typeof window.__lastRenderX === 'undefined') window.__lastRenderX = currentX;
     const isXJump = Math.abs(currentX - window.__lastRenderX) > 200;
     window.__lastRenderX = currentX;
-    const { transparentBackground = false } = options;
+    const { transparentBackground = false, scoreCenterYOverride } = options;
+    const baseTransform = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+    const baseScaleX = isExportingVideoMode
+        ? 1
+        : (Math.abs(baseTransform?.a || 0) > 0.0001 ? Math.abs(baseTransform.a) : 1);
+    const baseScaleY = isExportingVideoMode
+        ? 1
+        : (Math.abs(baseTransform?.d || 0) > 0.0001 ? Math.abs(baseTransform.d) : 1);
+    const logicalCanvasWidth = isExportingVideoMode
+        ? canvas.width
+        : (canvas.clientWidth || (canvas.width / baseScaleX));
+    const logicalCanvasHeight = isExportingVideoMode
+        ? canvas.height
+        : (canvas.clientHeight || getPreviewVisibleHeight() || (canvas.height / baseScaleY));
 
     const noteColor = noteColorPicker ? noteColorPicker.value : defaultNoteColor;
     const solidBgColor = bgColorPicker ? bgColorPicker.value : defaultBgColor;
     const bgColor = transparentBackground ? 'rgba(0, 0, 0, 0)' : solidBgColor;
     const activeMidClefStickyScale = getMidClefStickyScale(currentAnalysisProfile.sourceType);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, logicalCanvasWidth, logicalCanvasHeight);
     if (!transparentBackground) {
         ctx.fillStyle = solidBgColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, logicalCanvasWidth, logicalCanvasHeight);
     }
 
     // 🌟 1. 核心数学重构：动态计算播放线在屏幕上的 X 像素坐标
@@ -877,9 +973,11 @@ function renderCanvas(currentX, options = {}) {
     const worldDistanceRight = (cachedViewportWidth - playlineScreenX) / globalZoom;
     const stickyLockOffset = stickyLockScreenX / globalZoom;
 
-    const logicalHeight = isExportingVideoMode ? canvas.height : viewportEl.clientHeight;
+    const logicalHeight = logicalCanvasHeight;
     const centerY = logicalHeight / 2;
-    const scoreCenterY = window.globalScoreTrueCenterY || (globalScoreHeight / 2);
+    const scoreCenterY = Number.isFinite(scoreCenterYOverride)
+        ? scoreCenterYOverride
+        : (window.globalScoreTrueCenterY || (globalScoreHeight / 2));
 
     // 可视范围边界重构
     const leftEdge = currentX - worldDistanceLeft - (100 / globalZoom);
@@ -1249,7 +1347,7 @@ function renderCanvas(currentX, options = {}) {
             clearGradient.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.globalCompositeOperation = 'destination-out';
             ctx.fillStyle = clearGradient;
-            ctx.fillRect(0, 0, maskW, canvas.height);
+            ctx.fillRect(0, 0, maskW, logicalCanvasHeight);
             ctx.globalCompositeOperation = 'source-over';
         } else {
             const bgGradient = ctx.createLinearGradient(0, 0, maskW, 0);
@@ -1257,7 +1355,7 @@ function renderCanvas(currentX, options = {}) {
             if (solidBgColor.startsWith('#') && solidBgColor.length === 7) { r = parseInt(solidBgColor.slice(1,3), 16); g = parseInt(solidBgColor.slice(3,5), 16); b = parseInt(solidBgColor.slice(5,7), 16); }
             bgGradient.addColorStop(0, `rgba(${r},${g},${b},1)`); if (fadeStart > 0) bgGradient.addColorStop(fadeStart / maskW, `rgba(${r},${g},${b},1)`); bgGradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
             ctx.fillStyle = bgGradient;
-            ctx.fillRect(0, 0, maskW, canvas.height);
+            ctx.fillRect(0, 0, maskW, logicalCanvasHeight);
         }
 
         const bridgeLines = (window.globalAbsoluteBridgeLineYs && window.globalAbsoluteBridgeLineYs.length > 0)
@@ -1314,7 +1412,7 @@ function renderCanvas(currentX, options = {}) {
     if (typeof showPlayline !== 'undefined' && showPlayline) {
         ctx.globalAlpha = 1; ctx.save(); ctx.beginPath();
         // 🌟 实体播放线重构：画在你滑块选择的位置
-        ctx.moveTo(playlineScreenX, 0); ctx.lineTo(playlineScreenX, canvas.height);
+        ctx.moveTo(playlineScreenX, 0); ctx.lineTo(playlineScreenX, logicalCanvasHeight);
         ctx.lineWidth = 2; ctx.strokeStyle = noteColor; ctx.shadowBlur = 15; ctx.shadowColor = noteColor; ctx.stroke(); ctx.restore();
     }
 }
@@ -1334,25 +1432,40 @@ function resizeCanvas() {
     if (!canvas || !viewportEl || isExportingVideoMode) return;
     syncViewportHeight();
     syncWorkspaceScaleFrameMetrics();
+    const previousPreviewScrollMetrics = previewScrollHost ? {
+        clientHeight: previewScrollHost.clientHeight,
+        scrollHeight: previewScrollHost.scrollHeight,
+        scrollTop: previewScrollHost.scrollTop,
+    } : null;
     // 使用布局尺寸，避免祖先 transform 缩放后再次把 canvas 写小一遍。
-    const layoutWidth = viewportEl.clientWidth || viewportEl.getBoundingClientRect().width;
-    const layoutHeight = viewportEl.clientHeight || viewportEl.getBoundingClientRect().height;
+    const layoutWidth =
+        previewScrollHost?.clientWidth
+        || previewScrollHost?.getBoundingClientRect().width
+        || viewportEl.clientWidth
+        || viewportEl.getBoundingClientRect().width;
+    const visibleHeight = getPreviewVisibleHeight();
+    const contentHeight = getRenderedPreviewContentHeight(visibleHeight);
+
+    if (!Number.isFinite(layoutWidth) || layoutWidth <= 0 || !Number.isFinite(visibleHeight) || visibleHeight <= 0) return;
+
     // 获取设备的物理像素与独立像素比例 (DPR)
     const dpr = window.devicePixelRatio || 1;
 
     // 设置 Canvas 内部实际渲染分辨率 (放大)
     canvas.width = layoutWidth * dpr;
-    canvas.height = layoutHeight * dpr;
+    canvas.height = contentHeight * dpr;
 
     // 设置 Canvas 在屏幕上显示的 CSS 尺寸 (缩回原大小)
     canvas.style.width = `${layoutWidth}px`;
-    canvas.style.height = `${layoutHeight}px`;
+    canvas.style.height = `${contentHeight}px`;
 
     // 归一化坐标系
     ctx.scale(dpr, dpr);
 
     // 更新全局缓存宽度
     cachedViewportWidth = layoutWidth;
+    syncPreviewScrollPosition(visibleHeight, contentHeight, previousPreviewScrollMetrics);
+    updateExportResolutionOptionLabels();
 
     // 🌟 核心修复：Canvas 尺寸一旦改变就会被系统强制清空，所以我们立刻补画当前帧
     if (typeof renderCanvas === 'function') {

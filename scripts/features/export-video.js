@@ -23,6 +23,14 @@ const PLAYBACK_TAIL_BUFFER_SEC = 2;
 /**
  * @typedef {Object} RenderCanvasOptions
  * @property {boolean} [transparentBackground]
+ * @property {number} [scoreCenterYOverride]
+ */
+
+/**
+ * @typedef {Object} PreviewExportSourceState
+ * @property {number} sourceWidth
+ * @property {number} sourceHeight
+ * @property {number} [worldCenterY]
  */
 
 /**
@@ -40,6 +48,7 @@ const PLAYBACK_TAIL_BUFFER_SEC = 2;
  * @property {(timeSec: number) => number} getPlaybackGainByTime
  * @property {(timeSec: number) => InterpolatedPosition} getInterpolatedXByTime
  * @property {() => boolean} getIsPlaying
+ * @property {(() => PreviewExportSourceState | null | undefined)=} getPreviewExportSourceState
  * @property {(timeSec: number) => number} getSmoothedTargetVelocityByTime
  * @property {() => SmoothState} getSmoothState
  * @property {() => number} getTotalDuration
@@ -111,6 +120,8 @@ export function resolveAspectRatioValue(aspectRatio, fallbackAspectRatio = "auto
  *   baseRes?: number,
  *   globalScoreHeight?: number,
  *   globalZoom?: number,
+ *   sourceHeight?: number,
+ *   sourceWidth?: number,
  *   viewportWidth?: number,
  * }} params
  * @returns {{ finalExportZoom: number, targetHeight: number, targetWidth: number }}
@@ -120,20 +131,29 @@ export function computeSharedExportDimensions({
     baseRes = 1920,
     globalScoreHeight = 0,
     globalZoom = 1,
+    sourceHeight = 0,
+    sourceWidth = 0,
     viewportWidth = 1920,
 }) {
     const SUPPORTED_4K_TALL_RATIO_PIXEL_BUDGET = 2656 * 3540;
+    /** @param {number} value */
     const roundToNearestEven = (value) => Math.max(2, Math.round(value / 2) * 2);
     const resolvedAspectRatio = resolveAspectRatioValue(aspectRatio);
     let targetWidth = baseRes;
     let targetHeight;
     let finalExportZoom = globalZoom;
-    const originalPhysWidth = viewportWidth > 0 ? viewportWidth : 1920;
+    const normalizedSourceWidth = Number.isFinite(sourceWidth) && sourceWidth > 0 ? sourceWidth : 0;
+    const normalizedSourceHeight = Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : 0;
+    const originalPhysWidth = normalizedSourceWidth || (viewportWidth > 0 ? viewportWidth : 1920);
 
     if (resolvedAspectRatio === "auto") {
         const exportZoomMultiplier = targetWidth / originalPhysWidth;
         finalExportZoom = globalZoom * exportZoomMultiplier;
-        targetHeight = Math.ceil(globalScoreHeight * finalExportZoom + 120);
+        if (normalizedSourceHeight > 0) {
+            targetHeight = Math.ceil(normalizedSourceHeight * exportZoomMultiplier);
+        } else {
+            targetHeight = Math.ceil(globalScoreHeight * finalExportZoom + 120);
+        }
     } else {
         const ratioParts = resolvedAspectRatio.split(":");
         const wRatio = parseFloat(ratioParts[0]);
@@ -195,6 +215,7 @@ export function createExportVideoFeature({
     getPlaybackGainByTime,
     getInterpolatedXByTime,
     getIsPlaying,
+    getPreviewExportSourceState,
     getSmoothedTargetVelocityByTime,
     getSmoothState,
     getTotalDuration,
@@ -240,17 +261,62 @@ export function createExportVideoFeature({
     }
 
     /**
+     * @returns {PreviewExportSourceState}
+     */
+    function resolvePreviewExportSourceState() {
+        const candidateState = typeof getPreviewExportSourceState === "function"
+            ? getPreviewExportSourceState()
+            : null;
+        const normalizedSourceWidth = Number(candidateState?.sourceWidth);
+        const normalizedSourceHeight = Number(candidateState?.sourceHeight);
+        const normalizedWorldCenterY = Number(candidateState?.worldCenterY);
+
+        if (Number.isFinite(normalizedSourceWidth) && normalizedSourceWidth > 0 && Number.isFinite(normalizedSourceHeight) && normalizedSourceHeight > 0) {
+            return {
+                sourceHeight: normalizedSourceHeight,
+                sourceWidth: normalizedSourceWidth,
+                worldCenterY: Number.isFinite(normalizedWorldCenterY) ? normalizedWorldCenterY : undefined,
+            };
+        }
+
+        const currentCanvas = getCanvas();
+        const parsedCanvasStyleWidth = Number.parseFloat(currentCanvas?.style?.width || "");
+        const parsedCanvasStyleHeight = Number.parseFloat(currentCanvas?.style?.height || "");
+        const sourceWidth =
+            currentCanvas?.clientWidth
+            || parsedCanvasStyleWidth
+            || dom.viewportEl?.clientWidth
+            || getCachedViewportWidth()
+            || 1920;
+        const sourceHeight =
+            currentCanvas?.clientHeight
+            || parsedCanvasStyleHeight
+            || 0;
+
+        return {
+            sourceHeight,
+            sourceWidth,
+        };
+    }
+
+    /**
      * @param {number} baseRes
      * @param {string} aspectRatio
+     * @param {PreviewExportSourceState} [previewExportSourceState]
      * @returns {{ finalExportZoom: number, targetHeight: number, targetWidth: number }}
      */
-    function computeExportDimensions(baseRes, aspectRatio) {
+    function computeExportDimensions(baseRes, aspectRatio, previewExportSourceState = resolvePreviewExportSourceState()) {
+        const sourceWidth = previewExportSourceState?.sourceWidth || 0;
+        const sourceHeight = previewExportSourceState?.sourceHeight || 0;
+
         return computeSharedExportDimensions({
             aspectRatio,
             baseRes,
             globalScoreHeight: getGlobalScoreHeight(),
             globalZoom: getGlobalZoom(),
-            viewportWidth: dom.viewportEl?.clientWidth || 1920,
+            sourceHeight,
+            sourceWidth,
+            viewportWidth: sourceWidth,
         });
     }
 
@@ -352,7 +418,7 @@ export function createExportVideoFeature({
      * @param {number} targetWidth
      * @param {number} targetHeight
      * @param {number} fps
-     * @returns {void}
+     * @returns {Promise<void>}
      */
     async function configureVideoEncoder(videoEncoder, targetWidth, targetHeight, fps) {
         const candidates = buildVideoEncoderConfigCandidates(targetWidth, targetHeight, fps);
@@ -644,7 +710,11 @@ export function createExportVideoFeature({
             return;
         }
 
-        const { finalExportZoom, targetHeight, targetWidth } = computeExportDimensions(baseRes, aspectRatio);
+        const previewExportSourceState = resolvePreviewExportSourceState();
+        const exportRenderOptions = Number.isFinite(previewExportSourceState?.worldCenterY)
+            ? { scoreCenterYOverride: previewExportSourceState.worldCenterY }
+            : {};
+        const { finalExportZoom, targetHeight, targetWidth } = computeExportDimensions(baseRes, aspectRatio, previewExportSourceState);
         const audioFile = getGlobalAudioFile();
         const exportTarget = await resolveMp4ExportTarget(targetWidth, targetHeight, Boolean(audioFile));
 
@@ -770,7 +840,7 @@ export function createExportVideoFeature({
                 }
 
                 const simulatedTime = exportWindow.finalStartSec + frameIndex * stepSec;
-                renderExportFrame(simulatedTime);
+                renderExportFrame(simulatedTime, exportRenderOptions);
 
                 const videoFrame = new VideoFrame(getCanvas(), { timestamp: frameIndex * stepSec * 1_000_000 });
                 const insertKeyFrame = frameIndex % fps === 0;
@@ -898,7 +968,11 @@ export function createExportVideoFeature({
         openExportModal("RENDERING PNG FRAMES...");
         setCancelVideoExport(false);
 
-        const { finalExportZoom, targetHeight, targetWidth } = computeExportDimensions(baseRes, aspectRatio);
+        const previewExportSourceState = resolvePreviewExportSourceState();
+        const exportRenderOptions = Number.isFinite(previewExportSourceState?.worldCenterY)
+            ? { scoreCenterYOverride: previewExportSourceState.worldCenterY }
+            : {};
+        const { finalExportZoom, targetHeight, targetWidth } = computeExportDimensions(baseRes, aspectRatio, previewExportSourceState);
         const { restoreViewportState } = activateExportViewport(targetWidth, targetHeight, finalExportZoom);
         const totalFrames = Math.max(1, Math.ceil(exportWindow.exportDuration * fps));
         const stepSec = 1 / fps;
@@ -910,7 +984,10 @@ export function createExportVideoFeature({
                 }
 
                 const simulatedTime = exportWindow.finalStartSec + frameIndex * stepSec;
-                renderExportFrame(simulatedTime, { transparentBackground: true });
+                renderExportFrame(simulatedTime, {
+                    ...exportRenderOptions,
+                    transparentBackground: true,
+                });
 
                 const frameName = `frame_${String(frameIndex + 1).padStart(6, "0")}.png`;
                 const frameHandle = await outputDirectoryHandle.getFileHandle(frameName, { create: true });

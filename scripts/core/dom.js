@@ -35,6 +35,7 @@
  * @property {HTMLElement | null} glowRangeVal
  * @property {HTMLInputElement | null} noteColorPicker
  * @property {HTMLButtonElement | null} playBtn
+ * @property {HTMLElement | null} previewScrollHost
  * @property {HTMLInputElement | null} playlineRatioSlider
  * @property {HTMLElement | null} playlineRatioVal
  * @property {HTMLElement | null} scoreSourceType
@@ -109,6 +110,7 @@ export function getDomRefs(doc = document) {
         glowRangeVal: byId(doc, "glowRangeVal"),
         noteColorPicker: byId(doc, "noteColorPicker"),
         playBtn: byId(doc, "playBtn"),
+        previewScrollHost: byId(doc, "previewScrollHost"),
         playlineRatioSlider: byId(doc, "playlineRatioSlider"),
         playlineRatioVal: byId(doc, "playlineRatioVal"),
         scoreSourceType: byId(doc, "scoreSourceType"),
