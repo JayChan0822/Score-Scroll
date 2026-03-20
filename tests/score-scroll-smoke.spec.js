@@ -2008,6 +2008,502 @@ test('falls back to in-memory mp4 export when local file streaming is unavailabl
   expect(exportResult.downloadClicks).toBe(1);
 });
 
+test('falls back when the preferred 4k hardware encoder config is unsupported', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const exportResult = await page.evaluate(async () => {
+    const { createExportVideoFeature } = await import('/scripts/features/export-video.js');
+
+    /** @type {Array<VideoEncoderConfig>} */
+    const configureCalls = [];
+
+    /** @type {HTMLCanvasElement} */
+    let canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+
+    /** @type {CanvasRenderingContext2D | null} */
+    let ctx = canvas.getContext('2d');
+    let cancelVideoExport = false;
+    let cachedViewportWidth = 800;
+    let globalZoom = 1;
+    let smoothState = { playbackSimTime: 0, smoothVx: 0, smoothX: 0 };
+
+    const OriginalVideoEncoder = window.VideoEncoder;
+    const OriginalVideoFrame = window.VideoFrame;
+    const OriginalMp4Muxer = window.Mp4Muxer;
+    const OriginalShowSaveFilePicker = window.showSaveFilePicker;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+
+    class FakeVideoEncoder {
+      constructor({ output }) {
+        this.output = output;
+        this.encodeQueueSize = 0;
+      }
+      configure(config) {
+        configureCalls.push({ ...config });
+        if (config.width === 3840 && config.height === 2160 && config.hardwareAcceleration === 'prefer-hardware') {
+          throw new DOMException('Encoder creation error.', 'OperationError');
+        }
+      }
+      encode() {
+        this.encodeQueueSize += 1;
+        this.output({ byteLength: 4 }, {});
+        this.encodeQueueSize -= 1;
+      }
+      async flush() {}
+      close() {}
+    }
+
+    class FakeVideoFrame {
+      constructor() {}
+      close() {}
+    }
+
+    class FakeArrayBufferTarget {
+      constructor() {
+        this.kind = 'array-buffer';
+        this.buffer = new Uint8Array([1, 2, 3]).buffer;
+      }
+    }
+
+    class FakeMuxer {
+      constructor(options) {
+        this.target = options.target;
+      }
+      addVideoChunk() {}
+      addAudioChunk() {}
+      finalize() {
+        if (!this.target.buffer) {
+          this.target.buffer = new Uint8Array([1, 2, 3]).buffer;
+        }
+      }
+    }
+
+    delete window.showSaveFilePicker;
+    window.VideoEncoder = FakeVideoEncoder;
+    window.VideoFrame = FakeVideoFrame;
+    window.Mp4Muxer = {
+      ArrayBufferTarget: FakeArrayBufferTarget,
+      FileSystemWritableFileStreamTarget: class {},
+      Muxer: FakeMuxer,
+    };
+    URL.createObjectURL = () => 'blob:fake';
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function click() {};
+
+    const exportModal = document.createElement('div');
+    const exportModalTitle = document.createElement('div');
+    const exportProgressBar = document.createElement('div');
+    const exportProgressText = document.createElement('div');
+    const cancelExportBtn = document.createElement('button');
+    const playBtn = document.createElement('button');
+    const viewportEl = document.createElement('div');
+    Object.defineProperty(viewportEl, 'clientWidth', { configurable: true, value: 800 });
+
+    const dom = {
+      cancelExportBtn,
+      exportEndInput: null,
+      exportFpsSelect: null,
+      exportModal,
+      exportModalTitle,
+      exportProgressBar,
+      exportProgressText,
+      exportRatioSelect: null,
+      exportResSelect: null,
+      exportStartInput: null,
+      playBtn,
+      viewportEl,
+    };
+
+    const feature = createExportVideoFeature({
+      dom,
+      getAudioOffsetSec: () => 0,
+      getCachedViewportWidth: () => cachedViewportWidth,
+      getCanvas: () => canvas,
+      getCancelVideoExport: () => cancelVideoExport,
+      getCtx: () => ctx,
+      getEffectiveExportRatio: () => '16:9',
+      getGlobalAudioFile: () => null,
+      getGlobalScoreHeight: () => 320,
+      getGlobalZoom: () => globalZoom,
+      getInterpolatedXByTime: (timeSec) => ({ x: timeSec * 100, index: 0, atEnd: false }),
+      getIsPlaying: () => false,
+      getPlaybackGainByTime: () => 1,
+      getSmoothedTargetVelocityByTime: () => 0,
+      getSmoothState: () => smoothState,
+      getTotalDuration: () => 1,
+      renderCanvas: () => {},
+      resizeCanvas: () => {},
+      setCachedViewportWidth: (width) => {
+        cachedViewportWidth = width;
+      },
+      setCanvas: (nextCanvas) => {
+        canvas = nextCanvas;
+      },
+      setCancelVideoExport: (cancelled) => {
+        cancelVideoExport = cancelled;
+      },
+      setCtx: (nextCtx) => {
+        ctx = nextCtx;
+      },
+      setGlobalZoom: (zoom) => {
+        globalZoom = zoom;
+      },
+      setIsExportingVideoMode: () => {},
+      setSmoothState: (nextState) => {
+        smoothState = nextState;
+      },
+    });
+
+    try {
+      await feature.exportHighQualityVideo(3840, 60, '16:9', 0, 1);
+      return {
+        configureCalls,
+      };
+    } finally {
+      window.VideoEncoder = OriginalVideoEncoder;
+      window.VideoFrame = OriginalVideoFrame;
+      window.Mp4Muxer = OriginalMp4Muxer;
+      window.showSaveFilePicker = OriginalShowSaveFilePicker;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalAnchorClick;
+    }
+  });
+
+  expect(exportResult.configureCalls).toHaveLength(2);
+  expect(exportResult.configureCalls[0]).toMatchObject({
+    codec: 'avc1.640034',
+    framerate: 60,
+    hardwareAcceleration: 'prefer-hardware',
+    height: 2160,
+    width: 3840,
+  });
+  expect(exportResult.configureCalls[1]).toMatchObject({
+    codec: 'avc1.640034',
+    framerate: 60,
+    height: 2160,
+    width: 3840,
+  });
+  expect(exportResult.configureCalls[1].hardwareAcceleration).toBeUndefined();
+});
+
+test('skips unsupported hardware acceleration configs before encoding 4k non-16:9 exports', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const exportResult = await page.evaluate(async () => {
+    const { createExportVideoFeature } = await import('/scripts/features/export-video.js');
+
+    /** @type {Array<VideoEncoderConfig>} */
+    const configureCalls = [];
+    /** @type {Array<VideoEncoderConfig>} */
+    const supportChecks = [];
+
+    /** @type {HTMLCanvasElement} */
+    let canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+
+    /** @type {CanvasRenderingContext2D | null} */
+    let ctx = canvas.getContext('2d');
+    let cancelVideoExport = false;
+    let cachedViewportWidth = 800;
+    let globalZoom = 1;
+    let smoothState = { playbackSimTime: 0, smoothVx: 0, smoothX: 0 };
+
+    const OriginalVideoEncoder = window.VideoEncoder;
+    const OriginalVideoFrame = window.VideoFrame;
+    const OriginalMp4Muxer = window.Mp4Muxer;
+    const OriginalShowSaveFilePicker = window.showSaveFilePicker;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+
+    class FakeVideoEncoder {
+      static async isConfigSupported(config) {
+        supportChecks.push({ ...config });
+        return {
+          supported: config.hardwareAcceleration !== 'prefer-hardware',
+          config: {
+            ...config,
+            hardwareAcceleration: config.hardwareAcceleration || 'no-preference',
+          },
+        };
+      }
+
+      constructor({ output }) {
+        this.output = output;
+        this.encodeQueueSize = 0;
+        this.currentConfig = null;
+      }
+      configure(config) {
+        this.currentConfig = { ...config };
+        configureCalls.push({ ...config });
+      }
+      encode() {
+        if (this.currentConfig?.hardwareAcceleration === 'prefer-hardware') {
+          throw new DOMException('Encoder creation error.', 'OperationError');
+        }
+        this.encodeQueueSize += 1;
+        this.output({ byteLength: 4, type: 'key' }, {});
+        this.encodeQueueSize -= 1;
+      }
+      async flush() {}
+      close() {}
+    }
+
+    class FakeVideoFrame {
+      constructor() {}
+      close() {}
+    }
+
+    class FakeArrayBufferTarget {
+      constructor() {
+        this.kind = 'array-buffer';
+        this.buffer = new Uint8Array([1, 2, 3]).buffer;
+      }
+    }
+
+    class FakeMuxer {
+      constructor(options) {
+        this.target = options.target;
+      }
+      addVideoChunk() {}
+      addAudioChunk() {}
+      finalize() {
+        if (!this.target.buffer) {
+          this.target.buffer = new Uint8Array([1, 2, 3]).buffer;
+        }
+      }
+    }
+
+    delete window.showSaveFilePicker;
+    window.VideoEncoder = FakeVideoEncoder;
+    window.VideoFrame = FakeVideoFrame;
+    window.Mp4Muxer = {
+      ArrayBufferTarget: FakeArrayBufferTarget,
+      FileSystemWritableFileStreamTarget: class {},
+      Muxer: FakeMuxer,
+    };
+    URL.createObjectURL = () => 'blob:fake';
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function click() {};
+
+    const exportModal = document.createElement('div');
+    const exportModalTitle = document.createElement('div');
+    const exportProgressBar = document.createElement('div');
+    const exportProgressText = document.createElement('div');
+    const cancelExportBtn = document.createElement('button');
+    const playBtn = document.createElement('button');
+    const viewportEl = document.createElement('div');
+    Object.defineProperty(viewportEl, 'clientWidth', { configurable: true, value: 800 });
+
+    const dom = {
+      cancelExportBtn,
+      exportEndInput: null,
+      exportFpsSelect: null,
+      exportModal,
+      exportModalTitle,
+      exportOutputSummary: null,
+      exportProgressBar,
+      exportProgressText,
+      exportRatioSelect: null,
+      exportResSelect: null,
+      exportStartInput: null,
+      playBtn,
+      viewportEl,
+    };
+
+    const feature = createExportVideoFeature({
+      dom,
+      getAudioOffsetSec: () => 0,
+      getCachedViewportWidth: () => cachedViewportWidth,
+      getCanvas: () => canvas,
+      getCancelVideoExport: () => cancelVideoExport,
+      getCtx: () => ctx,
+      getEffectiveExportRatio: () => '4:3',
+      getGlobalAudioFile: () => null,
+      getGlobalScoreHeight: () => 320,
+      getGlobalZoom: () => globalZoom,
+      getInterpolatedXByTime: (timeSec) => ({ x: timeSec * 100, index: 0, atEnd: false }),
+      getIsPlaying: () => false,
+      getPlaybackGainByTime: () => 1,
+      getSmoothedTargetVelocityByTime: () => 0,
+      getSmoothState: () => smoothState,
+      getTotalDuration: () => 1,
+      renderCanvas: () => {},
+      resizeCanvas: () => {},
+      setCachedViewportWidth: (width) => {
+        cachedViewportWidth = width;
+      },
+      setCanvas: (nextCanvas) => {
+        canvas = nextCanvas;
+      },
+      setCancelVideoExport: (cancelled) => {
+        cancelVideoExport = cancelled;
+      },
+      setCtx: (nextCtx) => {
+        ctx = nextCtx;
+      },
+      setGlobalZoom: (zoom) => {
+        globalZoom = zoom;
+      },
+      setIsExportingVideoMode: () => {},
+      setSmoothState: (nextState) => {
+        smoothState = nextState;
+      },
+    });
+
+    try {
+      await feature.exportHighQualityVideo(3840, 60, '4:3', 0, 1);
+      return {
+        configureCalls,
+        supportChecks,
+      };
+    } finally {
+      window.VideoEncoder = OriginalVideoEncoder;
+      window.VideoFrame = OriginalVideoFrame;
+      window.Mp4Muxer = OriginalMp4Muxer;
+      window.showSaveFilePicker = OriginalShowSaveFilePicker;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalAnchorClick;
+    }
+  });
+
+  expect(exportResult.supportChecks).toHaveLength(2);
+  expect(exportResult.supportChecks[0].hardwareAcceleration).toBe('prefer-hardware');
+  expect(exportResult.supportChecks[1].hardwareAcceleration).toBeUndefined();
+  expect(exportResult.configureCalls).toHaveLength(1);
+  expect(exportResult.configureCalls[0]).toMatchObject({
+    codec: 'avc1.64003E',
+    framerate: 60,
+    height: 2656,
+    width: 3540,
+  });
+  expect(exportResult.configureCalls[0].hardwareAcceleration).toBeUndefined();
+});
+
+test('limits 4k non-16:9 exports to the supported upper bound', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const dimensions = await page.evaluate(async () => {
+    const { computeSharedExportDimensions } = await import('/scripts/features/export-video.js');
+
+    return {
+      landscape43: computeSharedExportDimensions({
+        aspectRatio: '4:3',
+        baseRes: 3840,
+        globalScoreHeight: 1200,
+        globalZoom: 1,
+        viewportWidth: 1920,
+      }),
+      portrait34: computeSharedExportDimensions({
+        aspectRatio: '3:4',
+        baseRes: 3840,
+        globalScoreHeight: 1200,
+        globalZoom: 1,
+        viewportWidth: 1920,
+      }),
+      custom23: computeSharedExportDimensions({
+        aspectRatio: '2:3',
+        baseRes: 3840,
+        globalScoreHeight: 1200,
+        globalZoom: 1,
+        viewportWidth: 1920,
+      }),
+      autoTall: computeSharedExportDimensions({
+        aspectRatio: 'auto',
+        baseRes: 3840,
+        globalScoreHeight: 2000,
+        globalZoom: 1,
+        viewportWidth: 1920,
+      }),
+      widescreen169: computeSharedExportDimensions({
+        aspectRatio: '16:9',
+        baseRes: 3840,
+        globalScoreHeight: 1200,
+        globalZoom: 1,
+        viewportWidth: 1920,
+      }),
+    };
+  });
+
+  expect(dimensions.widescreen169).toMatchObject({
+    targetWidth: 3840,
+    targetHeight: 2160,
+  });
+  expect(dimensions.landscape43).toMatchObject({
+    targetWidth: 3540,
+    targetHeight: 2656,
+  });
+  expect(dimensions.portrait34).toMatchObject({
+    targetWidth: 2656,
+    targetHeight: 3540,
+  });
+  expect(dimensions.custom23).toMatchObject({
+    targetWidth: 2504,
+    targetHeight: 3754,
+  });
+  expect(dimensions.autoTall).toMatchObject({
+    targetWidth: 2960,
+    targetHeight: 3176,
+  });
+});
+
+test('shows the actual export dimensions inside the resolution option labels', async ({ page }) => {
+  await page.goto('/index.html');
+  const ratioSelect = page.locator('#exportRatioSelect');
+  const resSelect = page.locator('#exportResSelect');
+  const customInput = page.locator('#customRatioInput');
+  const customConfirmBtn = page.locator('#customRatioConfirmBtn');
+
+  await resSelect.selectOption('3840');
+  await ratioSelect.selectOption('4:3');
+  await expect(page.locator('#exportResSelect option[value="1920"]')).toHaveText('1080P（1920x1440）');
+  await expect(page.locator('#exportResSelect option[value="2560"]')).toHaveText('2K（2560x1920）');
+  await expect(page.locator('#exportResSelect option[value="3840"]')).toHaveText('4K（3540x2656）');
+
+  await ratioSelect.selectOption('custom');
+  await customInput.fill('3:4');
+  await customConfirmBtn.click();
+  await expect(page.locator('#exportResSelect option[value="1920"]')).toHaveText('1080P（1440x1920）');
+  await expect(page.locator('#exportResSelect option[value="2560"]')).toHaveText('2K（1920x2560）');
+  await expect(page.locator('#exportResSelect option[value="3840"]')).toHaveText('4K（2656x3540）');
+
+  await ratioSelect.selectOption('custom');
+  await customInput.fill('2:3');
+  await customConfirmBtn.click();
+  await expect(page.locator('#exportResSelect option[value="1920"]')).toHaveText('1080P（1280x1920）');
+  await expect(page.locator('#exportResSelect option[value="2560"]')).toHaveText('2K（1708x2560）');
+  await expect(page.locator('#exportResSelect option[value="3840"]')).toHaveText('4K（2504x3754）');
+
+  await ratioSelect.selectOption('16:9');
+  await expect(page.locator('#exportResSelect option[value="1920"]')).toHaveText('1080P（1920x1080）');
+  await expect(page.locator('#exportResSelect option[value="2560"]')).toHaveText('2K（2560x1440）');
+  await expect(page.locator('#exportResSelect option[value="3840"]')).toHaveText('4K（3840x2160）');
+});
+
+test('allows selecting 4k and 120fps together', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const resSelect = page.locator('#exportResSelect');
+  const fpsSelect = page.locator('#exportFpsSelect');
+  const res4kOption = page.locator('#exportResSelect option[value="3840"]');
+  const fps120Option = page.locator('#exportFpsSelect option[value="120"]');
+
+  await resSelect.selectOption('3840');
+  await fpsSelect.selectOption('120');
+
+  await expect(resSelect).toHaveValue('3840');
+  await expect(fpsSelect).toHaveValue('120');
+  await expect(res4kOption).not.toBeDisabled();
+  await expect(fps120Option).not.toBeDisabled();
+});
+
 test('keeps the desktop preview height aligned with the control column across export ratio changes', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1400 });
   await page.goto('/index.html');

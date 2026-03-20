@@ -493,6 +493,8 @@ function fitScoreToViewportHeight() {
 function syncViewportSizingMode(ratio = getEffectiveExportRatio()) {
     if (!viewportEl) return;
 
+    updateExportResolutionOptionLabels();
+
     viewportEl.style.width = "100%";
     viewportEl.style.maxHeight = "none";
     viewportEl.style.margin = "0 auto";
@@ -527,6 +529,46 @@ function syncViewportSizingMode(ratio = getEffectiveExportRatio()) {
 function getSelectedExportBaseResolution() {
     const parsed = parseInt(exportResSelect?.value || "1920", 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1920;
+}
+
+function updateExportResolutionOptionLabels() {
+    if (!dom.exportResSelect) return;
+
+    const selectedRatio = getEffectiveExportRatio();
+    const viewportWidth =
+        viewportEl?.clientWidth ||
+        cachedViewportWidth ||
+        viewportEl?.getBoundingClientRect().width ||
+        1920;
+    const labelByResolution = {
+        1920: "1080P",
+        2560: "2K",
+        3840: "4K",
+    };
+
+    for (const option of Array.from(dom.exportResSelect.options)) {
+        const baseRes = Number.parseInt(option.value, 10);
+        const baseLabel = labelByResolution[baseRes] || option.value;
+        if (!Number.isFinite(baseRes) || baseRes <= 0) {
+            option.textContent = baseLabel;
+            continue;
+        }
+
+        const { targetHeight, targetWidth } = computeSharedExportDimensions({
+            aspectRatio: selectedRatio,
+            baseRes,
+            globalScoreHeight,
+            globalZoom,
+            viewportWidth,
+        });
+
+        if (!Number.isFinite(targetWidth) || !Number.isFinite(targetHeight) || targetWidth <= 0 || targetHeight <= 0) {
+            option.textContent = baseLabel;
+            continue;
+        }
+
+        option.textContent = `${baseLabel}（${targetWidth}x${targetHeight}）`;
+    }
 }
 
 function syncDesktopPreviewFrame() {
@@ -5072,34 +5114,13 @@ function handleExportRatioChange(e) {
     resizeCanvas();
 }
 
-// 包含上次 4K / 120帧互斥逻辑的版本
 function handleExportResolutionChange() {
-    if (dom.exportResSelect && dom.exportFpsSelect) {
-        const is4K = dom.exportResSelect.value === "3840";
-        const fps120Option = dom.exportFpsSelect.querySelector('option[value="120"]');
-        if (fps120Option) {
-            fps120Option.disabled = is4K;
-            if (is4K && dom.exportFpsSelect.value === "120") dom.exportFpsSelect.value = "60";
-        }
-    }
     saveLocalSettings(); // 👈
     syncViewportSizingMode();
     resizeCanvas();
 }
 
 function handleExportFpsChange() {
-    if (dom.exportResSelect && dom.exportFpsSelect) {
-        const is120Fps = dom.exportFpsSelect.value === "120";
-        const res4KOption = dom.exportResSelect.querySelector('option[value="3840"]');
-        if (res4KOption) {
-            res4KOption.disabled = is120Fps;
-            if (is120Fps && dom.exportResSelect.value === "3840") {
-                dom.exportResSelect.value = "2560";
-                syncViewportSizingMode();
-                resizeCanvas();
-            }
-        }
-    }
     saveLocalSettings(); // 👈
 }
 

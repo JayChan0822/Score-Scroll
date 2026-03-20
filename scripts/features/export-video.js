@@ -122,6 +122,8 @@ export function computeSharedExportDimensions({
     globalZoom = 1,
     viewportWidth = 1920,
 }) {
+    const SUPPORTED_4K_TALL_RATIO_PIXEL_BUDGET = 2656 * 3540;
+    const roundToNearestEven = (value) => Math.max(2, Math.round(value / 2) * 2);
     const resolvedAspectRatio = resolveAspectRatioValue(aspectRatio);
     let targetWidth = baseRes;
     let targetHeight;
@@ -147,6 +149,21 @@ export function computeSharedExportDimensions({
 
         const exportZoomMultiplier = targetWidth / originalPhysWidth;
         finalExportZoom = globalZoom * exportZoomMultiplier;
+    }
+
+    const totalPixels = targetWidth * targetHeight;
+    if (baseRes >= 3840 && totalPixels > SUPPORTED_4K_TALL_RATIO_PIXEL_BUDGET) {
+        const downscaleFactor = Math.sqrt(SUPPORTED_4K_TALL_RATIO_PIXEL_BUDGET / totalPixels);
+        targetWidth = roundToNearestEven(targetWidth * downscaleFactor);
+        targetHeight = roundToNearestEven(targetHeight * downscaleFactor);
+        while (targetWidth * targetHeight > SUPPORTED_4K_TALL_RATIO_PIXEL_BUDGET) {
+            if (targetHeight >= targetWidth) {
+                targetHeight = Math.max(2, targetHeight - 2);
+            } else {
+                targetWidth = Math.max(2, targetWidth - 2);
+            }
+        }
+        finalExportZoom *= downscaleFactor;
     }
 
     targetWidth = targetWidth % 2 === 0 ? targetWidth : targetWidth + 1;
@@ -292,6 +309,80 @@ export function createExportVideoFeature({
                 renderCanvas(getSmoothState().smoothX);
             },
         };
+    }
+
+    /**
+     * @param {number} targetWidth
+     * @param {number} targetHeight
+     * @param {number} fps
+     * @returns {VideoEncoderConfig[]}
+     */
+    function buildVideoEncoderConfigCandidates(targetWidth, targetHeight, fps) {
+        const totalPixels = targetWidth * targetHeight;
+        let codec = "avc1.640028";
+        let bitrate = 10_000_000;
+
+        if (totalPixels >= 8_900_000 || (totalPixels >= 2_000_000 && fps > 60)) {
+            bitrate = 40_000_000;
+            codec = "avc1.64003E";
+        } else if (totalPixels >= 2_000_000) {
+            bitrate = 20_000_000;
+            codec = "avc1.640034";
+        }
+
+        const baseConfig = {
+            bitrate,
+            codec,
+            framerate: fps,
+            height: targetHeight,
+            width: targetWidth,
+        };
+
+        return [
+            {
+                ...baseConfig,
+                hardwareAcceleration: "prefer-hardware",
+            },
+            baseConfig,
+        ];
+    }
+
+    /**
+     * @param {VideoEncoder} videoEncoder
+     * @param {number} targetWidth
+     * @param {number} targetHeight
+     * @param {number} fps
+     * @returns {void}
+     */
+    async function configureVideoEncoder(videoEncoder, targetWidth, targetHeight, fps) {
+        const candidates = buildVideoEncoderConfigCandidates(targetWidth, targetHeight, fps);
+        let lastError = null;
+
+        for (const config of candidates) {
+            if (typeof VideoEncoder.isConfigSupported === "function") {
+                try {
+                    const support = await VideoEncoder.isConfigSupported(config);
+                    if (!support.supported) {
+                        continue;
+                    }
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            try {
+                videoEncoder.configure(config);
+                return;
+            } catch (error) {
+                lastError = error;
+                console.warn("视频编码配置失败，尝试下一个配置:", config, error);
+            }
+        }
+
+        throw new Error(
+            `当前浏览器不支持 ${targetWidth}x${targetHeight} @ ${fps}fps 的 MP4 编码，请降低分辨率、帧率或切换导出比例。`,
+            { cause: lastError instanceof Error ? lastError : undefined }
+        );
     }
 
     /** @returns {void} */
@@ -584,26 +675,7 @@ export function createExportVideoFeature({
                 },
             });
 
-            const totalPixels = targetWidth * targetHeight;
-            let codecString = "avc1.640028";
-            let targetBitrate = 10_000_000;
-
-            if (totalPixels >= 8_900_000 || (totalPixels >= 2_000_000 && fps > 60)) {
-                targetBitrate = 40_000_000;
-                codecString = "avc1.64003E";
-            } else if (totalPixels >= 2_000_000) {
-                targetBitrate = 20_000_000;
-                codecString = "avc1.640034";
-            }
-
-            videoEncoder.configure({
-                bitrate: targetBitrate,
-                codec: codecString,
-                framerate: fps,
-                hardwareAcceleration: "prefer-hardware",
-                height: targetHeight,
-                width: targetWidth,
-            });
+            await configureVideoEncoder(videoEncoder, targetWidth, targetHeight, fps);
 
             let audioEncoder = null;
             if (audioFile) {
@@ -787,7 +859,10 @@ export function createExportVideoFeature({
         } catch (error) {
             if (!(error instanceof Error) || error.message !== "Export cancelled") {
                 console.error("导出失败:", error);
-                alert("视频导出失败，请查看控制台报错。");
+                const message = error instanceof Error && error.message
+                    ? error.message
+                    : "视频导出失败，请查看控制台报错。";
+                alert(message);
             }
         } finally {
             const exportModal = dom.exportModal;
