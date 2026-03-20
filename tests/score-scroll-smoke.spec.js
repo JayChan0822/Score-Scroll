@@ -5321,6 +5321,243 @@ test('preserves the transparent knockout through the Strings instrument-group br
   expect(state.gapRedPixelCount).toBeLessThanOrEqual(12);
 });
 
+test('uses true erasure for instrument-group knockout when exporting transparent PNG frames from the Dorico instrument-group fixture', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'dorico-instrument-groups.svg');
+
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', fixturePath);
+
+  const exportState = await page.evaluate(async () => {
+    const { createSvgAnalysisFeature } = await import('/scripts/features/svg-analysis.js');
+    const svg = document.querySelector('#svg-sandbox svg');
+    const previewCanvas = document.getElementById('scoreCanvas') || document.querySelector('canvas');
+    const previewScrollHost = document.getElementById('previewScrollHost');
+    const viewport = document.getElementById('viewport');
+    if (!svg || !(previewCanvas instanceof HTMLCanvasElement) || !(viewport instanceof HTMLElement)) return null;
+
+    const svgAnalysisFeature = createSvgAnalysisFeature({
+      getFallbackSystemInternalX: () => 0,
+      getMathFlyinParams: () => ({ randX: 0, randY: 0, delayDist: 0 }),
+      identifyClefOrBrace: () => null,
+    });
+    const result = svgAnalysisFeature.buildRenderQueue(svg);
+    const stringsLabelItem = result.renderQueue.find((item) => (
+      item.type === 'text'
+      && (item.text || '').trim() === 'Strings Ensemble'
+      && item.symbolType === 'InstGroupLabel'
+    )) || null;
+    const sharedGroup = stringsLabelItem?.sharedStickyGroupId
+      ? result.globalStickySharedGroups[stringsLabelItem.sharedStickyGroupId] || null
+      : null;
+    const groupItems = sharedGroup ? sharedGroup.blocks.flatMap((block) => block.items) : [];
+    const stringsGroupBracketItem = groupItems
+      .filter((item) => item.symbolType === 'Brace')
+      .sort((left, right) => (
+        Math.max(0, (right.absMaxY || 0) - (right.absMinY || 0))
+        - Math.max(0, (left.absMaxY || 0) - (left.absMinY || 0))
+      ))[0] || null;
+    const labelCenterY = stringsLabelItem
+      ? (((stringsLabelItem.absMinY || 0) + (stringsLabelItem.absMaxY || 0)) / 2)
+      : null;
+    const stringsKnockoutMaskItem = groupItems
+      .filter((item) => (
+        item.fillRole === 'bg'
+        && !item.symbolType
+        && ['rect', 'path'].includes(item.type)
+      ))
+      .sort((left, right) => (
+        Math.abs((((left.absMinY || 0) + (left.absMaxY || 0)) / 2) - labelCenterY)
+        - Math.abs((((right.absMinY || 0) + (right.absMaxY || 0)) / 2) - labelCenterY)
+      ))[0] || null;
+    if (!stringsLabelItem || !stringsGroupBracketItem || !stringsKnockoutMaskItem || labelCenterY === null) return null;
+
+    const currentZoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const sourceWidth =
+      previewScrollHost?.clientWidth
+      || previewCanvas.clientWidth
+      || viewport.clientWidth
+      || 1920;
+    const sourceHeight =
+      previewScrollHost?.clientHeight
+      || viewport.clientHeight
+      || 0;
+    const contentHeight =
+      previewCanvas.clientHeight
+      || sourceHeight;
+    const scrollTop = previewScrollHost?.scrollTop || 0;
+    const baseScoreCenterY = Number(window.globalScoreTrueCenterY) || 0;
+    const exportScoreCenterY = currentZoom > 0
+      ? baseScoreCenterY + ((scrollTop + (sourceHeight / 2) - (contentHeight / 2)) / currentZoom)
+      : baseScoreCenterY;
+    const lockDistance = stringsGroupBracketItem.sharedStickyGroupId && Number.isFinite(stringsGroupBracketItem.sharedLockDistance)
+      ? stringsGroupBracketItem.sharedLockDistance
+      : (Number.isFinite(stringsGroupBracketItem.lockDistance) ? stringsGroupBracketItem.lockDistance : 0);
+    const bracketCenterX = Number.isFinite(stringsGroupBracketItem.centerX)
+      ? stringsGroupBracketItem.centerX
+      : ((stringsGroupBracketItem.absMinX + stringsGroupBracketItem.absMaxX) / 2);
+    const maskSampleWorldX = bracketCenterX;
+
+    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+    const originalShowDirectoryPicker = window.showDirectoryPicker;
+    const originalFill = CanvasRenderingContext2D.prototype.fill;
+    const originalFillRect = CanvasRenderingContext2D.prototype.fillRect;
+    const originalStroke = CanvasRenderingContext2D.prototype.stroke;
+    const originalStrokeRect = CanvasRenderingContext2D.prototype.strokeRect;
+
+    const sampleOpaquePixels = (ctx, cssX, cssY, cssWidth, cssHeight) => {
+      const left = Math.max(0, Math.floor(cssX));
+      const top = Math.max(0, Math.floor(cssY));
+      const right = Math.min(ctx.canvas.width, Math.ceil(cssX + cssWidth));
+      const bottom = Math.min(ctx.canvas.height, Math.ceil(cssY + cssHeight));
+      const width = Math.max(1, right - left);
+      const height = Math.max(1, bottom - top);
+      const imageData = ctx.getImageData(left, top, width, height).data;
+      let opaquePixelCount = 0;
+      for (let index = 0; index < imageData.length; index += 4) {
+        if (imageData[index + 3] >= 80) {
+          opaquePixelCount++;
+        }
+      }
+      return opaquePixelCount;
+    };
+
+    Object.defineProperty(window, 'showDirectoryPicker', {
+      configurable: true,
+      value: async () => ({
+        async getDirectoryHandle() {
+          return {
+            async getFileHandle() {
+              return {
+                async createWritable() {
+                  return {
+                    async abort() {},
+                    async close() {},
+                    async write() {},
+                  };
+                },
+              };
+            },
+          };
+        },
+      }),
+    });
+
+    const runExportCapture = async ({ emulateLegacyTransparentBg = false } = {}) => {
+      /** @type {{ gapOpaquePixelCount: number, topStemOpaquePixelCount: number, bottomStemOpaquePixelCount: number } | null} */
+      let capturedFrameMetrics = null;
+
+      const emulateLegacyFill = (ctx, originalMethod, styleKey, args) => {
+        if (ctx.globalCompositeOperation !== 'destination-out') {
+          return originalMethod.apply(ctx, args);
+        }
+        const originalOp = ctx.globalCompositeOperation;
+        const originalStyle = ctx[styleKey];
+        ctx.globalCompositeOperation = 'source-over';
+        ctx[styleKey] = 'rgba(0, 0, 0, 0)';
+        try {
+          return originalMethod.apply(ctx, args);
+        } finally {
+          ctx[styleKey] = originalStyle;
+          ctx.globalCompositeOperation = originalOp;
+        }
+      };
+
+      if (emulateLegacyTransparentBg) {
+        CanvasRenderingContext2D.prototype.fill = function fill(...args) {
+          return emulateLegacyFill(this, originalFill, 'fillStyle', args);
+        };
+        CanvasRenderingContext2D.prototype.fillRect = function fillRect(...args) {
+          return emulateLegacyFill(this, originalFillRect, 'fillStyle', args);
+        };
+        CanvasRenderingContext2D.prototype.stroke = function stroke(...args) {
+          return emulateLegacyFill(this, originalStroke, 'strokeStyle', args);
+        };
+        CanvasRenderingContext2D.prototype.strokeRect = function strokeRect(...args) {
+          return emulateLegacyFill(this, originalStrokeRect, 'strokeStyle', args);
+        };
+      }
+
+      HTMLCanvasElement.prototype.toBlob = function toBlob(callback, type) {
+        if (!capturedFrameMetrics) {
+          const ctx = this.getContext('2d');
+          if (ctx) {
+            const exportZoom = currentZoom * (this.width / sourceWidth);
+            const playlineScreenX = this.width * playlineRatio;
+            const stickyLockScreenX = this.width * stickyLockRatio;
+            const worldDistanceLeft = playlineScreenX / exportZoom;
+            const stickyLockOffset = stickyLockScreenX / exportZoom;
+            const layerMaxX = worldDistanceLeft + result.stickyMinX - stickyLockOffset + lockDistance;
+            const bracketCssX = (bracketCenterX - layerMaxX) * exportZoom + playlineScreenX;
+            const maskCssX = (maskSampleWorldX - layerMaxX) * exportZoom + playlineScreenX;
+            const labelCssY = (labelCenterY - exportScoreCenterY) * exportZoom + (this.height / 2);
+
+            capturedFrameMetrics = {
+              gapOpaquePixelCount: sampleOpaquePixels(ctx, maskCssX - 2, labelCssY - 6, 4, 12),
+              topStemOpaquePixelCount: sampleOpaquePixels(ctx, bracketCssX - 3, labelCssY - 42, 6, 12),
+              bottomStemOpaquePixelCount: sampleOpaquePixels(ctx, bracketCssX - 3, labelCssY + 30, 6, 12),
+            };
+          }
+        }
+        callback(new Blob(['png'], { type: type || 'image/png' }));
+      };
+
+      const exportRatioSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportRatioSelect'));
+      const exportFpsSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('exportFpsSelect'));
+      const exportStartInput = /** @type {HTMLInputElement | null} */ (document.getElementById('exportStartInput'));
+      const exportEndInput = /** @type {HTMLInputElement | null} */ (document.getElementById('exportEndInput'));
+      if (exportRatioSelect) exportRatioSelect.value = 'auto';
+      if (exportFpsSelect) exportFpsSelect.value = '30';
+      if (exportStartInput) exportStartInput.value = '0';
+      if (exportEndInput) exportEndInput.value = '0.02';
+
+      document.getElementById('exportPngBtn')?.click();
+
+      const started = performance.now();
+      while (!capturedFrameMetrics && performance.now() - started < 3000) {
+        await new Promise((resolve) => setTimeout(resolve, 16));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 900));
+
+      HTMLCanvasElement.prototype.toBlob = originalToBlob;
+      CanvasRenderingContext2D.prototype.fill = originalFill;
+      CanvasRenderingContext2D.prototype.fillRect = originalFillRect;
+      CanvasRenderingContext2D.prototype.stroke = originalStroke;
+      CanvasRenderingContext2D.prototype.strokeRect = originalStrokeRect;
+
+      return capturedFrameMetrics;
+    };
+
+    try {
+      const legacyMetrics = await runExportCapture({ emulateLegacyTransparentBg: true });
+      const fixedMetrics = await runExportCapture();
+      return { fixedMetrics, legacyMetrics };
+    } finally {
+      HTMLCanvasElement.prototype.toBlob = originalToBlob;
+      CanvasRenderingContext2D.prototype.fill = originalFill;
+      CanvasRenderingContext2D.prototype.fillRect = originalFillRect;
+      CanvasRenderingContext2D.prototype.stroke = originalStroke;
+      CanvasRenderingContext2D.prototype.strokeRect = originalStrokeRect;
+      if (originalShowDirectoryPicker) {
+        window.showDirectoryPicker = originalShowDirectoryPicker;
+      } else {
+        delete window.showDirectoryPicker;
+      }
+    }
+  });
+
+  expect(exportState).not.toBeNull();
+  expect(exportState.legacyMetrics).not.toBeNull();
+  expect(exportState.fixedMetrics).not.toBeNull();
+  expect(exportState.fixedMetrics.topStemOpaquePixelCount).toBeGreaterThan(0);
+  expect(exportState.fixedMetrics.bottomStemOpaquePixelCount).toBeGreaterThan(0);
+  expect(exportState.fixedMetrics.gapOpaquePixelCount).toBeLessThan(exportState.legacyMetrics.gapOpaquePixelCount);
+  expect(exportState.fixedMetrics.gapOpaquePixelCount).toBeLessThan(exportState.fixedMetrics.topStemOpaquePixelCount);
+  expect(exportState.fixedMetrics.gapOpaquePixelCount).toBeLessThan(exportState.fixedMetrics.bottomStemOpaquePixelCount);
+});
+
 test('keeps knockout masks attached to every instrument-group bracket in 乐器组括号.svg', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, '..', '乐器组括号.svg');
   await loadFixtureIntoScore(page, fixturePath);

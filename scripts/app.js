@@ -1290,26 +1290,45 @@ function renderCanvas(currentX, options = {}) {
             ctx.transform(item.matrix.a, item.matrix.b, item.matrix.c, item.matrix.d, item.matrix.e, item.matrix.f);
 
             const getDrawColor = (role) => role === 'bg' ? bgColor : drawColor;
+            const drawRoleFill = (role, draw) => {
+                if (role === 'none') return;
+                const eraseToTransparency = transparentBackground && role === 'bg';
+                ctx.save();
+                ctx.globalCompositeOperation = eraseToTransparency ? 'destination-out' : 'source-over';
+                ctx.fillStyle = eraseToTransparency ? '#000000' : getDrawColor(role);
+                draw();
+                ctx.restore();
+            };
+            const drawRoleStroke = (role, lineWidth, draw) => {
+                if (role === 'none') return;
+                const eraseToTransparency = transparentBackground && role === 'bg';
+                ctx.save();
+                ctx.globalCompositeOperation = eraseToTransparency ? 'destination-out' : 'source-over';
+                ctx.strokeStyle = eraseToTransparency ? '#000000' : getDrawColor(role);
+                ctx.lineWidth = lineWidth;
+                draw();
+                ctx.restore();
+            };
             const strokeWidth = item.strokeWidth || 1;
 
             if (item.type === 'line') {
-                if (item.strokeRole !== 'none') {
-                    ctx.strokeStyle = getDrawColor(item.strokeRole); ctx.lineWidth = item.lineWidth || strokeWidth;
+                drawRoleStroke(item.strokeRole, item.lineWidth || strokeWidth, () => {
                     ctx.beginPath(); ctx.moveTo(item.localX1, item.localY1); ctx.lineTo(item.localX2, item.localY2); ctx.stroke();
-                }
+                });
             } else if (item.type === 'path') {
-                if (item.fillRole !== 'none') { ctx.fillStyle = getDrawColor(item.fillRole); ctx.fill(item.path2D); }
-                if (item.strokeRole !== 'none') { ctx.strokeStyle = getDrawColor(item.strokeRole); ctx.lineWidth = strokeWidth; ctx.stroke(item.path2D); }
+                drawRoleFill(item.fillRole, () => ctx.fill(item.path2D));
+                drawRoleStroke(item.strokeRole, strokeWidth, () => ctx.stroke(item.path2D));
             } else if (item.type === 'rect') {
-                if (item.fillRole !== 'none') { ctx.fillStyle = getDrawColor(item.fillRole); ctx.fillRect(item.localX, item.localY, item.width, item.height); }
-                if (item.strokeRole !== 'none') { ctx.strokeStyle = getDrawColor(item.strokeRole); ctx.lineWidth = strokeWidth; ctx.strokeRect(item.localX, item.localY, item.width, item.height); }
+                drawRoleFill(item.fillRole, () => ctx.fillRect(item.localX, item.localY, item.width, item.height));
+                drawRoleStroke(item.strokeRole, strokeWidth, () => ctx.strokeRect(item.localX, item.localY, item.width, item.height));
             } else if (item.type === 'ellipse') {
                 ctx.beginPath();
                 ctx.ellipse(item.localCX, item.localCY, item.radiusX, item.radiusY, 0, 0, Math.PI * 2);
-                if (item.fillRole !== 'none') { ctx.fillStyle = getDrawColor(item.fillRole); ctx.fill(); }
-                if (item.strokeRole !== 'none') { ctx.strokeStyle = getDrawColor(item.strokeRole); ctx.lineWidth = strokeWidth; ctx.stroke(); }
+                drawRoleFill(item.fillRole, () => ctx.fill());
+                drawRoleStroke(item.strokeRole, strokeWidth, () => ctx.stroke());
             } else if (item.type === 'text') {
-                ctx.fillStyle = getDrawColor(item.fillRole || 'fg'); ctx.font = item.font; ctx.textBaseline = 'alphabetic'; ctx.fillText(item.text, item.x, item.y);
+                ctx.font = item.font; ctx.textBaseline = 'alphabetic';
+                drawRoleFill(item.fillRole || 'fg', () => ctx.fillText(item.text, item.x, item.y));
             }
 
             ctx.restore();
