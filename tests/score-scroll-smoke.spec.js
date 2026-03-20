@@ -57,6 +57,49 @@ async function getClassNameBySvgElementId(page, id) {
   }, id);
 }
 
+test('double-click resets the six Particles and viewport sliders to 50', async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.clear();
+    } catch {}
+  });
+
+  await page.goto('/index.html');
+  await expect(page.locator('#distSlider')).toBeVisible();
+
+  const targetSliders = [
+    { sliderId: 'distSlider', valueId: 'distVal', nonDefaultValue: '12' },
+    { sliderId: 'scatterSlider', valueId: 'scatterVal', nonDefaultValue: '88' },
+    { sliderId: 'delaySlider', valueId: 'delayVal', nonDefaultValue: '5' },
+    { sliderId: 'glowRangeSlider', valueId: 'glowRangeVal', nonDefaultValue: '73' },
+    { sliderId: 'playlineRatioSlider', valueId: 'playlineRatioVal', nonDefaultValue: '10' },
+    { sliderId: 'stickyLockRatioSlider', valueId: 'stickyLockRatioVal', nonDefaultValue: '90' },
+  ];
+
+  for (const { sliderId, valueId, nonDefaultValue } of targetSliders) {
+    await page.locator(`#${sliderId}`).evaluate((element, value) => {
+      element.value = value;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    }, nonDefaultValue);
+
+    await expect(page.locator(`#${sliderId}`)).toHaveValue(nonDefaultValue);
+    await expect(page.locator(`#${valueId}`)).toHaveText(nonDefaultValue);
+  }
+
+  await page.locator('#bpmSlider').evaluate((element) => {
+    element.value = '180';
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.locator('#bpmSlider').dispatchEvent('dblclick');
+  await expect(page.locator('#bpmSlider')).toHaveValue('180');
+
+  for (const { sliderId, valueId } of targetSliders) {
+    await page.locator(`#${sliderId}`).dispatchEvent('dblclick');
+    await expect(page.locator(`#${sliderId}`)).toHaveValue('50');
+    await expect(page.locator(`#${valueId}`)).toHaveText('50');
+  }
+});
+
 function buildMinimalTwoBarSvgBuffer() {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="240" height="100" viewBox="0 0 240 100">

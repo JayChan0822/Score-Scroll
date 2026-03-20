@@ -477,7 +477,7 @@ export function createExportVideoFeature({
         if (dom.exportModalTitle) dom.exportModalTitle.innerText = title;
 
         if (dom.cancelExportBtn) {
-            dom.cancelExportBtn.innerText = "🛑 CANCEL";
+            dom.cancelExportBtn.innerText = "CANCEL";
             dom.cancelExportBtn.disabled = false;
         }
 
@@ -907,7 +907,7 @@ export function createExportVideoFeature({
         if (dom.exportModalTitle) dom.exportModalTitle.innerText = "RENDERING FRAMES...";
 
         if (dom.cancelExportBtn) {
-            dom.cancelExportBtn.innerText = "🛑 CANCEL";
+            dom.cancelExportBtn.innerText = "CANCEL";
             dom.cancelExportBtn.disabled = false;
         }
 

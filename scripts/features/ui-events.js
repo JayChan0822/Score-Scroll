@@ -25,6 +25,14 @@ export function bindUiEvents({
     onToggleHighlight,
     onToggleScanGlow,
 }) {
+    const bindSliderDoubleClickReset = (slider, defaultValue = "50") => {
+        slider?.addEventListener("dblclick", () => {
+            if (slider.value === defaultValue) return;
+            slider.value = defaultValue;
+            slider.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+    };
+
     dom.audioInput?.addEventListener("change", handleAudioInputChange);
     dom.audioOffsetSlider?.addEventListener("input", handleAudioOffsetInput);
     dom.customRatioCancelBtn?.addEventListener("click", handleCustomRatioCancel);
@@ -45,6 +53,12 @@ export function bindUiEvents({
     dom.cancelExportBtn?.addEventListener("click", onCancelExport);
     dom.playlineRatioSlider?.addEventListener("input", handlePlaylineRatioInput);
     dom.stickyLockRatioSlider?.addEventListener("input", handleStickyLockRatioInput);
+    bindSliderDoubleClickReset(dom.distSlider);
+    bindSliderDoubleClickReset(dom.scatterSlider);
+    bindSliderDoubleClickReset(dom.delaySlider);
+    bindSliderDoubleClickReset(dom.glowRangeSlider);
+    bindSliderDoubleClickReset(dom.playlineRatioSlider);
+    bindSliderDoubleClickReset(dom.stickyLockRatioSlider);
     dom.exportPngBtn?.addEventListener("click", onExportPngClick);
     dom.exportVideoBtn?.addEventListener("click", onExportVideoClick);
     window.addEventListener("keydown", handleWindowKeydown);
