@@ -1671,6 +1671,91 @@ function shouldCollectTextNoteheadCandidate(el, sig) {
     return Boolean(identifyAnyKnownNotehead(sig));
 }
 
+function resolveAccidentalNoteheadBandIndex(staffBands, rect) {
+    if (!rect) return -1;
+
+    const centerY = rect.top + rect.height / 2;
+    const centerBandIndex = resolveStaffBandIndex(staffBands, centerY);
+    if (centerBandIndex !== -1) return centerBandIndex;
+
+    const bands = Array.isArray(staffBands) ? staffBands : [];
+    let bestBandIndex = -1;
+    let bestGap = Infinity;
+    let bestBandStaffSpace = 10;
+
+    for (let i = 0; i < bands.length; i++) {
+        const band = bands[i];
+        const top = Number.isFinite(band.paddedTop) ? band.paddedTop : band.top;
+        const bottom = Number.isFinite(band.paddedBottom) ? band.paddedBottom : band.bottom;
+        if (!Number.isFinite(top) || !Number.isFinite(bottom)) continue;
+
+        if (rect.bottom >= top && rect.top <= bottom) {
+            return i;
+        }
+
+        const gap = rect.bottom < top
+            ? top - rect.bottom
+            : rect.top - bottom;
+        if (gap < bestGap) {
+            bestGap = gap;
+            bestBandIndex = i;
+            bestBandStaffSpace = Number.isFinite(band.staffSpace) ? band.staffSpace : 10;
+        }
+    }
+
+    if (bestBandIndex === -1) return -1;
+    const maxGap = Math.max(12, bestBandStaffSpace * 2.5);
+    return bestGap <= maxGap ? bestBandIndex : -1;
+}
+
+function shouldCollectShapeNoteheadCandidate(el, rect, staffSpace) {
+    if (!el || !rect || !(rect.width > 0) || !(rect.height > 0)) return false;
+
+    const normalizedStaffSpace = Math.max(1, Number.isFinite(staffSpace) ? staffSpace : 10);
+    const minDimension = Math.max(4, normalizedStaffSpace * 0.45);
+    const maxDimension = Math.max(18, normalizedStaffSpace * 2.4);
+    if (rect.width < minDimension || rect.height < minDimension) return false;
+    if (rect.width > maxDimension || rect.height > maxDimension) return false;
+
+    const aspectRatio = rect.width / rect.height;
+    if (aspectRatio < 0.45 || aspectRatio > 2.2) return false;
+
+    const computedStyle = window.getComputedStyle(el);
+    const fill = computedStyle.fill || el.getAttribute('fill') || '';
+    const stroke = computedStyle.stroke || el.getAttribute('stroke') || '';
+    const fillOpacity = Number.parseFloat(computedStyle.fillOpacity || el.getAttribute('fill-opacity') || '1');
+    const strokeOpacity = Number.parseFloat(computedStyle.strokeOpacity || el.getAttribute('stroke-opacity') || '1');
+    const hasVisibleFill = fill !== 'none' && (Number.isNaN(fillOpacity) || fillOpacity > 0.01);
+    const hasVisibleStroke = stroke !== 'none' && (Number.isNaN(strokeOpacity) || strokeOpacity > 0.01);
+
+    return hasVisibleFill || hasVisibleStroke;
+}
+
+function hasPriorityAccidentalNoteheadNeighbor(candidate, noteheads, staffSpace) {
+    if (!candidate || !Array.isArray(noteheads) || noteheads.length === 0) return false;
+
+    const normalizedStaffSpace = Math.max(1, Number.isFinite(staffSpace) ? staffSpace : 10);
+    const noteProximityDxMin = -Math.max(1, normalizedStaffSpace) * 0.8;
+    const noteProximityDxMax = Math.max(30, normalizedStaffSpace * 3.0);
+    const noteProximityDyMax = Math.max(6, normalizedStaffSpace * 0.9);
+
+    return noteheads.some((note) => {
+        const sameBand = (
+            candidate.bandIndex !== -1
+            && note.bandIndex !== -1
+            && candidate.bandIndex === note.bandIndex
+        );
+        const tightlyAligned = Math.abs(note.centerY - candidate.centerY) <= noteProximityDyMax;
+        if (!sameBand && !tightlyAligned) return false;
+
+        const dx = note.left - candidate.right;
+        const dy = Math.abs(note.centerY - candidate.centerY);
+        return dx >= noteProximityDxMin
+            && dx <= noteProximityDxMax
+            && dy <= noteProximityDyMax;
+    });
+}
+
 function getSvgClassTokens(el) {
     if (!el) return [];
     const classAttr = typeof el.getAttribute === 'function' ? (el.getAttribute('class') || '') : '';
@@ -4073,7 +4158,7 @@ function identifyAndHighlightAccidentals() {
             left: rect.left,
             right: rect.right,
             centerY: rect.top + rect.height / 2,
-            bandIndex: resolveStaffBandIndex(staffBands, rect.top + rect.height / 2),
+            bandIndex: resolveAccidentalNoteheadBandIndex(staffBands, rect),
         });
     });
 
@@ -4087,7 +4172,19 @@ function identifyAndHighlightAccidentals() {
             left: rect.left,
             right: rect.right,
             centerY: rect.top + rect.height / 2,
-            bandIndex: resolveStaffBandIndex(staffBands, rect.top + rect.height / 2),
+            bandIndex: resolveAccidentalNoteheadBandIndex(staffBands, rect),
+        });
+    });
+
+    svgRoot.querySelectorAll('ellipse, circle').forEach(shapeEl => {
+        const rect = shapeEl.getBoundingClientRect();
+        if (!shouldCollectShapeNoteheadCandidate(shapeEl, rect, staffSpace)) return;
+        noteheads.push({
+            signature: shapeEl.tagName.toLowerCase(),
+            left: rect.left,
+            right: rect.right,
+            centerY: rect.top + rect.height / 2,
+            bandIndex: resolveAccidentalNoteheadBandIndex(staffBands, rect),
         });
     });
 
@@ -4151,45 +4248,16 @@ function identifyAndHighlightAccidentals() {
     const graphCandidates = accidentalCandidates.filter((candidate) => candidate.bandIndex !== -1);
     const classification = classifyAccidentalGroups({
         accidentalGroups: graphCandidates,
-        noteheads: noteheads.filter((item) => item.bandIndex !== -1),
+        noteheads,
         timeSignatureGlyphs,
         trustedAnchors,
         staffSpace,
     });
     const keySignatureIds = new Set(classification.keySignatureIds);
     const accidentalIds = new Set(classification.accidentalIds);
-    const normalizedStaffSpace = Math.max(1, Number.isFinite(staffSpace) ? staffSpace : 10);
-    const flatNoteProximityDxMin = -Math.max(1, staffSpace) * 0.8;
-    const flatNoteProximityDxMax = Math.max(30, normalizedStaffSpace * 3.0);
-    const flatNoteProximityDyMax = Math.max(6, normalizedStaffSpace * 0.9);
-    const flatAnchorWindowMax = Math.max(48, normalizedStaffSpace * 8);
 
     accidentalCandidates.forEach((candidate) => {
-        if (!keySignatureIds.has(candidate.id)) return;
-        if (String(candidate.accidentalKind || '').toLowerCase() !== 'flat') return;
-        const previousBarlineAnchor = trustedAnchors
-            .filter((anchor) => anchor?.kind === 'barline' && Number.isFinite(anchor.x) && anchor.x <= candidate.left)
-            .sort((a, b) => b.x - a.x)[0] || null;
-        if (!previousBarlineAnchor) return;
-        if (candidate.left > previousBarlineAnchor.x + flatAnchorWindowMax) return;
-
-        const hasNearbyNotehead = noteheads.some((note) => {
-            const sameBand = (
-                candidate.bandIndex !== -1
-                && note.bandIndex !== -1
-                && candidate.bandIndex === note.bandIndex
-            );
-            const tightlyAligned = Math.abs(note.centerY - candidate.centerY) <= flatNoteProximityDyMax;
-            if (!sameBand && !tightlyAligned) return false;
-
-            const dx = note.left - candidate.right;
-            const dy = Math.abs(note.centerY - candidate.centerY);
-            return dx >= flatNoteProximityDxMin
-                && dx <= flatNoteProximityDxMax
-                && dy <= flatNoteProximityDyMax;
-        });
-
-        if (!hasNearbyNotehead) return;
+        if (!hasPriorityAccidentalNoteheadNeighbor(candidate, noteheads, staffSpace)) return;
         keySignatureIds.delete(candidate.id);
         accidentalIds.add(candidate.id);
     });

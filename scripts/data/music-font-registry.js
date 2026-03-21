@@ -21,7 +21,7 @@ export const MusicFontRegistry = {
         noteheads: {
             'Notehead_Quarter': ['MCCCC'],
             'Notehead_Half': ['MCCCCMCCCCCCC'],
-            'Notehead_Whole': ['MCCCCMCCCC'],
+            'Notehead_Whole': ['MCCCCMCCCC','MCCCCMCCCCCCCCCC'],
             'Notehead_DoubleWhole': ['MLCLCLCLCMLCLCLCLCMCCCCMCCCCCCCCCCMLCLCLCLCMLCLCLCLC'],
             'Notehead_X_Quarter': ['MLLCCCLLCCCLLCCCLLCCC'],
             'Notehead_X_Half': ['MCLLCLCCLLCCLCLLCLCCLLCCLMLLLLLLLLLLLL'],

@@ -100,6 +100,50 @@ test('double-click resets the six Particles and viewport sliders to 50', async (
   }
 });
 
+test('reclassifies flats near ellipse noteheads that sit slightly away from the staff', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'ellipse-notehead-accidental.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildEllipseNoteheadAccidentalSvg(),
+  });
+
+  await expect.poll(async () => getClassNameBySvgElementId(page, 'offstaff-flat'), {
+    message: 'waiting for ellipse notehead accidental classification to settle',
+  }).toContain('highlight-accidental');
+
+  const classes = await getClassNameBySvgElementId(page, 'offstaff-flat');
+  expect(classes).not.toContain('highlight-keysig');
+});
+
+test('prioritizes note-adjacent accidentals over key signatures at system starts', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'system-start-note-adjacent-flats.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildSystemStartNoteAdjacentAccidentalSvg(),
+  });
+
+  await expect.poll(async () => ({
+    first: await getClassNameBySvgElementId(page, 'system-start-flat-1'),
+    second: await getClassNameBySvgElementId(page, 'system-start-flat-2'),
+  }), {
+    message: 'waiting for system-start note-adjacent accidental classification to settle',
+  }).toEqual({
+    first: expect.stringContaining('highlight-accidental'),
+    second: expect.stringContaining('highlight-accidental'),
+  });
+
+  const classes = await page.evaluate(() => ({
+    first: document.getElementById('system-start-flat-1')?.className?.baseVal || '',
+    second: document.getElementById('system-start-flat-2')?.className?.baseVal || '',
+  }));
+  expect(classes.first).not.toContain('highlight-keysig');
+  expect(classes.second).not.toContain('highlight-keysig');
+});
+
 function buildMinimalTwoBarSvgBuffer() {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="240" height="100" viewBox="0 0 240 100">
@@ -137,6 +181,53 @@ function buildTallPreviewSvgBuffer() {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="460" height="1980" viewBox="0 0 460 1980">
       ${staffGroups}
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
+function buildEllipseNoteheadAccidentalSvg() {
+  const flatSignature = 'MCCLCCLMCCCLCLCLCCCCCLCLCLCCL';
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="280" height="140" viewBox="0 0 280 140">
+      <line x1="20" y1="40" x2="260" y2="40" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="50" x2="260" y2="50" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="60" x2="260" y2="60" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="70" x2="260" y2="70" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="80" x2="260" y2="80" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="40" x2="20" y2="80" stroke="#000" stroke-width="1" />
+      <line x1="120" y1="40" x2="120" y2="80" stroke="#000" stroke-width="1" />
+      <path id="offstaff-flat" d="${buildPathDataFromSimplifiedSignature(flatSignature)}" transform="translate(128 90) scale(0.22)" fill="#000000" />
+      <ellipse id="offstaff-notehead" cx="148" cy="92" rx="6" ry="4.6" fill="#ffffff" stroke="#000000" stroke-width="1" />
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
+function buildSystemStartNoteAdjacentAccidentalSvg() {
+  const flatSignature = 'MCCLCCLMCCCLCLCLCCCCCLCLCLCCL';
+  const flatPath = buildPathDataFromSimplifiedSignature(flatSignature);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="220" height="300" viewBox="0 0 220 300">
+      <line x1="20" y1="40" x2="200" y2="40" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="50" x2="200" y2="50" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="60" x2="200" y2="60" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="70" x2="200" y2="70" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="80" x2="200" y2="80" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="40" x2="20" y2="80" stroke="#000" stroke-width="1" />
+      <path id="system-start-flat-1" d="${flatPath}" transform="translate(30 56) scale(0.22)" fill="#000000" />
+      <ellipse id="system-start-notehead-1" cx="77" cy="71" rx="6" ry="4.6" fill="#ffffff" stroke="#000000" stroke-width="1" />
+
+      <line x1="20" y1="200" x2="200" y2="200" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="210" x2="200" y2="210" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="220" x2="200" y2="220" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="230" x2="200" y2="230" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="240" x2="200" y2="240" stroke="#000" stroke-width="1" />
+      <line x1="20" y1="200" x2="20" y2="240" stroke="#000" stroke-width="1" />
+      <path id="system-start-flat-2" d="${flatPath}" transform="translate(30 216) scale(0.22)" fill="#000000" />
+      <ellipse id="system-start-notehead-2" cx="77" cy="231" rx="6" ry="4.6" fill="#ffffff" stroke="#000000" stroke-width="1" />
     </svg>
   `.trim();
 
