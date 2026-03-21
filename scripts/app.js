@@ -988,25 +988,8 @@ function renderCanvas(currentX, options = {}) {
 
     const activeIdx = {}; const activeWidth = {}; const laneOffsets = {};
     const sharedActiveIdx = {};
-
-    const systemBaseWidthsBySystem = {};
-    const systemActiveWidthsBySystem = {};
-    const ensureSystemWidthEntry = (widthMap, systemIndex) => {
-        const normalizedSystemIndex = Number.isFinite(systemIndex) ? systemIndex : 0;
-        if (!widthMap[normalizedSystemIndex]) {
-            widthMap[normalizedSystemIndex] = { clef: 0, key: 0 };
-        }
-        return widthMap[normalizedSystemIndex];
-    };
-
-    for (const laneId in globalStickyLanes) {
-        const laneMeta = globalStickyLanes[laneId] || {};
-        const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
-        const systemBaseWidths = ensureSystemWidthEntry(systemBaseWidthsBySystem, systemIndex);
-        const bw = laneMeta.baseWidths;
-        if (bw && bw.clef > systemBaseWidths.clef) systemBaseWidths.clef = bw.clef;
-        if (bw && bw.key > systemBaseWidths.key) systemBaseWidths.key = bw.key;
-    }
+    const systemBaseKeyWidthBySystem = {};
+    const systemActiveKeyWidthBySystem = {};
 
     const bottomLaneIdBySystem = {};
     const bottomLaneMetricBySystem = {};
@@ -1071,26 +1054,13 @@ function renderCanvas(currentX, options = {}) {
             });
         });
 
-        ['clef', 'key'].forEach(type => {
-            const currentW = activeIdx[laneId][type] >= 0 ? activeWidth[laneId][type] : (baseWidths[type] || 0);
-            const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
-            const systemActiveWidths = ensureSystemWidthEntry(systemActiveWidthsBySystem, systemIndex);
-            if (currentW > systemActiveWidths[type]) systemActiveWidths[type] = currentW;
-        });
-    }
+        const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
+        const laneBaseKeyWidth = baseWidths?.key || 0;
+        const laneCurrentKeyWidth = activeIdx[laneId].key >= 0 ? activeWidth[laneId].key : laneBaseKeyWidth;
+        systemBaseKeyWidthBySystem[systemIndex] = Math.max(systemBaseKeyWidthBySystem[systemIndex] || 0, laneBaseKeyWidth);
+        systemActiveKeyWidthBySystem[systemIndex] = Math.max(systemActiveKeyWidthBySystem[systemIndex] || 0, laneCurrentKeyWidth);
 
-    const calcSystemDelta = (type, systemIndex) => {
-        const normalizedSystemIndex = Number.isFinite(systemIndex) ? systemIndex : 0;
-        const systemBaseWidths = ensureSystemWidthEntry(systemBaseWidthsBySystem, normalizedSystemIndex);
-        const systemActiveWidths = ensureSystemWidthEntry(systemActiveWidthsBySystem, normalizedSystemIndex);
-        const b = systemBaseWidths[type] || 0;
-        const currentW = systemActiveWidths[type] || 0;
-        return calculateStickySystemDelta({
-            type,
-            baseWidth: b,
-            currentWidth: currentW,
-        });
-    };
+    }
 
     for (const laneId in globalStickyLanes) {
         const laneMeta = globalStickyLanes[laneId] || {};
@@ -1101,8 +1071,23 @@ function renderCanvas(currentX, options = {}) {
             : null;
         const systemIndex = Number.isFinite(laneMeta.systemIndex) ? laneMeta.systemIndex : 0;
         const isBottomLane = bottomLaneIdBySystem[systemIndex] === laneId;
-        const sysDeltaClef = calcSystemDelta('clef', systemIndex);
-        const sysDeltaKey = calcSystemDelta('key', systemIndex);
+        const calcLaneDelta = (type) => {
+            const baseWidth = baseWidths?.[type] || 0;
+            const currentWidth = activeIdx[laneId][type] >= 0 ? activeWidth[laneId][type] : baseWidth;
+            return calculateStickySystemDelta({
+                type,
+                baseWidth,
+                currentWidth,
+            });
+        };
+        const laneDeltaClef = calcLaneDelta('clef');
+        const systemBaseKeyWidth = systemBaseKeyWidthBySystem[systemIndex] || 0;
+        const systemCurrentKeyWidth = systemActiveKeyWidthBySystem[systemIndex] || 0;
+        const laneDeltaKey = calculateStickySystemDelta({
+            type: 'key',
+            baseWidth: systemBaseKeyWidth,
+            currentWidth: systemCurrentKeyWidth,
+        });
         laneOffsets[laneId].rehY = calculateRehearsalMarkStickyYOffset({
             hasOpeningClefAnchor: (baseWidths?.clef || 0) > 0,
             placement: isBottomLane ? "below" : "above",
@@ -1112,8 +1097,8 @@ function renderCanvas(currentX, options = {}) {
             openingMaxY: laneMeta.openingEnvelopeMaxY,
             padding: isBottomLane ? REHEARSAL_STICKY_PADDING_BELOW : REHEARSAL_STICKY_PADDING_ABOVE,
         });
-        laneOffsets[laneId].clef = sysDeltaClef;
-        laneOffsets[laneId].key = sysDeltaKey;
+        laneOffsets[laneId].clef = laneDeltaClef;
+        laneOffsets[laneId].key = laneDeltaKey;
     }
 
     window.__lastStickyLaneOffsets = laneOffsets;
@@ -3673,14 +3658,9 @@ function identifyAndHighlightTimeSignatures() {
         if (!decoded) return;
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_DORICO) {
             const { normalizedFontFamily } = getScoreElementFontInfo(el);
-            // Dorico exports can mix valid time-signature glyphs across music fonts
-            // (for example, Leland score symbols with Bravura giant meters).
-            // Keep the text candidate limited to recognized music fonts by default,
-            // but still allow plain numeric text meters that Dorico sometimes exports
-            // in text-domain fonts such as Academico. The later stacked-pair, staff-band,
-            // and anchor checks still filter out ordinary stray digits.
-            const isPlainNumericTimeSig = decoded.kind === 'number' && /^\d+$/.test(decoded.token || '');
-            if (!normalizedFontFamily && !isPlainNumericTimeSig) return;
+            // Dorico split labels such as 1/2/unis. often live in text-domain fonts.
+            // Restrict text time-signature candidates to recognized music fonts only.
+            if (!normalizedFontFamily) return;
         }
         if (currentAnalysisProfile.sourceType === SCORE_SOURCE_SIBELIUS) {
             const { rawFontFamily } = getScoreElementFontInfo(el);

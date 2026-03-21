@@ -37,6 +37,36 @@ async function loadFixtureIntoScore(page, fixturePath) {
   })).toBeGreaterThan(0);
 }
 
+const APP_JS_URL_RE = /\/scripts\/app\.js(?:\?v=.*)?$/;
+
+async function exposeStickyLaneDebug(page) {
+  await page.route(APP_JS_URL_RE, async (route) => {
+    const response = await route.fetch();
+    let body = await response.text();
+    body += `
+window.__scoreDebug = {
+  getRenderQueue: () => renderQueue,
+  getGlobalStickyLanes: () => globalStickyLanes,
+  getGlobalTimeSigs: () => globalTimeSigs,
+  renderAtX: (x) => {
+    renderCanvas(x);
+    return {
+      laneOffsets: window.__lastStickyLaneOffsets || null,
+    };
+  },
+};
+`;
+    await route.fulfill({
+      response,
+      body,
+      headers: {
+        ...response.headers(),
+        'content-type': 'application/javascript; charset=utf-8',
+      },
+    });
+  });
+}
+
 async function getDetectedScoreSourceType(page) {
   return page.evaluate(() => document.body.dataset.scoreSourceType || null);
 }
@@ -3816,6 +3846,171 @@ test('threads rehearsal marks into sticky lane replacement order', async ({ page
   expect(svgAnalysisSource).toContain('const itemsByType = { inst: [], reh: [], clef: [], key: [], time: [], bar: [], brace: [] };');
   expect(svgAnalysisSource).toContain('["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {');
   expect(appSource).toContain("activeIdx[laneId] = { inst: -1, reh: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };");
+});
+
+test('keeps lower-system rehearsal E and F on the same sticky lane despite vertical drift', async ({ page }) => {
+  await exposeStickyLaneDebug(page);
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', path.resolve(__dirname, '..', '排演记号重叠.svg'));
+
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox .highlight-rehearsalmark').length), {
+    message: 'waiting for rehearsal-mark detection in 排演记号重叠.svg',
+  }).toBeGreaterThanOrEqual(10);
+
+  const state = await page.evaluate(() => {
+    const stickyLanes = window.__scoreDebug.getGlobalStickyLanes();
+    const rehearsalBlocks = Object.entries(stickyLanes).flatMap(([laneId, lane]) => (
+      (lane?.typeBlocks?.reh || []).map((block, index) => ({
+        laneId,
+        blockIndex: index,
+        maxY: block?.maxY ?? null,
+        texts: Array.isArray(block?.items)
+          ? block.items.map((item) => (item?.text || '').trim()).filter(Boolean)
+          : [],
+      }))
+    ));
+
+    const lowerE = rehearsalBlocks
+      .filter((block) => block.texts.includes('E'))
+      .sort((a, b) => (b.maxY || 0) - (a.maxY || 0))[0] || null;
+    const lowerF = rehearsalBlocks
+      .filter((block) => block.texts.includes('F'))
+      .sort((a, b) => (b.maxY || 0) - (a.maxY || 0))[0] || null;
+
+    return {
+      lowerE,
+      lowerF,
+    };
+  });
+
+  expect(state.lowerE).not.toBeNull();
+  expect(state.lowerF).not.toBeNull();
+  expect(state.lowerE.laneId).toBe(state.lowerF.laneId);
+});
+
+test('system-wide time column follows the widest active key in 调号修复.svg', async ({ page }) => {
+  await exposeStickyLaneDebug(page);
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', path.resolve(__dirname, '..', '调号修复.svg'));
+
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox svg *').length), {
+    message: 'waiting for 调号修复.svg to finish loading',
+  }).toBeGreaterThan(0);
+
+  const state = await page.evaluate(() => {
+    const stickyLanes = window.__scoreDebug.getGlobalStickyLanes();
+    const celloCandidateLanes = Object.entries(stickyLanes)
+      .map(([laneId, lane]) => ({
+        laneId,
+        systemIndex: Number.isFinite(lane?.systemIndex) ? lane.systemIndex : 0,
+        anchorY: lane?.anchorY ?? null,
+        baseWidths: lane?.baseWidths || {},
+        keyBlocks: lane?.typeBlocks?.key || [],
+        timeBlocks: lane?.typeBlocks?.time || [],
+      }))
+      .filter((lane) => (
+        Number.isFinite(lane.anchorY)
+        && lane.anchorY >= 900
+        && lane.anchorY <= 1125
+        && lane.timeBlocks.length > 0
+      ))
+      .sort((a, b) => a.anchorY - b.anchorY);
+
+    const keylessLane = celloCandidateLanes.find((lane) => lane.keyBlocks.length === 0) || null;
+    const keyedLane = keylessLane
+      ? celloCandidateLanes.find((lane) => (
+          lane.systemIndex === keylessLane.systemIndex
+          && lane.keyBlocks.some((block) => !block.clearsKeySignature && (block.stickyWidth || 0) > ((lane.baseWidths?.key || 0) + 0.1))
+        )) || null
+      : null;
+
+    if (!keylessLane || !keyedLane) {
+      return {
+        keylessLane: keylessLane ? { laneId: keylessLane.laneId, anchorY: keylessLane.anchorY } : null,
+        keyedLane: keyedLane ? { laneId: keyedLane.laneId, anchorY: keyedLane.anchorY } : null,
+        renderSnapshot: null,
+      };
+    }
+
+    const targetKeyBlock = keyedLane.keyBlocks.find((block) => !block.clearsKeySignature && (block.stickyWidth || 0) > ((keyedLane.baseWidths?.key || 0) + 0.1));
+    const renderSnapshot = window.__scoreDebug.renderAtX((targetKeyBlock?.minX || 0) + 5);
+    const laneOffsets = renderSnapshot?.laneOffsets || {};
+
+    return {
+      keylessLane: {
+        laneId: keylessLane.laneId,
+        anchorY: keylessLane.anchorY,
+        baseKeyWidth: keylessLane.baseWidths?.key || 0,
+        timeBlockCount: keylessLane.timeBlocks.length,
+        renderedKeyOffset: laneOffsets[keylessLane.laneId]?.key ?? null,
+      },
+      keyedLane: {
+        laneId: keyedLane.laneId,
+        anchorY: keyedLane.anchorY,
+        baseKeyWidth: keyedLane.baseWidths?.key || 0,
+        timeBlockCount: keyedLane.timeBlocks.length,
+        renderedKeyOffset: laneOffsets[keyedLane.laneId]?.key ?? null,
+      },
+      renderSnapshot,
+    };
+  });
+
+  expect(state.keylessLane).not.toBeNull();
+  expect(state.keyedLane).not.toBeNull();
+  expect(state.keylessLane.timeBlockCount).toBeGreaterThan(0);
+  expect(state.keylessLane.baseKeyWidth).toBe(0);
+  expect(state.keyedLane.baseKeyWidth).toBeGreaterThan(0);
+  expect(state.keyedLane.renderedKeyOffset).toBeGreaterThan(0);
+  expect(state.keylessLane.renderedKeyOffset).toBe(state.keyedLane.renderedKeyOffset);
+});
+
+test('does not treat 调号修复 split labels as time signatures', async ({ page }) => {
+  await exposeStickyLaneDebug(page);
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', path.resolve(__dirname, '..', '调号修复.svg'));
+
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox svg *').length), {
+    message: 'waiting for 调号修复.svg to finish loading for time-signature regression',
+  }).toBeGreaterThan(0);
+
+  const state = await page.evaluate(() => {
+    const renderQueue = window.__scoreDebug.getRenderQueue();
+    const suspectNumericTexts = renderQueue
+      .filter((item) => item.type === 'text')
+      .map((item) => ({
+        text: (item.text || '').trim(),
+        symbolType: item.symbolType || null,
+        absMinX: item.absMinX,
+        absMinY: item.absMinY,
+        absMaxY: item.absMaxY,
+        font: item.font || '',
+      }))
+      .filter((item) => (
+        ['1', '2', '11', '12', '21', '22', '31', '32'].includes(item.text)
+        && item.absMinY >= 900
+        && item.absMinY <= 1125
+      ))
+      .sort((a, b) => (a.absMinX - b.absMinX) || (a.absMinY - b.absMinY));
+
+    const invalidTimeSigs = (window.__scoreDebug.getGlobalTimeSigs() || [])
+      .filter((item) => (
+        (item.num === 1 && item.den === 2)
+        || (item.num === 2 && item.den === 1)
+      ))
+      .map((item) => ({ x: item.x, num: item.num, den: item.den }));
+
+    return {
+      suspectNumericTexts,
+      invalidTimeSigs,
+    };
+  });
+
+  expect(state.suspectNumericTexts.some((item) => item.text === '1' && item.symbolType === 'TimeSig')).toBe(false);
+  expect(state.suspectNumericTexts.some((item) => item.text === '2' && item.symbolType === 'TimeSig')).toBe(false);
+  expect(state.invalidTimeSigs).toEqual([]);
 });
 
 test('keeps tightly enclosed Dorico rehearsal-mark frames attached to their letters', async ({ page }) => {

@@ -369,6 +369,80 @@ export function createSvgAnalysisFeature({
         });
     }
 
+    function reassignRehearsalMarksToOpeningClefLanes(lanes) {
+        if (!Array.isArray(lanes) || lanes.length === 0) return;
+
+        const lanesBySystem = new Map();
+        lanes.forEach((lane) => {
+            const systemIndex = Number.isFinite(lane?.systemIndex) ? lane.systemIndex : 0;
+            if (!lanesBySystem.has(systemIndex)) lanesBySystem.set(systemIndex, []);
+            lanesBySystem.get(systemIndex).push(lane);
+        });
+
+        lanesBySystem.forEach((systemLanes) => {
+            const clefCandidates = systemLanes.flatMap((lane) => (
+                (Array.isArray(lane?.items) ? lane.items : [])
+                    .filter((item) => (
+                        item?.symbolType === "Clef"
+                        && Number.isFinite(item.absMinX)
+                        && Number.isFinite(item.centerY)
+                    ))
+                    .map((item) => ({ lane, item }))
+            ));
+            if (clefCandidates.length === 0) return;
+
+            const minClefX = Math.min(...clefCandidates.map(({ item }) => item.absMinX));
+            const openingThresholdX = Math.max(
+                80,
+                ...systemLanes.map((lane) => (lane?.staffSpace || 0) * 8),
+            );
+            const openingLaneIds = new Set(
+                clefCandidates
+                    .filter(({ item }) => item.absMinX <= minClefX + openingThresholdX)
+                    .map(({ lane }) => lane.laneId)
+            );
+            if (openingLaneIds.size === 0) return;
+
+            const openingLanes = systemLanes.filter((lane) => openingLaneIds.has(lane.laneId));
+            const reassignments = [];
+
+            systemLanes.forEach((lane) => {
+                if (openingLaneIds.has(lane.laneId)) return;
+
+                const rehearsalItems = (Array.isArray(lane?.items) ? lane.items : [])
+                    .filter((item) => item?.symbolType === "RehearsalMark" && Number.isFinite(item.centerY));
+                if (rehearsalItems.length === 0) return;
+
+                rehearsalItems.forEach((item) => {
+                    let targetLane = null;
+                    let minDiff = Infinity;
+
+                    openingLanes.forEach((candidate) => {
+                        const diff = Math.abs((candidate?.anchorY || 0) - item.centerY);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            targetLane = candidate;
+                        }
+                    });
+
+                    const verticalTolerance = Math.max(
+                        48,
+                        (lane?.staffSpace || 0) * 8,
+                        (targetLane?.staffSpace || 0) * 8,
+                    );
+                    if (!targetLane || minDiff > verticalTolerance) return;
+
+                    reassignments.push({ item, fromLane: lane, targetLane });
+                });
+            });
+
+            reassignments.forEach(({ item, fromLane, targetLane }) => {
+                fromLane.items = (Array.isArray(fromLane.items) ? fromLane.items : []).filter((candidate) => candidate !== item);
+                targetLane.items = [...(Array.isArray(targetLane.items) ? targetLane.items : []), item];
+            });
+        });
+    }
+
     function registerSharedGiantTimeStickyGroups(renderQueue, stickyMinX, openingThresholdX) {
         const giantTimeItems = renderQueue
             .filter((item) => item.isSticky && item.stickyType === "time" && item.timeSigIsGiant)
@@ -1645,6 +1719,7 @@ export function createSvgAnalysisFeature({
                 lane.systemIndex = 0;
             }
         });
+        reassignRehearsalMarksToOpeningClefLanes(globalLanes);
 
         let globalMinX = Infinity;
         globalLanes.forEach(lane => {
