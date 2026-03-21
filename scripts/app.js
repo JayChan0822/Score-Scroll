@@ -1736,7 +1736,7 @@ function hasPriorityAccidentalNoteheadNeighbor(candidate, noteheads, staffSpace)
 
     const normalizedStaffSpace = Math.max(1, Number.isFinite(staffSpace) ? staffSpace : 10);
     const noteProximityDxMin = -Math.max(1, normalizedStaffSpace) * 0.8;
-    const noteProximityDxMax = Math.max(30, normalizedStaffSpace * 3.0);
+    const noteProximityDxMax = Math.max(6, normalizedStaffSpace * 0.8);
     const noteProximityDyMax = Math.max(6, normalizedStaffSpace * 0.9);
 
     return noteheads.some((note) => {
@@ -4532,7 +4532,7 @@ function propagateAccidentalContagion(accidentals, noteheads, staffBands, staffS
     const normalizedStaffSpace = Math.max(1, Number.isFinite(staffSpace) ? staffSpace : 10);
     const bands = Array.isArray(staffBands) ? staffBands : [];
     const seedDxMin = -normalizedStaffSpace * 0.6;
-    const seedDxMax = normalizedStaffSpace * 2.6;
+    const seedDxMax = normalizedStaffSpace * 0.8;
     const seedDyMax = normalizedStaffSpace * 1.2;
     const spreadGapMax = Math.max(2, normalizedStaffSpace * 1.15);
     const spreadDyMax = Math.max(2, normalizedStaffSpace * 1.35);
