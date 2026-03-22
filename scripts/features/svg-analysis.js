@@ -138,9 +138,11 @@ export function createSvgAnalysisFeature({
         type,
         items,
         isOpeningBlock = false,
+        hasActiveKeyDisplay = false,
     }) {
         if (type !== "key") return false;
         if (!isNaturalOnlyKeySignatureBlock(items)) return false;
+        if (!hasActiveKeyDisplay) return false;
         return isOpeningBlock !== true;
     }
 
@@ -1781,22 +1783,36 @@ export function createSvgAnalysisFeature({
                 }
                 currentBlock.width = currentBlock.maxX - currentBlock.minX;
                 blocks.push(currentBlock);
+                let hasActiveKeyDisplay = false;
                 blocks.forEach((block, index) => {
                     const isOpeningBlock = type === "key"
                         && index === 0
                         && Number.isFinite(block.minX)
                         && block.minX <= stickyMinX + stickyOpeningThresholdX;
+                    const isNaturalOnlyKeyBlock = type === "key" && isNaturalOnlyKeySignatureBlock(block.items);
                     const clearsKeySignature = shouldClearNaturalOnlyKeySignatureBlock({
                         type,
                         items: block.items,
                         isOpeningBlock,
+                        hasActiveKeyDisplay,
                     });
+                    const suppressesStickyKeyDisplay = type === "key"
+                        && isNaturalOnlyKeyBlock
+                        && !isOpeningBlock
+                        && !clearsKeySignature
+                        && !hasActiveKeyDisplay;
                     block.clearsKeySignature = clearsKeySignature;
-                    block.stickyWidth = getStickyBlockDisplayWidth({
-                        type,
-                        blockWidth: block.width,
-                        clearsKeySignature,
-                    });
+                    block.suppressesStickyKeyDisplay = suppressesStickyKeyDisplay;
+                    block.stickyWidth = (clearsKeySignature || suppressesStickyKeyDisplay)
+                        ? 0
+                        : getStickyBlockDisplayWidth({
+                            type,
+                            blockWidth: block.width,
+                            clearsKeySignature,
+                        });
+                    if (type === "key") {
+                        hasActiveKeyDisplay = block.stickyWidth > 0;
+                    }
                 });
                 typeBlocks[type] = blocks;
             });
@@ -1857,9 +1873,23 @@ export function createSvgAnalysisFeature({
                     });
                     block.lockDistance = lockDistance;
                     const isMidClef = type === "clef" && index > 0;
-                    const shouldSkipStickyRegistration = type === "key" && block.clearsKeySignature;
+                    const shouldSkipStickyRegistration = type === "key" && (
+                        block.clearsKeySignature
+                        || block.suppressesStickyKeyDisplay
+                    );
                     block.items.forEach(item => {
-                        if (shouldSkipStickyRegistration) return;
+                        if (shouldSkipStickyRegistration) {
+                            item.laneId = lane.laneId;
+                            item.systemIndex = Number.isFinite(lane.systemIndex) ? lane.systemIndex : 0;
+                            item.blockIndex = index;
+                            item.lockDistance = lockDistance;
+                            item.blockMinX = block.minX;
+                            item.blockMinY = block.minY;
+                            item.blockMaxY = block.maxY;
+                            item.blockCenterY = block.items[0].centerY;
+                            item.hidesAfterKeyLock = true;
+                            return;
+                        }
                         item.isSticky = true;
                         item.stickyType = type;
                         item.laneId = lane.laneId;

@@ -4013,6 +4013,57 @@ test('does not treat 调号修复 split labels as time signatures', async ({ pag
   expect(state.invalidTimeSigs).toEqual([]);
 });
 
+test('keeps lower-string key-signature clear events scoped to the real natural-change bar in 调号修复.svg', async ({ page }) => {
+  await exposeStickyLaneDebug(page);
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', path.resolve(__dirname, '..', '调号修复.svg'));
+
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox svg *').length), {
+    message: 'waiting for 调号修复.svg key-signature clear regression',
+  }).toBeGreaterThan(0);
+
+  const state = await page.evaluate(() => {
+    const stickyLanes = window.__scoreDebug.getGlobalStickyLanes();
+    const lowerStringBlocks = Object.entries(stickyLanes)
+      .map(([laneId, lane]) => ({
+        laneId,
+        anchorY: lane?.anchorY ?? null,
+        keyBlocks: (lane?.typeBlocks?.key || []).map((block, index) => ({
+          index,
+          minX: block.minX,
+          maxX: block.maxX,
+          clearsKeySignature: Boolean(block.clearsKeySignature),
+          stickyWidth: block.stickyWidth,
+          stickyItemCount: Array.isArray(block.items) ? block.items.filter((item) => item.isSticky).length : 0,
+        })),
+      }))
+      .filter((lane) => Number.isFinite(lane.anchorY) && lane.anchorY >= 1000 && lane.anchorY <= 1125);
+
+    const summarizeNear = (targetX) => lowerStringBlocks.reduce((summary, lane) => {
+      lane.keyBlocks.forEach((block) => {
+        if (Math.abs(block.minX - targetX) > 12) return;
+        if (block.clearsKeySignature) summary.clearCount += 1;
+        if ((block.stickyItemCount || 0) > 0 || (block.stickyWidth || 0) > 0) summary.visibleStickyCount += 1;
+      });
+      return summary;
+    }, { clearCount: 0, visibleStickyCount: 0 });
+
+    return {
+      at41: summarizeNear(3713.2),
+      at51: summarizeNear(5294.8),
+      at70: summarizeNear(6818.3),
+    };
+  });
+
+  expect(state.at41.clearCount).toBeGreaterThan(0);
+  expect(state.at41.visibleStickyCount).toBe(0);
+  expect(state.at51.clearCount).toBe(0);
+  expect(state.at51.visibleStickyCount).toBe(0);
+  expect(state.at70.clearCount).toBe(0);
+  expect(state.at70.visibleStickyCount).toBe(0);
+});
+
 test('keeps tightly enclosed Dorico rehearsal-mark frames attached to their letters', async ({ page }) => {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'rehearsal-mark-tight-box.svg');
   await loadFixtureIntoScore(page, fixturePath);
@@ -9018,6 +9069,59 @@ test('marks natural-only key signature blocks as sticky clear events', async ({ 
   expect(state.keyBlocks[1].clearsKeySignature).toBe(true);
   expect(state.keyBlocks[1].stickyWidth).toBe(0);
   expect(state.keyBlocks[1].stickyItemCount).toBe(0);
+});
+
+test('natural clear blocks stop rendering once later key signatures take over', async ({ page }) => {
+  await exposeStickyLaneDebug(page);
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', path.resolve(__dirname, '..', '调号修复.svg'));
+
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox svg *').length), {
+    message: 'waiting for 调号修复.svg elements to load for clear/handoff regression',
+  }).toBeGreaterThan(0);
+  await expect.poll(async () => page.evaluate(() => Boolean(window.__scoreDebug?.getRenderQueue?.()?.length)), {
+    message: 'waiting for 调号修复.svg to finish loading for clear/handoff regression',
+    timeout: 20000,
+  }).toBe(true);
+
+  const state = await page.evaluate(() => {
+    const renderQueue = window.__scoreDebug.getRenderQueue();
+    const contrabassLaneId = renderQueue
+      .find((item) => (item.text || '').trim() === 'Contrabass')
+      ?.laneId || null;
+    if (!contrabassLaneId) return null;
+
+    const clearBlockMinX = 3713.2001602038094;
+    const laterKeyBlockMinX = 4197.838867482666;
+    window.__scoreDebug.renderAtX(laterKeyBlockMinX + 5);
+
+    const summarizeItems = (blockMinX) => renderQueue
+      .filter((item) => (
+        item.laneId === contrabassLaneId
+        && item.symbolType === 'KeySig'
+        && Math.abs((item.blockMinX ?? item.absMinX ?? 0) - blockMinX) < 1
+      ))
+      .map((item) => ({
+        blockIndex: item.blockIndex ?? null,
+        blockMinX: item.blockMinX ?? null,
+        isSticky: Boolean(item.isSticky),
+        currentOpacity: item.currentOpacity ?? null,
+        signature: item.originalD ? item.originalD.replace(/[^A-Za-z]/g, '').toUpperCase() : null,
+      }));
+
+    return {
+      contrabassLaneId,
+      clearItems: summarizeItems(clearBlockMinX),
+      laterKeyItems: summarizeItems(laterKeyBlockMinX),
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.clearItems.length).toBeGreaterThan(0);
+  expect(state.laterKeyItems.length).toBeGreaterThan(0);
+  expect(state.clearItems.every((item) => (item.currentOpacity ?? 1) < 0.01)).toBe(true);
+  expect(state.laterKeyItems.some((item) => item.isSticky && (item.currentOpacity ?? 0) > 0.99)).toBe(true);
 });
 
 test('keeps Dengshan piano bridge redraw limited to true full-span staff lines', async ({ page }) => {

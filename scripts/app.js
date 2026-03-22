@@ -1156,6 +1156,16 @@ function renderCanvas(currentX, options = {}) {
             }
         }
 
+        if (
+            !item.isSticky
+            && item.symbolType === 'KeySig'
+            && item.hidesAfterKeyLock
+            && Number.isFinite(item.lockDistance)
+        ) {
+            const layerMaxX = maxStickySmoothX_initial + item.lockDistance;
+            if (currentX >= layerMaxX) targetOpacity = 0;
+        }
+
         if (item.currentOpacity === undefined) item.currentOpacity = targetOpacity;
         if (item.currentExtraX === undefined) item.currentExtraX = targetExtraX;
         if (item.currentExtraY === undefined) item.currentExtraY = targetExtraY;
