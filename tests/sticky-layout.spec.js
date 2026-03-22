@@ -79,6 +79,43 @@ test('rehearsal marks keep their existing opening lock when no clef anchor exist
   })).toBeCloseTo(0, 5);
 });
 
+test('tempo marks pin to the right of active rehearsal marks', async () => {
+  const { calculateTempoMarkStickyXOffset } = await importStickyLayout();
+
+  expect(typeof calculateTempoMarkStickyXOffset).toBe('function');
+  expect(calculateTempoMarkStickyXOffset({
+    hasActiveRehearsalMark: true,
+    activeRehearsalWidth: 22,
+    padding: 8,
+  })).toBeCloseTo(30, 5);
+});
+
+test('tempo marks fall back to the rehearsal column when no rehearsal mark is active', async () => {
+  const { calculateTempoMarkStickyXOffset } = await importStickyLayout();
+
+  expect(typeof calculateTempoMarkStickyXOffset).toBe('function');
+  expect(calculateTempoMarkStickyXOffset({
+    hasActiveRehearsalMark: false,
+    activeRehearsalWidth: 22,
+    padding: 8,
+  })).toBe(0);
+});
+
+test('tempo marks lock when they reach their pinned x column', async () => {
+  const { calculateTempoMarkPinnedLayerMaxX } = await importStickyLayout();
+
+  expect(typeof calculateTempoMarkPinnedLayerMaxX).toBe('function');
+  expect(calculateTempoMarkPinnedLayerMaxX({
+    baseLayerMaxX: 220,
+    tempoXOffset: 30,
+  })).toBeCloseTo(190, 5);
+
+  expect(calculateTempoMarkPinnedLayerMaxX({
+    baseLayerMaxX: 220,
+    tempoXOffset: 0,
+  })).toBeCloseTo(220, 5);
+});
+
 test('rehearsal marks align to a shared sticky height above the opening clef', async () => {
   const { calculateRehearsalMarkStickyYOffset } = await importStickyLayout();
 
@@ -178,6 +215,20 @@ test('app separates rehearsal sticky padding for above and below placements', as
   expect(appSource).toContain('const REHEARSAL_STICKY_PADDING_ABOVE');
   expect(appSource).toContain('const REHEARSAL_STICKY_PADDING_BELOW');
   expect(appSource).toContain('padding: isBottomLane ? REHEARSAL_STICKY_PADDING_BELOW : REHEARSAL_STICKY_PADDING_ABOVE');
+});
+
+test('app tracks a dedicated tempo sticky padding constant', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).toContain('const TEMPO_STICKY_PADDING_RIGHT');
+});
+
+test('app aligns tempo marks to a shared sticky height', async () => {
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  expect(appSource).toContain('laneOffsets[laneId].tempoY = calculateRehearsalMarkStickyYOffset({');
+  expect(appSource).toContain("else if (item.stickyType === 'tempo') {");
+  expect(appSource).toContain('targetExtraY = resolveRehearsalMarkTargetExtraY({');
 });
 
 test('late-only key signatures can lock to an opening fallback column', async () => {

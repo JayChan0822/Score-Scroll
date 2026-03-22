@@ -59,6 +59,33 @@ export function calculateRehearsalMarkStickyYOffset({
     return targetBottomY - normalizedRehearsalMaxY;
 }
 
+export function calculateTempoMarkStickyXOffset({
+    hasActiveRehearsalMark,
+    activeRehearsalWidth,
+    padding = 0,
+}) {
+    if (!hasActiveRehearsalMark) {
+        return 0;
+    }
+
+    const normalizedRehearsalWidth = Number.isFinite(activeRehearsalWidth) ? activeRehearsalWidth : 0;
+    const normalizedPadding = Number.isFinite(padding) ? padding : 0;
+    if (!(normalizedRehearsalWidth > 0)) {
+        return 0;
+    }
+
+    return normalizedRehearsalWidth + normalizedPadding;
+}
+
+export function calculateTempoMarkPinnedLayerMaxX({
+    baseLayerMaxX,
+    tempoXOffset = 0,
+}) {
+    const normalizedBaseLayerMaxX = Number.isFinite(baseLayerMaxX) ? baseLayerMaxX : 0;
+    const normalizedTempoXOffset = Number.isFinite(tempoXOffset) ? tempoXOffset : 0;
+    return normalizedBaseLayerMaxX - Math.max(0, normalizedTempoXOffset);
+}
+
 export function resolveRehearsalMarkTargetExtraY({
     itemBlockIndex,
     currentActive,
@@ -112,7 +139,7 @@ export function calculateStickyBlockLockDistance({
     let anchorX = normalizedStickyMinX;
     if (type === "inst") {
         anchorX = normalizedFirstBlockMinX;
-    } else if (type === "reh" && isOpeningStickyBlock(openingClefMinX, normalizedStickyMinX, normalizedOpeningThresholdX)) {
+    } else if ((type === "reh" || type === "tempo") && isOpeningStickyBlock(openingClefMinX, normalizedStickyMinX, normalizedOpeningThresholdX)) {
         anchorX = openingClefMinX;
     } else if (isOpeningStickyBlock(normalizedFirstBlockMinX, normalizedStickyMinX, normalizedOpeningThresholdX)) {
         anchorX = normalizedFirstBlockMinX;

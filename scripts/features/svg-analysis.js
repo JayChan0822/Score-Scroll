@@ -411,11 +411,14 @@ export function createSvgAnalysisFeature({
             systemLanes.forEach((lane) => {
                 if (openingLaneIds.has(lane.laneId)) return;
 
-                const rehearsalItems = (Array.isArray(lane?.items) ? lane.items : [])
-                    .filter((item) => item?.symbolType === "RehearsalMark" && Number.isFinite(item.centerY));
-                if (rehearsalItems.length === 0) return;
+                const reassignableItems = (Array.isArray(lane?.items) ? lane.items : [])
+                    .filter((item) => (
+                        (item?.symbolType === "RehearsalMark" || item?.symbolType === "TempoMark")
+                        && Number.isFinite(item.centerY)
+                    ));
+                if (reassignableItems.length === 0) return;
 
-                rehearsalItems.forEach((item) => {
+                reassignableItems.forEach((item) => {
                     let targetLane = null;
                     let minDiff = Infinity;
 
@@ -1062,6 +1065,7 @@ export function createSvgAnalysisFeature({
             if (el.classList.contains("highlight-instgroup-label")) return "InstGroupLabel";
             if (el.classList.contains("highlight-instname")) return "InstName";
             if (el.classList.contains("highlight-rehearsalmark")) return "RehearsalMark";
+            if (el.classList.contains("highlight-tempomark")) return "TempoMark";
             if (el.classList.contains("highlight-clef")) return "Clef";
             if (el.classList.contains("highlight-keysig")) return "KeySig";
             if (el.classList.contains("highlight-timesig")) return "TimeSig";
@@ -1643,7 +1647,7 @@ export function createSvgAnalysisFeature({
             }
         });
 
-        const stickyTypesMap = { InstName: "inst", RehearsalMark: "reh", Clef: "clef", KeySig: "key", TimeSig: "time", Barline: "bar", Brace: "brace" };
+        const stickyTypesMap = { InstName: "inst", RehearsalMark: "reh", TempoMark: "tempo", Clef: "clef", KeySig: "key", TimeSig: "time", Barline: "bar", Brace: "brace" };
         const stickies = renderQueue.filter(item => item.symbolType && stickyTypesMap[item.symbolType]);
         const clusterThresholdX = 35;
         const globalLanes = [];
@@ -1746,11 +1750,11 @@ export function createSvgAnalysisFeature({
         const stickyOpeningThresholdX = 200;
         globalLanes.forEach(lane => {
             const currentStaffSpace = lane.staffSpace || 10;
-            const itemsByType = { inst: [], reh: [], clef: [], key: [], time: [], bar: [], brace: [] };
+            const itemsByType = { inst: [], reh: [], tempo: [], clef: [], key: [], time: [], bar: [], brace: [] };
             lane.items.forEach(item => itemsByType[stickyTypesMap[item.symbolType]].push(item));
             const typeBlocks = {};
 
-            ["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {
+            ["inst", "reh", "tempo", "clef", "key", "time", "bar", "brace"].forEach(type => {
                 const items = itemsByType[type];
                 if (items.length === 0) return;
                 items.sort((a, b) => a.absMinX - b.absMinX);
@@ -1826,8 +1830,8 @@ export function createSvgAnalysisFeature({
                 ? openingTimeBlock.minX
                 : null;
 
-            const baseWidths = { inst: 0, reh: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
-            ["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {
+            const baseWidths = { inst: 0, reh: 0, tempo: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
+            ["inst", "reh", "tempo", "clef", "key", "time", "bar", "brace"].forEach(type => {
                 if (typeBlocks[type] && typeBlocks[type].length > 0) {
                     const firstBlock = typeBlocks[type][0];
                     if (type === "inst" || firstBlock.minX <= stickyMinX + stickyOpeningThresholdX) {
@@ -1852,7 +1856,7 @@ export function createSvgAnalysisFeature({
                 openingEnvelopeMaxY,
             };
 
-            ["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {
+            ["inst", "reh", "tempo", "clef", "key", "time", "bar", "brace"].forEach(type => {
                 if (!typeBlocks[type]) return;
                 const firstBlock = typeBlocks[type][0];
                 typeBlocks[type].forEach((block, index) => {

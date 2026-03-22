@@ -2,7 +2,7 @@ import {
     PRIVATE_USE_GLYPH_REGEX,
     TIME_SIGNATURE_GLYPH_REGEX,
 } from "./core/constants.js";
-import { getDomRefs } from "./core/dom.js?v=20260319-custom-export-ratio-1";
+import { getDomRefs } from "./core/dom.js?v=20260322-tempo-sticky-1";
 import { createInitialState } from "./core/state.js?v=20260313-sticky-lock-light-export-1";
 import { MusicFontRegistry } from "./data/music-font-registry.js";
 import { createAudioFeature } from "./features/audio.js";
@@ -11,7 +11,7 @@ import {
     createExportVideoFeature,
     normalizeAspectRatioValue,
     resolveAspectRatioValue,
-} from "./features/export-video.js?v=20260319-custom-export-ratio-1";
+} from "./features/export-video.js?v=20260322-tempo-sticky-1";
 import { parseMidiData } from "./features/midi.js";
 import {
     buildScoreAnalysisProfile,
@@ -33,13 +33,15 @@ import {
     buildTrustedBarlineAnchors,
     classifyAccidentalGroups,
 } from "./features/symbol-graph.mjs";
-import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260319-reh-bottom-lane-1";
+import { createSvgAnalysisFeature } from "./features/svg-analysis.js?v=20260322-tempo-sticky-1";
 import {
+    calculateTempoMarkPinnedLayerMaxX,
+    calculateTempoMarkStickyXOffset,
     calculateRehearsalMarkStickyYOffset,
     resolveRehearsalMarkTargetExtraY,
     calculateStickySystemDelta,
     getStickyBlockDisplayWidth,
-} from "./features/sticky-layout.mjs?v=20260319-reh-bottom-lane-1";
+} from "./features/sticky-layout.mjs?v=20260322-tempo-sticky-1";
 import {
     clearInjectedSvgLocalFontFaces,
     registerImportedSvgTextFonts,
@@ -51,7 +53,7 @@ import {
     simplifySvgPathSignature,
 } from "./features/time-signature-decoder.js?v=20260317-glyph-font-fallback-1";
 import { createTimelineFeature } from "./features/timeline.js";
-import { bindUiEvents } from "./features/ui-events.js?v=20260319-custom-export-ratio-1";
+import { bindUiEvents } from "./features/ui-events.js?v=20260322-tempo-sticky-1";
 import { debugLog } from "./utils/debug.js";
 import { formatSeconds } from "./utils/format.js";
 import { clamp } from "./utils/math.js";
@@ -65,8 +67,54 @@ const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
 const SIBELIUS_MID_CLEF_STICKY_SCALE = 1.35;
 const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.25;
 const LILYPOND_MID_CLEF_STICKY_SCALE = 1.2;
-const REHEARSAL_STICKY_PADDING_ABOVE = 8;
+const REHEARSAL_STICKY_PADDING_ABOVE = 16;
 const REHEARSAL_STICKY_PADDING_BELOW = -8;
+const TEMPO_STICKY_PADDING_RIGHT = -5;
+const TEMPO_TEXT_RULES = {
+    absolute: {
+        corePhrases: [
+            'larghissimo', 'grave', 'largo', 'lacrimoso', 'lamentoso', 'larghetto', 'lento',
+            'malinconico', 'mesto', 'tranquillamente', 'adagio', 'misterioso', 'maestoso',
+            'adagietto', 'affettuoso', 'con dolcezza', 'grandioso', 'nobilmente', 'patetico',
+            'tempo comodo', 'tempo giusto', 'tempo semplice', 'trionfante', 'andante',
+            'marcia moderato', 'andantino', 'andante moderato', 'eroico', 'grazioso',
+            'moderato', 'allegretto', 'alla marcia', 'allegro moderato', 'con brio',
+            'con moto', 'deciso', 'giocoso', 'marziale', 'gioioso', 'allegro', 'agitato',
+            'alla breve', 'animato', 'appassionato', 'con bravura', 'energico', 'scherzando',
+            'con fuoco', 'vivace', 'brillante', 'furioso', 'presto', 'vivacissimo',
+            'allegrissimo', 'allegro vivace', 'prestissimo','rubato',
+        ],
+        modifierPhrases: [],
+    },
+    gradual: {
+        corePhrases: [
+            'accel.', 'allarg.', 'calando', 'lentando', 'morendo',
+            'precipitando', 'rall.', 'rit.', 'smorz.', 'sost.', 'string.',
+        ],
+        modifierPhrases: ['poco', 'molto'],
+    },
+    relative: {
+        corePhrases: [
+            { text: 'lento', standalone: false },
+            { text: 'mosso', standalone: false },
+            { text: 'movimento', standalone: false },
+            { text: 'riten.', standalone: true },
+            { text: 'stretto', standalone: true },
+        ],
+        modifierPhrases: [
+            'più', 'molto', 'poco', 'meno',
+            'appena', 'doppio', 'non troppo', 'non tanto',
+        ],
+    },
+    reset: {
+        corePhrases: [
+            "l'istesso tempo", 'tempo i', 'tempo ii',
+            'tempo primo', 'tempo secondo', 'a tempo',
+        ],
+        modifierPhrases: [],
+    },
+};
+const TEMPO_RULE_INDEX = buildTempoRuleIndex(TEMPO_TEXT_RULES);
 const SIBELIUS_SOURCE_REGEX = /\b(?:Opus(?:\s+Special)?\s+Std|Opus\s+Text\s+Std|Helsinki|Inkpen2)\b/i;
 const controlStackEl = document.querySelector(".control-stack");
 const stageWrapEl = document.querySelector(".stage-wrap");
@@ -1023,9 +1071,9 @@ function renderCanvas(currentX, options = {}) {
     }
 
     for (const laneId in globalStickyLanes) {
-        activeIdx[laneId] = { inst: -1, reh: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };
-        activeWidth[laneId] = { inst: 0, reh: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
-        laneOffsets[laneId] = { rehY: 0, clef: 0, key: 0 };
+        activeIdx[laneId] = { inst: -1, reh: -1, tempo: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };
+        activeWidth[laneId] = { inst: 0, reh: 0, tempo: 0, clef: 0, key: 0, time: 0, bar: 0, brace: 0 };
+        laneOffsets[laneId] = { rehY: 0, tempo: 0, tempoY: 0, clef: 0, key: 0 };
         const laneMeta = globalStickyLanes[laneId] || {};
         const { typeBlocks, baseWidths } = laneMeta;
 
@@ -1097,10 +1145,50 @@ function renderCanvas(currentX, options = {}) {
             openingMaxY: laneMeta.openingEnvelopeMaxY,
             padding: isBottomLane ? REHEARSAL_STICKY_PADDING_BELOW : REHEARSAL_STICKY_PADDING_ABOVE,
         });
+        laneOffsets[laneId].tempo = calculateTempoMarkStickyXOffset({
+            hasActiveRehearsalMark: activeIdx[laneId].reh >= 0,
+            activeRehearsalWidth: activeIdx[laneId].reh >= 0 ? activeWidth[laneId].reh : 0,
+            padding: TEMPO_STICKY_PADDING_RIGHT,
+        });
+        const tempoBlocks = typeBlocks?.tempo || [];
+        tempoBlocks.forEach((block, index) => {
+            const blockDisplayWidth = Number.isFinite(block.stickyWidth)
+                ? block.stickyWidth
+                : getStickyBlockDisplayWidth({
+                    type: 'tempo',
+                    blockWidth: block.width,
+                });
+            const lockDistance = Number.isFinite(block.lockDistance)
+                ? block.lockDistance
+                : Math.max(0, block.minX - tempoBlocks[0].minX);
+            const baseLayerMaxX = maxStickySmoothX_initial + lockDistance;
+            const effectiveLayerMaxX = calculateTempoMarkPinnedLayerMaxX({
+                baseLayerMaxX,
+                tempoXOffset: laneOffsets[laneId].tempo,
+            });
+
+            if (currentX >= effectiveLayerMaxX && index > activeIdx[laneId].tempo) {
+                activeIdx[laneId].tempo = index;
+                activeWidth[laneId].tempo = blockDisplayWidth;
+            }
+        });
+        const activeTempoBlock = activeIdx[laneId].tempo >= 0
+            ? (tempoBlocks[activeIdx[laneId].tempo] || null)
+            : null;
+        laneOffsets[laneId].tempoY = calculateRehearsalMarkStickyYOffset({
+            hasOpeningClefAnchor: (baseWidths?.clef || 0) > 0,
+            placement: isBottomLane ? "below" : "above",
+            rehearsalMinY: activeTempoBlock?.minY,
+            rehearsalMaxY: activeTempoBlock?.maxY,
+            clefMinY: openingClefBlock?.minY,
+            openingMaxY: laneMeta.openingEnvelopeMaxY,
+            padding: isBottomLane ? REHEARSAL_STICKY_PADDING_BELOW : REHEARSAL_STICKY_PADDING_ABOVE,
+        });
         laneOffsets[laneId].clef = laneDeltaClef;
         laneOffsets[laneId].key = laneDeltaKey;
     }
 
+    window.__lastStickyActiveIdx = activeIdx;
     window.__lastStickyLaneOffsets = laneOffsets;
     window.__lastStickyKeyBlockMeta = Object.entries(globalStickyLanes).flatMap(([laneId, laneMeta]) => (
         (laneMeta?.typeBlocks?.key || []).map((block, index) => ({
@@ -1131,7 +1219,13 @@ function renderCanvas(currentX, options = {}) {
             const itemBlockIndex = sharedStickyGroupId && Number.isFinite(item.sharedBlockIndex)
                 ? item.sharedBlockIndex
                 : item.blockIndex;
-            const layerMaxX = maxStickySmoothX_initial + itemLockDistance;
+            const baseLayerMaxX = maxStickySmoothX_initial + itemLockDistance;
+            const layerMaxX = item.stickyType === 'tempo'
+                ? calculateTempoMarkPinnedLayerMaxX({
+                    baseLayerMaxX,
+                    tempoXOffset: laneOffsets[item.laneId]?.tempo,
+                })
+                : baseLayerMaxX;
             const currentActive = sharedStickyGroupId
                 ? (sharedActiveIdx[sharedStickyGroupId] ?? -1)
                 : activeIdx[item.laneId][item.stickyType];
@@ -1144,15 +1238,27 @@ function renderCanvas(currentX, options = {}) {
                     currentExtraY: item.currentExtraY,
                 });
             }
+            else if (item.stickyType === 'tempo') {
+                targetExtraX = laneOffsets[item.laneId].tempo;
+                targetExtraY = resolveRehearsalMarkTargetExtraY({
+                    itemBlockIndex,
+                    currentActive,
+                    targetExtraY: laneOffsets[item.laneId].tempoY,
+                    currentExtraY: item.currentExtraY,
+                });
+            }
             else if (item.stickyType === 'key') targetExtraX = laneOffsets[item.laneId].clef;
             else if (item.stickyType === 'time') targetExtraX = laneOffsets[item.laneId].clef + laneOffsets[item.laneId].key;
 
             if (currentX >= layerMaxX) { isPinned = true; pinShiftX = currentX - layerMaxX; if (item.isMidClef) targetScale = activeMidClefStickyScale; }
             if (itemBlockIndex === currentActive) {
-                if (layerMaxX - currentX < 300) shouldShowMask = true;
-                const worldRightX = item.absMaxX + pinShiftX + targetExtraX + (item.absMaxX - item.blockMinX) * (targetScale - 1);
-                const screenRightX = (worldRightX - currentX) * globalZoom + playlineScreenX;
-                if (screenRightX > maxStickyRightScreenX) maxStickyRightScreenX = screenRightX;
+                const contributesToMask = item.stickyType !== 'tempo';
+                if (contributesToMask && layerMaxX - currentX < 300) shouldShowMask = true;
+                if (contributesToMask) {
+                    const worldRightX = item.absMaxX + pinShiftX + targetExtraX + (item.absMaxX - item.blockMinX) * (targetScale - 1);
+                    const screenRightX = (worldRightX - currentX) * globalZoom + playlineScreenX;
+                    if (screenRightX > maxStickyRightScreenX) maxStickyRightScreenX = screenRightX;
+                }
             }
         }
 
@@ -1221,7 +1327,7 @@ function renderCanvas(currentX, options = {}) {
         let drawColor = isPureBg ? bgColor : noteColor;
 
         if (showHighlights && item.symbolType) {
-            if (['Clef', 'Brace', 'TimeSig', 'KeySig', 'Barline', 'InstName', 'InstGroupLabel', 'RehearsalMark', 'TrueBarline'].includes(item.symbolType)) {
+            if (['Clef', 'Brace', 'TimeSig', 'KeySig', 'Barline', 'InstName', 'InstGroupLabel', 'RehearsalMark', 'TempoMark', 'TrueBarline'].includes(item.symbolType)) {
                 drawColor = '#ff2a5f';
             }
         }
@@ -1765,6 +1871,171 @@ function isRehearsalMarkText(content) {
     return /^[A-Z]{1,2}$/.test((content || "").trim());
 }
 
+function normalizeTempoText(content) {
+    return (content || '')
+        .normalize('NFC')
+        .replace(/[’‘`]/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function normalizeTempoRuleEntry(entry, standaloneDefault = true) {
+    if (typeof entry === 'string') {
+        return {
+            text: normalizeTempoText(entry),
+            standalone: standaloneDefault,
+        };
+    }
+
+    return {
+        text: normalizeTempoText(entry?.text || ''),
+        standalone: entry?.standalone !== false,
+    };
+}
+
+function buildTempoRuleIndex(ruleConfig) {
+    const categories = {};
+    const standaloneCorePhrases = new Set();
+    const allCorePhrases = new Set();
+    const allModifierPhrases = new Set();
+
+    Object.entries(ruleConfig || {}).forEach(([categoryKey, categoryConfig]) => {
+        const corePhraseMap = new Map();
+        const modifierPhraseSet = new Set();
+
+        (Array.isArray(categoryConfig?.corePhrases) ? categoryConfig.corePhrases : []).forEach((entry) => {
+            const normalizedEntry = normalizeTempoRuleEntry(entry, true);
+            if (!normalizedEntry.text) return;
+
+            corePhraseMap.set(normalizedEntry.text, {
+                standalone: normalizedEntry.standalone,
+            });
+            allCorePhrases.add(normalizedEntry.text);
+            if (normalizedEntry.standalone) standaloneCorePhrases.add(normalizedEntry.text);
+        });
+
+        (Array.isArray(categoryConfig?.modifierPhrases) ? categoryConfig.modifierPhrases : []).forEach((entry) => {
+            const normalizedModifier = normalizeTempoText(entry);
+            if (!normalizedModifier) return;
+
+            modifierPhraseSet.add(normalizedModifier);
+            allModifierPhrases.add(normalizedModifier);
+        });
+
+        categories[categoryKey] = {
+            corePhrases: corePhraseMap,
+            modifierPhrases: modifierPhraseSet,
+        };
+    });
+
+    return {
+        categories,
+        standaloneCorePhrases,
+        allCorePhrases,
+        allModifierPhrases,
+    };
+}
+
+function joinTempoTextParts(parts) {
+    return normalizeTempoText((Array.isArray(parts) ? parts : []).join(' '));
+}
+
+function canPartitionTempoModifierParts(parts, modifierPhraseSet, startIndex = 0, endIndex = parts.length) {
+    if (startIndex >= endIndex) return true;
+
+    for (let nextIndex = startIndex + 1; nextIndex <= endIndex; nextIndex++) {
+        const candidatePhrase = joinTempoTextParts(parts.slice(startIndex, nextIndex));
+        if (!modifierPhraseSet.has(candidatePhrase)) continue;
+        if (canPartitionTempoModifierParts(parts, modifierPhraseSet, nextIndex, endIndex)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function matchesTempoCategorySequence(parts, categoryRules) {
+    const normalizedParts = (Array.isArray(parts) ? parts : [])
+        .map((part) => normalizeTempoText(part))
+        .filter(Boolean);
+    if (normalizedParts.length === 0) return false;
+
+    for (let coreStartIndex = 0; coreStartIndex < normalizedParts.length; coreStartIndex++) {
+        const corePhrase = joinTempoTextParts(normalizedParts.slice(coreStartIndex));
+        const coreRule = categoryRules?.corePhrases?.get(corePhrase) || null;
+        if (!coreRule) continue;
+
+        if (coreStartIndex === 0) {
+            if (coreRule.standalone) return true;
+            continue;
+        }
+
+        if (canPartitionTempoModifierParts(normalizedParts, categoryRules.modifierPhrases, 0, coreStartIndex)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function matchesTempoTextSequence(parts) {
+    return Object.values(TEMPO_RULE_INDEX.categories).some((categoryRules) => (
+        matchesTempoCategorySequence(parts, categoryRules)
+    ));
+}
+
+function isTempoWhitelistText(content) {
+    const normalized = normalizeTempoText(content);
+    return normalized ? TEMPO_RULE_INDEX.standaloneCorePhrases.has(normalized) : false;
+}
+
+function isTempoNumberText(content) {
+    const normalized = (content || '').replace(/\s+/g, ' ').trim();
+    return /^(?:=|≈)\s*\d+(?:\s*-\s*\d+)?$/.test(normalized);
+}
+
+function isTempoMusicGlyphText(textEl) {
+    if (!textEl) return false;
+
+    const content = (textEl.textContent || '').trim();
+    const compactContent = content.replace(/\s+/g, '');
+    // Dorico can emit dotted-note metronome marks as a short glyph cluster in one text node.
+    if (!compactContent || compactContent.length > 4) return false;
+    const glyphChars = Array.from(compactContent);
+    if (glyphChars.length === 0) return false;
+    if (glyphChars.some((char) => !PRIVATE_USE_GLYPH_REGEX.test(char))) return false;
+    if (glyphChars.some((char) => TIME_SIGNATURE_GLYPH_REGEX.test(char))) return false;
+
+    const fontInfo = getScoreElementFontInfo(textEl);
+    const rawFamily = (fontInfo?.rawFontFamily || '').toLowerCase();
+    const normalizedFamily = (fontInfo?.normalizedFontFamily || '').toLowerCase();
+    const analysisMusicFont = getAnalysisMusicFont().toLowerCase();
+
+    return rawFamily.includes('bravura text')
+        || normalizedFamily.includes('bravura')
+        || normalizedFamily.includes(analysisMusicFont);
+}
+
+function isTempoPairBaselineAligned(leftRect, rightRect) {
+    if (!leftRect || !rightRect) return false;
+
+    const leftBaseline = leftRect.bottom;
+    const rightBaseline = rightRect.bottom;
+    return Math.abs(leftBaseline - rightBaseline) <= Math.max(6, Math.min(leftRect.height, rightRect.height) * 0.45);
+}
+
+function isTempoGlyphNumberPair(glyphRect, numberRect) {
+    if (!glyphRect || !numberRect) return false;
+    if (!(glyphRect.width > 0) || !(glyphRect.height > 0) || !(numberRect.width > 0) || !(numberRect.height > 0)) return false;
+    if (!isTempoPairBaselineAligned(glyphRect, numberRect)) return false;
+
+    const gap = numberRect.left - glyphRect.right;
+    if (gap < -2) return false;
+
+    return gap <= Math.max(40, glyphRect.height * 3.5);
+}
+
 function getAnalysisMusicFont() {
     return currentAnalysisProfile?.analysisMusicFont || currentAnalysisProfile?.selectedMusicFont || 'Bravura';
 }
@@ -1990,6 +2261,7 @@ async function processSvgContent(svgContent) {
     if (typeof identifyAndHighlightGeometricBrackets === 'function') identifyAndHighlightGeometricBrackets();
     if (typeof identifyAndHighlightInstrumentGroupLabels === 'function') identifyAndHighlightInstrumentGroupLabels();
     if (typeof identifyAndHighlightRehearsalMarks === 'function') identifyAndHighlightRehearsalMarks();
+    if (typeof identifyAndHighlightTempoMarks === 'function') identifyAndHighlightTempoMarks();
     if (typeof identifyAndHighlightInstrumentNames === 'function') identifyAndHighlightInstrumentNames();
     if (typeof identifyAndHighlightKeySignatures === 'function') identifyAndHighlightKeySignatures();
     if (typeof identifyAndHighlightTimeSignatures === 'function') identifyAndHighlightTimeSignatures();
@@ -3215,7 +3487,11 @@ function identifyAndHighlightInstrumentNames() {
     let foundCount = 0;
 
     candidateElements.forEach(el => {
-        if (el.classList.contains('highlight-rehearsalmark') || el.classList.contains('highlight-instgroup-label')) return;
+        if (
+            el.classList.contains('highlight-rehearsalmark')
+            || el.classList.contains('highlight-tempomark')
+            || el.classList.contains('highlight-instgroup-label')
+        ) return;
         const isMuseScoreSemanticInstrumentName = useMuseScoreSemanticClasses && el.classList.contains('InstrumentName');
 
         if (!isMuseScoreSemanticInstrumentName) {
@@ -3237,6 +3513,159 @@ function identifyAndHighlightInstrumentNames() {
     });
 
     debugLog(`✅ 乐器名扫描完毕，共标记 ${foundCount} 个左侧文本。`);
+}
+
+function identifyAndHighlightTempoMarks() {
+    const svgRoot = document.querySelector('#score-container svg');
+    if (!svgRoot) return;
+
+    const textElements = Array.from(svgRoot.querySelectorAll('text'));
+    const isBlockedTempoText = (textEl) => (
+        !textEl
+        || textEl.classList.contains('highlight-instname')
+        || textEl.classList.contains('highlight-instgroup-label')
+        || textEl.classList.contains('highlight-rehearsalmark')
+        || textEl.classList.contains('highlight-timesig')
+        || textEl.classList.contains('highlight-clef')
+    );
+    const markTempoElements = (elements) => {
+        let didMark = false;
+        elements.forEach((el) => {
+            if (!el || el.classList.contains('highlight-tempomark')) return;
+            el.classList.add('highlight-tempomark');
+            didMark = true;
+        });
+        return didMark;
+    };
+    const getTempoTextRect = (textEl) => textEl?.getBoundingClientRect?.() || null;
+    const isCompactTempoTextSpan = (entries) => {
+        if (!Array.isArray(entries) || entries.length <= 1) return true;
+
+        for (let index = 1; index < entries.length; index++) {
+            const previousRect = entries[index - 1]?.rect;
+            const currentRect = entries[index]?.rect;
+            if (!previousRect || !currentRect) return false;
+
+            const gap = currentRect.left - previousRect.right;
+            const maxGap = Math.max(28, Math.max(previousRect.height, currentRect.height) * 2.5);
+            if (gap < -2 || gap > maxGap) return false;
+        }
+
+        return true;
+    };
+    const markTempoPhraseMatches = (textEntries) => {
+        if (!Array.isArray(textEntries) || textEntries.length === 0) return 0;
+
+        const sortedEntries = textEntries
+            .filter((entry) => entry?.text && entry?.rect)
+            .sort((left, right) => (
+                (left.rect.left - right.rect.left)
+                || (left.rect.top - right.rect.top)
+            ));
+        let markedCount = 0;
+
+        for (let startIndex = 0; startIndex < sortedEntries.length; startIndex++) {
+            if (sortedEntries[startIndex].el.classList.contains('highlight-tempomark')) continue;
+
+            let matchedRange = null;
+            const maxEndIndex = Math.min(sortedEntries.length, startIndex + 4);
+            for (let endIndex = maxEndIndex; endIndex > startIndex; endIndex--) {
+                const candidateEntries = sortedEntries.slice(startIndex, endIndex);
+                if (!isCompactTempoTextSpan(candidateEntries)) continue;
+
+                const candidateParts = candidateEntries.map((entry) => entry.text);
+                if (!matchesTempoTextSequence(candidateParts)) continue;
+
+                matchedRange = candidateEntries;
+                break;
+            }
+
+            if (!matchedRange) continue;
+            if (markTempoElements(matchedRange.map((entry) => entry.el))) {
+                markedCount++;
+            }
+            startIndex += matchedRange.length - 1;
+        }
+
+        return markedCount;
+    };
+
+    let foundCount = 0;
+
+    textElements.forEach((textEl) => {
+        if (isBlockedTempoText(textEl)) return;
+        if (currentAnalysisProfile.sourceType !== SCORE_SOURCE_DORICO && isNearQuarterTurnTextMatrix(textEl)) return;
+
+        const content = (textEl.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!matchesTempoTextSequence([content])) return;
+
+        const rect = textEl.getBoundingClientRect();
+        if (!(rect.width > 0) || !(rect.height > 0)) return;
+
+        if (markTempoElements([textEl])) foundCount++;
+    });
+
+    const textGroups = new Map();
+    textElements.forEach((textEl) => {
+        if (isBlockedTempoText(textEl)) return;
+        const parent = textEl.parentElement;
+        if (!parent) return;
+        if (!textGroups.has(parent)) textGroups.set(parent, []);
+        textGroups.get(parent).push(textEl);
+    });
+
+    const candidateNumberTexts = textElements.filter((textEl) => (
+        !isBlockedTempoText(textEl)
+        && isTempoNumberText((textEl.textContent || '').replace(/\s+/g, ' ').trim())
+    ));
+
+    const tryMarkMetronomePair = (glyphTextEl, numberTexts) => {
+        if (!isTempoMusicGlyphText(glyphTextEl)) return false;
+
+        const glyphRect = glyphTextEl.getBoundingClientRect();
+        if (!(glyphRect.width > 0) || !(glyphRect.height > 0)) return false;
+
+        const matchingNumber = numberTexts
+            .filter((numberTextEl) => numberTextEl !== glyphTextEl && !isBlockedTempoText(numberTextEl))
+            .map((numberTextEl) => ({
+                el: numberTextEl,
+                rect: numberTextEl.getBoundingClientRect(),
+            }))
+            .filter(({ rect }) => isTempoGlyphNumberPair(glyphRect, rect))
+            .sort((left, right) => left.rect.left - right.rect.left)[0] || null;
+
+        if (!matchingNumber) return false;
+        return markTempoElements([glyphTextEl, matchingNumber.el]);
+    };
+
+    textGroups.forEach((groupTexts) => {
+        const phraseEntries = groupTexts.map((textEl) => ({
+            el: textEl,
+            text: (textEl.textContent || '').replace(/\s+/g, ' ').trim(),
+            rect: getTempoTextRect(textEl),
+        }));
+        foundCount += markTempoPhraseMatches(phraseEntries);
+
+        const glyphTexts = groupTexts.filter((textEl) => isTempoMusicGlyphText(textEl));
+        const numberTexts = groupTexts.filter((textEl) => (
+            isTempoNumberText((textEl.textContent || '').replace(/\s+/g, ' ').trim())
+        ));
+
+        glyphTexts.forEach((glyphTextEl) => {
+            if (tryMarkMetronomePair(glyphTextEl, numberTexts)) foundCount++;
+        });
+    });
+
+    textElements
+        .filter((textEl) => !textEl.classList.contains('highlight-tempomark'))
+        .filter((textEl) => isTempoMusicGlyphText(textEl))
+        .forEach((glyphTextEl) => {
+            if (tryMarkMetronomePair(glyphTextEl, candidateNumberTexts)) foundCount++;
+        });
+
+    if (foundCount > 0) {
+        debugLog(`✅ 速度标记扫描完毕，共点亮 ${foundCount} 组。`);
+    }
 }
 
 function identifyAndHighlightRehearsalMarks() {

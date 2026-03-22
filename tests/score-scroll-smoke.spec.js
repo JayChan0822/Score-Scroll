@@ -48,9 +48,11 @@ window.__scoreDebug = {
   getRenderQueue: () => renderQueue,
   getGlobalStickyLanes: () => globalStickyLanes,
   getGlobalTimeSigs: () => globalTimeSigs,
+  getStickyMinX: () => stickyMinX,
   renderAtX: (x) => {
     renderCanvas(x);
     return {
+      activeIdx: window.__lastStickyActiveIdx || null,
       laneOffsets: window.__lastStickyLaneOffsets || null,
     };
   },
@@ -211,6 +213,47 @@ function buildTallPreviewSvgBuffer() {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="460" height="1980" viewBox="0 0 460 1980">
       ${staffGroups}
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
+function buildTempoPhraseCombinationSvgBuffer() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="760" height="160" viewBox="0 0 760 160">
+      <line x1="30" y1="80" x2="730" y2="80" stroke="#000" stroke-width="1" />
+      <line x1="30" y1="90" x2="730" y2="90" stroke="#000" stroke-width="1" />
+      <line x1="30" y1="100" x2="730" y2="100" stroke="#000" stroke-width="1" />
+      <line x1="30" y1="110" x2="730" y2="110" stroke="#000" stroke-width="1" />
+      <line x1="30" y1="120" x2="730" y2="120" stroke="#000" stroke-width="1" />
+      <line x1="30" y1="80" x2="30" y2="120" stroke="#000" stroke-width="1" />
+      <line x1="730" y1="80" x2="730" y2="120" stroke="#000" stroke-width="1" />
+      <path d="M42 82 L52 82 L52 118 L42 118 Z" fill="#000" stroke="#000" stroke-width="1" />
+
+      <g transform="translate(85,42)">
+        <text x="0" y="0" font-family="Times New Roman" font-size="18">poco</text>
+        <text x="44" y="0" font-family="Times New Roman" font-size="18">accel.</text>
+      </g>
+
+      <g transform="translate(205,42)">
+        <text x="0" y="0" font-family="Times New Roman" font-size="18">più</text>
+        <text x="28" y="0" font-family="Times New Roman" font-size="18">mosso</text>
+      </g>
+
+      <g transform="translate(315,42)">
+        <text x="0" y="0" font-family="Times New Roman" font-size="18">a tempo</text>
+      </g>
+
+      <g transform="translate(410,42)">
+        <text x="0" y="0" font-family="Times New Roman" font-size="18">non</text>
+        <text x="34" y="0" font-family="Times New Roman" font-size="18">troppo</text>
+        <text x="92" y="0" font-family="Times New Roman" font-size="18">mosso</text>
+      </g>
+
+      <g transform="translate(585,42)">
+        <text x="0" y="0" font-family="Times New Roman" font-size="18">L’istesso tempo</text>
+      </g>
     </svg>
   `.trim();
 
@@ -3843,9 +3886,9 @@ test('threads rehearsal marks into sticky lane replacement order', async ({ page
   expect(state).not.toBeNull();
   expect(state).toEqual(expect.arrayContaining(['text']));
   expect(state).toEqual(expect.arrayContaining(['path', 'circle']));
-  expect(svgAnalysisSource).toContain('const itemsByType = { inst: [], reh: [], clef: [], key: [], time: [], bar: [], brace: [] };');
-  expect(svgAnalysisSource).toContain('["inst", "reh", "clef", "key", "time", "bar", "brace"].forEach(type => {');
-  expect(appSource).toContain("activeIdx[laneId] = { inst: -1, reh: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };");
+  expect(svgAnalysisSource).toContain('const itemsByType = { inst: [], reh: [], tempo: [], clef: [], key: [], time: [], bar: [], brace: [] };');
+  expect(svgAnalysisSource).toContain('["inst", "reh", "tempo", "clef", "key", "time", "bar", "brace"].forEach(type => {');
+  expect(appSource).toContain("activeIdx[laneId] = { inst: -1, reh: -1, tempo: -1, clef: -1, key: -1, time: -1, bar: -1, brace: -1 };");
 });
 
 test('keeps lower-system rehearsal E and F on the same sticky lane despite vertical drift', async ({ page }) => {
@@ -3887,6 +3930,408 @@ test('keeps lower-system rehearsal E and F on the same sticky lane despite verti
   expect(state.lowerE).not.toBeNull();
   expect(state.lowerF).not.toBeNull();
   expect(state.lowerE.laneId).toBe(state.lowerF.laneId);
+});
+
+test('detects tempo text and metronome marks as sticky candidates', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'tempo-sticky.svg');
+  const svgAnalysisSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'features', 'svg-analysis.js'), 'utf8');
+  const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'app.js'), 'utf8');
+
+  await exposeStickyLaneDebug(page);
+  await loadFixtureIntoScore(page, fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox .highlight-tempomark').length), {
+    message: 'waiting for tempo-mark detection to finish',
+  }).toBeGreaterThanOrEqual(6);
+
+  const state = await page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    const stickyLanes = window.__scoreDebug?.getGlobalStickyLanes?.() || {};
+    if (!svg) return null;
+
+    const targetTexts = ['Largo', 'Andante', '', '= 56', '= 72'];
+    const texts = Array.from(svg.querySelectorAll('text'))
+      .map((el) => ({
+        text: (el.textContent || '').replace(/\s+/g, ' ').trim(),
+        classes: el.className?.baseVal || '',
+      }))
+      .filter((entry) => targetTexts.includes(entry.text));
+
+    const tempoBlocks = Object.entries(stickyLanes).flatMap(([laneId, lane]) => (
+      (lane?.typeBlocks?.tempo || []).map((block, index) => ({
+        laneId,
+        index,
+        texts: Array.isArray(block?.items)
+          ? block.items.map((item) => (item?.text || '').replace(/\s+/g, ' ').trim()).filter(Boolean)
+          : [],
+      }))
+    ));
+
+    return {
+      tempoClassCount: Array.from(svg.querySelectorAll('.highlight-tempomark')).length,
+      texts,
+      tempoBlocks,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(svgAnalysisSource).toContain('TempoMark: "tempo"');
+  expect(svgAnalysisSource).toContain('const itemsByType = { inst: [], reh: [], tempo: [], clef: [], key: [], time: [], bar: [], brace: [] };');
+  expect(appSource).toContain('highlight-tempomark');
+  expect(state.tempoClassCount).toBeGreaterThanOrEqual(6);
+  expect(state.texts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ text: 'Largo', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: 'Andante', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: '', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: '= 56', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: '= 72', classes: expect.stringContaining('highlight-tempomark') }),
+  ]));
+  expect(state.tempoBlocks).toEqual(expect.arrayContaining([
+    expect.objectContaining({ texts: expect.arrayContaining(['Largo', '', '= 56']) }),
+    expect.objectContaining({ texts: expect.arrayContaining(['Andante', '', '= 72']) }),
+  ]));
+});
+
+test('pins tempo marks to the right of rehearsal marks and falls back to the rehearsal column', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'tempo-sticky.svg');
+
+  await exposeStickyLaneDebug(page);
+  await loadFixtureIntoScore(page, fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox .highlight-tempomark').length), {
+    message: 'waiting for tempo sticky metadata to settle',
+  }).toBeGreaterThanOrEqual(6);
+
+  const state = await page.evaluate(() => {
+    const lanes = window.__scoreDebug?.getGlobalStickyLanes?.() || {};
+    const renderResult = window.__scoreDebug?.renderAtX?.(320) || {};
+    const renderQueue = window.__scoreDebug?.getRenderQueue?.() || [];
+
+    const findLaneByBlockText = (targetText) => Object.entries(lanes).find(([, lane]) => (
+      (lane?.typeBlocks?.tempo || []).some((block) => (
+        Array.isArray(block?.items)
+        && block.items.some((item) => ((item?.text || '').replace(/\s+/g, ' ').trim() === targetText))
+      ))
+    ))?.[0] || null;
+
+    const rehearsalTempoLaneId = findLaneByBlockText('Largo');
+    const fallbackTempoLaneId = findLaneByBlockText('Andante');
+    const findItem = (targetText) => renderQueue.find((item) => (
+      ((item?.text || '').replace(/\s+/g, ' ').trim() === targetText)
+      && item?.stickyType === 'tempo'
+    )) || null;
+    const findActiveLaneTempoItem = (laneId, activeBlockIndex) => renderQueue.find((item) => (
+      item?.stickyType === 'tempo'
+      && item?.laneId === laneId
+      && item?.blockIndex === activeBlockIndex
+    )) || null;
+
+    const largo = findItem('Largo');
+    const andante = findItem('Andante');
+    const rehearsalTempoActiveIndex = rehearsalTempoLaneId ? (renderResult?.activeIdx?.[rehearsalTempoLaneId]?.tempo ?? null) : null;
+    const fallbackTempoActiveIndex = fallbackTempoLaneId ? (renderResult?.activeIdx?.[fallbackTempoLaneId]?.tempo ?? null) : null;
+    const activeRehearsalTempoItem = rehearsalTempoLaneId ? findActiveLaneTempoItem(rehearsalTempoLaneId, rehearsalTempoActiveIndex) : null;
+    const activeFallbackTempoItem = fallbackTempoLaneId ? findActiveLaneTempoItem(fallbackTempoLaneId, fallbackTempoActiveIndex) : null;
+
+    return {
+      rehearsalTempoLaneId,
+      fallbackTempoLaneId,
+      rehearsalTempoActiveIndex,
+      fallbackTempoActiveIndex,
+      rehearsalTempoOffset: rehearsalTempoLaneId ? (renderResult?.laneOffsets?.[rehearsalTempoLaneId]?.tempo ?? null) : null,
+      fallbackTempoOffset: fallbackTempoLaneId ? (renderResult?.laneOffsets?.[fallbackTempoLaneId]?.tempo ?? null) : null,
+      rehearsalTempoYOffset: rehearsalTempoLaneId ? (renderResult?.laneOffsets?.[rehearsalTempoLaneId]?.tempoY ?? null) : null,
+      fallbackTempoYOffset: fallbackTempoLaneId ? (renderResult?.laneOffsets?.[fallbackTempoLaneId]?.tempoY ?? null) : null,
+      largoExtraX: largo?.currentExtraX ?? null,
+      andanteExtraX: andante?.currentExtraX ?? null,
+      activeRehearsalTempoExtraY: activeRehearsalTempoItem?.currentExtraY ?? null,
+      activeFallbackTempoExtraY: activeFallbackTempoItem?.currentExtraY ?? null,
+    };
+  });
+
+  expect(state.rehearsalTempoLaneId).toBeTruthy();
+  expect(state.fallbackTempoLaneId).toBeTruthy();
+  expect(state.rehearsalTempoOffset).toBeGreaterThan(0);
+  expect(state.fallbackTempoOffset).toBe(0);
+  expect(state.largoExtraX).toBeGreaterThan(0);
+  expect(state.andanteExtraX).toBe(0);
+  expect(Math.abs(state.rehearsalTempoYOffset)).toBeGreaterThan(0);
+  expect(Math.abs(state.fallbackTempoYOffset)).toBeGreaterThan(0);
+  expect(state.activeRehearsalTempoExtraY).not.toBeNull();
+  expect(state.activeFallbackTempoExtraY).not.toBeNull();
+  expect(state.activeRehearsalTempoExtraY).toBeCloseTo(state.rehearsalTempoYOffset, 5);
+  expect(state.activeFallbackTempoExtraY).toBeCloseTo(state.fallbackTempoYOffset, 5);
+});
+
+test('later tempo blocks activate when they reach the pinned tempo column', async ({ page }) => {
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'tempo-sticky.svg');
+
+  await exposeStickyLaneDebug(page);
+  await loadFixtureIntoScore(page, fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => document.querySelectorAll('#svg-sandbox .highlight-tempomark').length), {
+    message: 'waiting for later tempo sticky metadata to settle',
+  }).toBeGreaterThanOrEqual(7);
+
+  const state = await page.evaluate(() => {
+    const lanes = window.__scoreDebug?.getGlobalStickyLanes?.() || {};
+    const renderQueue = window.__scoreDebug?.getRenderQueue?.() || [];
+    const viewport = document.getElementById('viewport');
+    if (!viewport) return null;
+
+    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const viewportWidth = viewport.clientWidth;
+    const playlineScreenX = viewportWidth * playlineRatio;
+    const stickyLockScreenX = viewportWidth * stickyLockRatio;
+    const worldDistanceLeft = playlineScreenX / zoom;
+    const stickyLockOffset = stickyLockScreenX / zoom;
+    const stickyMinX = Number(window.__scoreDebug?.getStickyMinX?.()) || 0;
+    const maxStickySmoothXInitial = worldDistanceLeft + stickyMinX - stickyLockOffset;
+
+    const vivaceLaneEntry = Object.entries(lanes).find(([, lane]) => (
+      (lane?.typeBlocks?.tempo || []).some((block) => (
+        Array.isArray(block?.items)
+        && block.items.some((item) => ((item?.text || '').replace(/\s+/g, ' ').trim() === 'Vivace'))
+      ))
+    )) || null;
+    if (!vivaceLaneEntry) return null;
+
+    const [laneId, lane] = vivaceLaneEntry;
+    const vivaceBlockIndex = (lane?.typeBlocks?.tempo || []).findIndex((block) => (
+      Array.isArray(block?.items)
+      && block.items.some((item) => ((item?.text || '').replace(/\s+/g, ' ').trim() === 'Vivace'))
+    ));
+    const vivaceItem = renderQueue.find((item) => (
+      ((item?.text || '').replace(/\s+/g, ' ').trim() === 'Vivace')
+      && item?.stickyType === 'tempo'
+    )) || null;
+    if (!vivaceItem || vivaceBlockIndex === -1) return null;
+
+    const referenceRender = window.__scoreDebug.renderAtX(320) || {};
+    const tempoOffset = referenceRender?.laneOffsets?.[laneId]?.tempo ?? 0;
+    const oldLayerMaxX = maxStickySmoothXInitial + (Number.isFinite(vivaceItem.lockDistance) ? vivaceItem.lockDistance : 0);
+    const probeX = oldLayerMaxX - Math.max(1, tempoOffset / 2);
+    const probeRender = window.__scoreDebug.renderAtX(probeX) || {};
+
+    return {
+      laneId,
+      vivaceBlockIndex,
+      tempoOffset,
+      oldLayerMaxX,
+      probeX,
+      probeActiveTempoIndex: probeRender?.activeIdx?.[laneId]?.tempo ?? null,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.tempoOffset).toBeGreaterThan(0);
+  expect(state.probeX).toBeLessThan(state.oldLayerMaxX);
+  expect(state.probeActiveTempoIndex).toBe(state.vivaceBlockIndex);
+});
+
+test('detects real-world tempo marks in 速度吸顶.svg', async ({ page }) => {
+  const fixturePathCandidates = [
+    path.resolve(__dirname, '..', '速度吸顶.svg'),
+    path.resolve(__dirname, '..', '..', '..', '速度吸顶.svg'),
+  ];
+  const fixturePath = fixturePathCandidates.find((candidate) => fs.existsSync(candidate));
+  expect(fixturePath).toBeTruthy();
+
+  await loadFixtureIntoScore(page, fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const texts = Array.from(svg.querySelectorAll('text'))
+      .map((el) => ({
+        text: (el.textContent || '').replace(/\s+/g, ' ').trim(),
+        classes: el.className?.baseVal || '',
+      }))
+      .filter((entry) => ['Largo', '', '= 56'].includes(entry.text));
+
+    return {
+      highlightCount: document.querySelectorAll('#svg-sandbox .highlight-tempomark').length,
+      texts,
+    };
+  }), {
+    message: 'waiting for 速度吸顶.svg tempo detection',
+  }).toEqual({
+    highlightCount: expect.any(Number),
+    texts: expect.arrayContaining([
+      expect.objectContaining({ text: 'Largo', classes: expect.stringContaining('highlight-tempomark') }),
+      expect.objectContaining({ text: '', classes: expect.stringContaining('highlight-tempomark') }),
+      expect.objectContaining({ text: '= 56', classes: expect.stringContaining('highlight-tempomark') }),
+    ]),
+  });
+});
+
+test('keeps the sticky mask anchored to the active time signature instead of the tempo text in 速度吸顶.svg', async ({ page }) => {
+  const fixturePathCandidates = [
+    path.resolve(__dirname, '..', '速度吸顶.svg'),
+    path.resolve(__dirname, '..', '..', '..', '速度吸顶.svg'),
+  ];
+  const fixturePath = fixturePathCandidates.find((candidate) => fs.existsSync(candidate));
+  expect(fixturePath).toBeTruthy();
+
+  await exposeStickyLaneDebug(page);
+  await loadFixtureIntoScore(page, fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => ({
+    tempoCount: document.querySelectorAll('#svg-sandbox .highlight-tempomark').length,
+    timeCount: document.querySelectorAll('#svg-sandbox .highlight-timesig').length,
+  })), {
+    message: 'waiting for 速度吸顶.svg sticky mask fixture metadata',
+  }).toEqual({
+    tempoCount: expect.any(Number),
+    timeCount: expect.any(Number),
+  });
+
+  const state = await page.evaluate(() => {
+    const renderQueue = window.__scoreDebug?.getRenderQueue?.() || [];
+    const lanes = window.__scoreDebug?.getGlobalStickyLanes?.() || {};
+    const viewport = document.getElementById('viewport');
+    if (!viewport) return null;
+
+    const currentX = 320;
+    const renderResult = window.__scoreDebug?.renderAtX?.(currentX) || {};
+    const laneOffsets = renderResult?.laneOffsets || {};
+    const activeIdx = renderResult?.activeIdx || {};
+    const stickyMinX = Number(window.__scoreDebug?.getStickyMinX?.()) || 0;
+    const maskWidth = Number(window.__maskWidth) || 0;
+    const zoom = Number.parseFloat(document.getElementById('zoomSlider')?.value || '1') || 1;
+    const playlineRatio = (Number.parseFloat(document.getElementById('playlineRatioSlider')?.value || '50') || 50) / 100;
+    const stickyLockRatio = (Number.parseFloat(document.getElementById('stickyLockRatioSlider')?.value || '50') || 50) / 100;
+    const viewportWidth = viewport.clientWidth;
+    const playlineScreenX = viewportWidth * playlineRatio;
+    const stickyLockScreenX = viewportWidth * stickyLockRatio;
+    const worldDistanceLeft = playlineScreenX / zoom;
+    const stickyLockOffset = stickyLockScreenX / zoom;
+    const maxStickySmoothXInitial = worldDistanceLeft + stickyMinX - stickyLockOffset;
+
+    const tempoLaneId = Object.entries(lanes).find(([, lane]) => (
+      (lane?.typeBlocks?.tempo || []).some((block) => (
+        Array.isArray(block?.items)
+        && block.items.some((item) => ((item?.text || '').replace(/\s+/g, ' ').trim() === 'Largo'))
+      ))
+    ))?.[0] || null;
+    if (!tempoLaneId) return null;
+
+    const collectActiveBlockRight = (stickyType) => {
+      const activeBlockIndex = activeIdx?.[tempoLaneId]?.[stickyType];
+      if (!Number.isFinite(activeBlockIndex) || activeBlockIndex < 0) return null;
+
+      const activeItems = renderQueue.filter((item) => (
+        item?.stickyType === stickyType
+        && item?.laneId === tempoLaneId
+        && item?.blockIndex === activeBlockIndex
+      ));
+      if (activeItems.length === 0) return null;
+
+      const maxRight = Math.max(...activeItems.map((item) => {
+        const baseLayerMaxX = maxStickySmoothXInitial + (Number.isFinite(item.lockDistance) ? item.lockDistance : 0);
+        const tempoOffset = stickyType === 'tempo'
+          ? (laneOffsets?.[tempoLaneId]?.tempo ?? 0)
+          : 0;
+        const layerMaxX = stickyType === 'tempo'
+          ? (baseLayerMaxX - Math.max(0, tempoOffset))
+          : baseLayerMaxX;
+        const pinShiftX = currentX >= layerMaxX ? (currentX - layerMaxX) : 0;
+        const appliedExtraX = Number.isFinite(item.currentExtraX) ? item.currentExtraX : 0;
+        const appliedScale = Number.isFinite(item.currentScale) ? item.currentScale : 1;
+        const worldRightX = (item.absMaxX || 0)
+          + pinShiftX
+          + appliedExtraX
+          + ((item.absMaxX || 0) - (item.blockMinX || 0)) * (appliedScale - 1);
+        return (worldRightX - currentX) * zoom + playlineScreenX;
+      }));
+
+      return Math.max(0, maxRight);
+    };
+
+    const timeRight = collectActiveBlockRight('time');
+    const tempoRight = collectActiveBlockRight('tempo');
+
+    return {
+      tempoLaneId,
+      maskWidth,
+      timeRight,
+      tempoRight,
+    };
+  });
+
+  expect(state).not.toBeNull();
+  expect(state.timeRight).not.toBeNull();
+  expect(state.tempoRight).not.toBeNull();
+  expect(state.tempoRight).toBeGreaterThan(state.timeRight);
+  expect(state.maskWidth).toBeGreaterThan(state.timeRight);
+  expect(Math.abs((state.maskWidth - 48) - state.timeRight)).toBeLessThan(Math.abs((state.maskWidth - 48) - state.tempoRight));
+  expect(state.maskWidth).toBeCloseTo(Math.ceil((state.timeRight + 48) / 10) * 10, 0);
+});
+
+test('detects dotted-note metronome marks in Ardor.svg', async ({ page }) => {
+  const fixturePath = '/Users/jaychan/Library/Mobile Documents/com~apple~CloudDocs/__Work_Projects__/__Dorico Projects__/20250917_三重奏Ardor/Scores/Ardor.svg';
+  expect(fs.existsSync(fixturePath)).toBe(true);
+
+  await loadFixtureIntoScore(page, fixturePath);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    const texts = Array.from(svg.querySelectorAll('text'))
+      .map((el) => ({
+        text: (el.textContent || '').replace(/\s+/g, ' ').trim(),
+        classes: el.className?.baseVal || '',
+      }))
+      .filter((entry) => [' ', '= 46'].includes(entry.text));
+
+    return {
+      texts,
+    };
+  }), {
+    message: 'waiting for Ardor dotted tempo-mark detection',
+  }).toEqual({
+    texts: expect.arrayContaining([
+      expect.objectContaining({ text: ' ', classes: expect.stringContaining('highlight-tempomark') }),
+      expect.objectContaining({ text: '= 46', classes: expect.stringContaining('highlight-tempomark') }),
+    ]),
+  });
+});
+
+test('detects tempo phrase combinations across the four configured categories', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'tempo-phrase-combinations.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildTempoPhraseCombinationSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    return Array.from(svg.querySelectorAll('text'))
+      .map((el) => ({
+        text: (el.textContent || '').replace(/\s+/g, ' ').trim(),
+        classes: el.className?.baseVal || '',
+      }))
+      .filter((entry) => ['poco', 'accel.', 'più', 'mosso', 'a tempo', 'non', 'troppo', 'L’istesso tempo'].includes(entry.text));
+  }), {
+    message: 'waiting for tempo phrase combination detection',
+  }).toEqual(expect.arrayContaining([
+    expect.objectContaining({ text: 'poco', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: 'accel.', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: 'più', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: 'mosso', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: 'a tempo', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: 'non', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: 'troppo', classes: expect.stringContaining('highlight-tempomark') }),
+    expect.objectContaining({ text: 'L’istesso tempo', classes: expect.stringContaining('highlight-tempomark') }),
+  ]));
 });
 
 test('system-wide time column follows the widest active key in 调号修复.svg', async ({ page }) => {
