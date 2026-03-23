@@ -395,8 +395,8 @@ export const MusicFontRegistry = {
         },
         accidentals: {
             'Sharp': ['MCCCCCLCCCCCLCCCCCCLCCCCCCLCCCCCCCCCCLCCCCCCCCCCCCCLCCCCCLCCCCCLCCCLCCCCCCCCCMCCCCLCCCCL'],
-            'Flat': ['MCLCCCCCCCCCCCCCCCLCCCCCCCCMCLCCCCCC'],
-            'Natural': ['MCCCCLLCCCCCCCLCCCMCCCLC']
+            'Flat': ['MCCCCLLCCCCCCCLCCCMCCCLC'],
+            'Natural': ['MCLCCCCCCCCCCCCCCCLCCCCCCCCMCLCCCCCC']
         },
         noteheads: {
             'Notehead_Quarter': ['MCCCCC'],
