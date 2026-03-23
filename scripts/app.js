@@ -67,7 +67,7 @@ const DORICO_MID_CLEF_STICKY_SCALE = 1.5;
 const SIBELIUS_MID_CLEF_STICKY_SCALE = 1.35;
 const MUSESCORE_MID_CLEF_STICKY_SCALE = 1.25;
 const LILYPOND_MID_CLEF_STICKY_SCALE = 1.2;
-const REHEARSAL_STICKY_PADDING_ABOVE = 16;
+const REHEARSAL_STICKY_PADDING_ABOVE = 8;
 const REHEARSAL_STICKY_PADDING_BELOW = -8;
 const TEMPO_STICKY_PADDING_RIGHT = -5;
 const TEMPO_TEXT_RULES = {
@@ -116,6 +116,8 @@ const TEMPO_TEXT_RULES = {
 };
 const TEMPO_RULE_INDEX = buildTempoRuleIndex(TEMPO_TEXT_RULES);
 const SIBELIUS_SOURCE_REGEX = /\b(?:Opus(?:\s+Special)?\s+Std|Opus\s+Text\s+Std|Helsinki|Inkpen2)\b/i;
+const SIBELIUS_TEMPO_GLYPH_FONT_REGEX = /\b(?:Helsinki(?:\s+Text)?\s+Std|Opus(?:\s+Special)?\s+Std|Opus\s+Text\s+Std|Inkpen2)\b/i;
+const SIBELIUS_TEMPO_GLYPH_TOKEN_REGEX = /^(?:[qQhHwWeExX]|[qQhHwWeExX]\.)$/;
 const controlStackEl = document.querySelector(".control-stack");
 const stageWrapEl = document.querySelector(".stage-wrap");
 const workspaceScaleFrame = document.querySelector(".workspace-scale-frame");
@@ -1995,6 +1997,14 @@ function isTempoNumberText(content) {
     return /^(?:=|≈)\s*\d+(?:\s*-\s*\d+)?$/.test(normalized);
 }
 
+function isSibeliusTempoGlyphText(textEl, compactContent) {
+    if (!textEl || currentAnalysisProfile?.sourceType !== SCORE_SOURCE_SIBELIUS) return false;
+    if (!SIBELIUS_TEMPO_GLYPH_TOKEN_REGEX.test(compactContent || '')) return false;
+
+    const { rawFontFamily } = getScoreElementFontInfo(textEl);
+    return SIBELIUS_TEMPO_GLYPH_FONT_REGEX.test(rawFontFamily || '');
+}
+
 function isTempoMusicGlyphText(textEl) {
     if (!textEl) return false;
 
@@ -2002,6 +2012,7 @@ function isTempoMusicGlyphText(textEl) {
     const compactContent = content.replace(/\s+/g, '');
     // Dorico can emit dotted-note metronome marks as a short glyph cluster in one text node.
     if (!compactContent || compactContent.length > 4) return false;
+    if (isSibeliusTempoGlyphText(textEl, compactContent)) return true;
     const glyphChars = Array.from(compactContent);
     if (glyphChars.length === 0) return false;
     if (glyphChars.some((char) => !PRIVATE_USE_GLYPH_REGEX.test(char))) return false;
@@ -3791,19 +3802,27 @@ function getTimeSignaturePairThresholds(candidate, other) {
             || hasKnownMusicFontTextPair
         );
     const useGenericTextStackThresholds = candidateTag !== 'path' && otherTag !== 'path';
+    const minWidth = Math.min(rect.width, otherRect.width);
+    const minHeight = Math.min(rect.height, otherRect.height);
+    const maxHeight = Math.max(rect.height, otherRect.height);
 
     return {
-        maxAlignedXGap: Math.max(8, Math.min(rect.width, otherRect.width) * 0.6),
+        maxAlignedXGap: 0.5,
+        // maxAlignedXGap: useCompressedTextStackThresholds
+        //     ? Math.max(6, minWidth * 0.35)
+        //     : useGenericTextStackThresholds
+        //         ? Math.max(8, minWidth * 0.4)
+        //         : Math.max(6, minWidth * 0.5),
         minStackGap: useCompressedTextStackThresholds
-            ? Math.max(6, Math.min(rect.height, otherRect.height) * 0.12)
+            ? Math.max(6, minHeight * 0.12)
             : useGenericTextStackThresholds
-                ? Math.max(6, Math.min(rect.height, otherRect.height) * 0.45)
-            : Math.max(8, Math.min(rect.height, otherRect.height) * 0.75),
+                ? Math.max(8, minHeight * 0.4)
+            : Math.max(10, minHeight * 0.7),
         maxStackGap: useCompressedTextStackThresholds
-            ? Math.max(40, Math.max(rect.height, otherRect.height) * 2)
+            ? Math.min(33, Math.max(30, maxHeight * 0.9))
             : useGenericTextStackThresholds
-                ? Math.max(36, Math.max(rect.height, otherRect.height) * 2.5)
-            : Math.max(32, Math.max(rect.height, otherRect.height) * 3.5),
+                ? Math.max(32, maxHeight * 1.8)
+            : Math.max(30, maxHeight * 2.8),
     };
 }
 

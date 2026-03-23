@@ -260,6 +260,37 @@ function buildTempoPhraseCombinationSvgBuffer() {
   return Buffer.from(svg, 'utf8');
 }
 
+function buildSibeliusTempoMarkSvgBuffer() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="520" height="180" viewBox="0 0 520 180" version="1.2" baseProfile="tiny">
+      <desc>Generated with Qt</desc>
+
+      <g fill="none" stroke="#000000" stroke-width="1" stroke-linecap="square" stroke-linejoin="bevel">
+        <line x1="120" y1="90" x2="480" y2="90" />
+        <line x1="120" y1="100" x2="480" y2="100" />
+        <line x1="120" y1="110" x2="480" y2="110" />
+        <line x1="120" y1="120" x2="480" y2="120" />
+        <line x1="120" y1="130" x2="480" y2="130" />
+        <line x1="120" y1="90" x2="120" y2="130" />
+        <line x1="300" y1="90" x2="300" y2="130" />
+        <line x1="480" y1="90" x2="480" y2="130" />
+      </g>
+
+      <g font-family="Helsinki Std" font-size="40">
+        <text x="132" y="114"></text>
+      </g>
+
+      <g transform="translate(150,28)">
+        <text id="sibelius-tempo-word" x="0" y="34" font-family="Palatino" font-size="34">Grave</text>
+        <text id="sibelius-tempo-glyph" x="102" y="34" font-family="Helsinki Text Std" font-size="34">q</text>
+        <text id="sibelius-tempo-number" x="118" y="34" font-family="Palatino" font-size="34">=75</text>
+      </g>
+    </svg>
+  `.trim();
+
+  return Buffer.from(svg, 'utf8');
+}
+
 function buildEllipseNoteheadAccidentalSvg() {
   const flatSignature = 'MCCLCCLMCCCLCLCLCCCCCLCLCLCCL';
   const svg = `
@@ -671,7 +702,12 @@ function buildMuseScoreSemanticSixEightSvgBuffer() {
   return Buffer.from(svg, 'utf8');
 }
 
-function buildSibeliusRaisedSixEightSvgBuffer() {
+function buildSibeliusStackedSixEightSvgBuffer({
+  sixX = 86,
+  sixY = 78,
+  eightX = 87,
+  eightY = 92,
+} = {}) {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" version="1.2" baseProfile="tiny">
       <desc>Generated with Qt</desc>
@@ -681,16 +717,20 @@ function buildSibeliusRaisedSixEightSvgBuffer() {
         <line x1="20" y1="106" x2="300" y2="106" stroke="#000" stroke-width="1" />
         <line x1="20" y1="116" x2="300" y2="116" stroke="#000" stroke-width="1" />
         <line x1="20" y1="126" x2="300" y2="126" stroke="#000" stroke-width="1" />
-        <line x1="28" y1="84" x2="28" y2="128" stroke="#000" stroke-width="1" />
+        <line id="sibelius-opening-barline" x1="28" y1="84" x2="28" y2="128" stroke="#000" stroke-width="1" />
         <line x1="220" y1="84" x2="220" y2="128" stroke="#000" stroke-width="1" />
       </g>
       <text id="sibelius-raised-clef" x="42" y="108" font-family="Opus Std" font-size="32"></text>
-      <text id="sibelius-raised-six" x="86" y="78" font-family="Opus Std" font-size="32">6</text>
-      <text id="sibelius-raised-eight" x="87" y="92" font-family="Opus Std" font-size="32">8</text>
+      <text id="sibelius-raised-six" x="${sixX}" y="${sixY}" font-family="Opus Std" font-size="32">6</text>
+      <text id="sibelius-raised-eight" x="${eightX}" y="${eightY}" font-family="Opus Std" font-size="32">8</text>
     </svg>
   `.trim();
 
   return Buffer.from(svg, 'utf8');
+}
+
+function buildSibeliusRaisedSixEightSvgBuffer() {
+  return buildSibeliusStackedSixEightSvgBuffer();
 }
 
 function buildMuseScoreSegmentedOpeningBarlineSvgBuffer() {
@@ -4301,6 +4341,40 @@ test('detects dotted-note metronome marks in Ardor.svg', async ({ page }) => {
   });
 });
 
+test('detects Sibelius note-glyph tempo marks', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'sibelius-tempo-mark.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildSibeliusTempoMarkSvgBuffer(),
+  });
+
+  await expect.poll(async () => page.evaluate(() => {
+    const svg = document.querySelector('#svg-sandbox svg');
+    if (!svg) return null;
+
+    return {
+      sourceType: document.body.dataset.scoreSourceType || null,
+      texts: Array.from(svg.querySelectorAll('text'))
+        .map((el) => ({
+          text: (el.textContent || '').replace(/\s+/g, ' ').trim(),
+          classes: el.className?.baseVal || '',
+        }))
+        .filter((entry) => ['Grave', 'q', '=75'].includes(entry.text)),
+    };
+  }), {
+    message: 'waiting for Sibelius note-glyph tempo detection',
+  }).toEqual({
+    sourceType: 'Sibelius',
+    texts: expect.arrayContaining([
+      expect.objectContaining({ text: 'Grave', classes: expect.stringContaining('highlight-tempomark') }),
+      expect.objectContaining({ text: 'q', classes: expect.stringContaining('highlight-tempomark') }),
+      expect.objectContaining({ text: '=75', classes: expect.stringContaining('highlight-tempomark') }),
+    ]),
+  });
+});
+
 test('detects tempo phrase combinations across the four configured categories', async ({ page }) => {
   await page.goto('/index.html');
   await preserveImportedSvgDuringSmoke(page);
@@ -5353,6 +5427,56 @@ test('recognizes raised Sibelius stacked text time signatures near the opening b
     six: expect.stringContaining('highlight-timesig'),
     eight: expect.stringContaining('highlight-timesig'),
     display: '6/8',
+  });
+});
+
+test('rejects Sibelius stacked text time signatures when the digits are too horizontally misaligned', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'sibelius-misaligned-six-eight.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildSibeliusStackedSixEightSvgBuffer({
+      sixX: 86,
+      eightX: 94,
+    }),
+  });
+
+  await expect.poll(async () => ({
+    six: await getClassNameBySvgElementId(page, 'sibelius-raised-six'),
+    eight: await getClassNameBySvgElementId(page, 'sibelius-raised-eight'),
+    openingBarline: await getClassNameBySvgElementId(page, 'sibelius-opening-barline'),
+  }), {
+    message: 'waiting for misaligned Sibelius 6/8 text to stay rejected',
+  }).toEqual({
+    six: expect.not.stringContaining('highlight-timesig'),
+    eight: expect.not.stringContaining('highlight-timesig'),
+    openingBarline: expect.stringContaining('highlight-barline'),
+  });
+});
+
+test('rejects Sibelius stacked text time signatures when the digits are too far apart vertically', async ({ page }) => {
+  await page.goto('/index.html');
+  await preserveImportedSvgDuringSmoke(page);
+  await page.setInputFiles('#svgInput', {
+    name: 'sibelius-overseparated-six-eight.svg',
+    mimeType: 'image/svg+xml',
+    buffer: buildSibeliusStackedSixEightSvgBuffer({
+      sixY: 78,
+      eightY: 112,
+    }),
+  });
+
+  await expect.poll(async () => ({
+    six: await getClassNameBySvgElementId(page, 'sibelius-raised-six'),
+    eight: await getClassNameBySvgElementId(page, 'sibelius-raised-eight'),
+    openingBarline: await getClassNameBySvgElementId(page, 'sibelius-opening-barline'),
+  }), {
+    message: 'waiting for over-separated Sibelius 6/8 text to stay rejected',
+  }).toEqual({
+    six: expect.not.stringContaining('highlight-timesig'),
+    eight: expect.not.stringContaining('highlight-timesig'),
+    openingBarline: expect.stringContaining('highlight-barline'),
   });
 });
 
